@@ -1,0 +1,42 @@
+[project]
+name = "YOUR_PROJECT"
+version = "0.1.0"
+description = "YOUR_DESCRIPTION"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pyrefly.errors]
+import-error = "error"
+
+[tool.pytest.ini_options]
+addopts = "-n auto --tb=native"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.5",
+    "ruff>=0.11.2",
+    "pytest-xdist>=3.6.1",
+    "pyrefly>=0.26.1",
+]
+
+[tool.pyrefly]
+project-includes = [
+    "YOUR_PROJECT",
+    "tests",
+]
+project-excludes = [
+    "**/__pycache__",
+    "dist",
+]
+python-platform = "linux"
+python-version = "3.12.0"

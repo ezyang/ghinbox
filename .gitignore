@@ -1,0 +1,12 @@
+# General stuff
+*.bak
+.DS_Store
+# Generic Python stuff
+__pycache__
+# Generic coding agent stuff
+.aider*
+.specstory
+.claude
+# Claude tends to generate these, don't check them in
+test_*.py
+debug_*.py
