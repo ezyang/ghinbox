@@ -21,11 +21,11 @@ from ghsim.auth import (
 
 TOKEN_DIR = Path("auth_state")
 
-# Scopes needed for our notification testing
-# - repo: Full control of private repositories (needed to create/delete repos, issues)
-# - notifications: Access notifications
-# - delete_repo: Delete repositories
-REQUIRED_SCOPES = ["repo", "notifications", "delete_repo"]
+# Scopes for test accounts (can create/delete repos)
+TEST_SCOPES = ["repo", "notifications", "delete_repo"]
+
+# Scopes for prod accounts (read-only, no destructive operations)
+PROD_SCOPES = ["repo", "notifications"]
 
 
 def get_token_path(account: str) -> Path:
@@ -61,6 +61,7 @@ def provision_token(
     token_name: str | None = None,
     force: bool = False,
     headless: bool = False,
+    prod: bool = False,
 ) -> str | None:
     """
     Provision a new GitHub Personal Access Token (classic).
@@ -73,6 +74,7 @@ def provision_token(
         token_name: Name for the token (default: ghsim-{account}-{timestamp})
         force: If True, create new token even if one exists
         headless: If True, run browser in headless mode
+        prod: If True, use reduced scopes (no delete_repo)
 
     Returns:
         The token string or None if provisioning failed
@@ -92,10 +94,13 @@ def provision_token(
         timestamp = int(time.time())
         token_name = f"ghsim-{account}-{timestamp}"
 
+    scopes = PROD_SCOPES if prod else TEST_SCOPES
+
     print(f"\n{'=' * 60}")
     print(f"Provisioning GitHub API Token (classic) for: {account}")
     print(f"Token name: {token_name}")
-    print(f"Required scopes: {', '.join(REQUIRED_SCOPES)}")
+    print(f"Mode: {'PROD (reduced scopes)' if prod else 'TEST (full scopes)'}")
+    print(f"Scopes: {', '.join(scopes)}")
     print(f"{'=' * 60}\n")
 
     with sync_playwright() as p:
@@ -106,7 +111,7 @@ def provision_token(
         page = context.new_page()
 
         try:
-            token = _create_classic_token(page, token_name)
+            token = _create_classic_token(page, token_name, scopes)
 
             if token:
                 saved_path = save_token(account, token)
@@ -133,14 +138,14 @@ def provision_token(
                 context.browser.close()
 
 
-def _create_classic_token(page: Page, token_name: str) -> str | None:
+def _create_classic_token(page: Page, token_name: str, scopes: list[str]) -> str | None:
     """
-    Create a classic personal access token with required scopes.
+    Create a classic personal access token with specified scopes.
 
-    Required scopes:
-    - repo: Full control of private repositories
-    - notifications: Access notifications
-    - delete_repo: Delete repositories
+    Args:
+        page: Playwright page
+        token_name: Name for the token
+        scopes: List of scope names to enable
     """
     # Navigate to classic token creation page
     print("Navigating to classic token creation page...")
@@ -199,9 +204,9 @@ def _create_classic_token(page: Page, token_name: str) -> str | None:
             except Exception:
                 print("  Could not set expiration, using default")
 
-    # Select required scopes
+    # Select scopes
     print("Selecting scopes...")
-    for scope in REQUIRED_SCOPES:
+    for scope in scopes:
         checkbox = page.locator(f'input[type="checkbox"][value="{scope}"]')
         if checkbox.count() > 0:
             if not checkbox.is_checked():
@@ -297,6 +302,11 @@ def main():
         help="Run browser in headed mode (visible)",
     )
     parser.add_argument(
+        "--prod",
+        action="store_true",
+        help="Use reduced scopes for production (no delete_repo)",
+    )
+    parser.add_argument(
         "--show",
         "-s",
         action="store_true",
@@ -319,6 +329,7 @@ def main():
         token_name=args.name,
         force=args.force,
         headless=not args.headed,
+        prod=args.prod,
     )
 
     return 0 if token else 1
