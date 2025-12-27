@@ -38,3 +38,8 @@ responses/
 # Webapp testing artifacts
 webapp/test-results/
 webapp/playwright-report/
+
+# Local screenshots
+debug_notifications.png
+notification_settings*.png
+token_*.png
