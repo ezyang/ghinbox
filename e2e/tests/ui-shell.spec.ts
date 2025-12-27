@@ -337,7 +337,7 @@ test.describe('Responsive Layout', () => {
   test('controls wrap on narrow viewport', async ({ page }) => {
     await page.setViewportSize({ width: 400, height: 800 });
 
-    const controlsRow = page.locator('.controls-row');
+    const controlsRow = page.locator('.controls-row').first();
     const flexWrap = await controlsRow.evaluate((el) =>
       getComputedStyle(el).flexWrap
     );

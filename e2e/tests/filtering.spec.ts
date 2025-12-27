@@ -32,14 +32,16 @@ test.describe('Filtering', () => {
   });
 
   test.describe('Filter Tabs', () => {
-    test('displays all three filter tabs', async ({ page }) => {
+    test('displays all four filter tabs', async ({ page }) => {
       const allTab = page.locator('#filter-all');
       const openTab = page.locator('#filter-open');
       const closedTab = page.locator('#filter-closed');
+      const uninterestingTab = page.locator('#filter-uninteresting');
 
       await expect(allTab).toBeVisible();
       await expect(openTab).toBeVisible();
       await expect(closedTab).toBeVisible();
+      await expect(uninterestingTab).toBeVisible();
     });
 
     test('All tab is active by default', async ({ page }) => {
@@ -78,10 +80,12 @@ test.describe('Filtering', () => {
       const countAll = page.locator('#count-all');
       const countOpen = page.locator('#count-open');
       const countClosed = page.locator('#count-closed');
+      const countUninteresting = page.locator('#count-uninteresting');
 
       await expect(countAll).toHaveText('0');
       await expect(countOpen).toHaveText('0');
       await expect(countClosed).toHaveText('0');
+      await expect(countUninteresting).toHaveText('0');
     });
 
     test('updates counts after sync', async ({ page }) => {
@@ -95,11 +99,13 @@ test.describe('Filtering', () => {
       const countAll = page.locator('#count-all');
       const countOpen = page.locator('#count-open');
       const countClosed = page.locator('#count-closed');
+      const countUninteresting = page.locator('#count-uninteresting');
 
       // 5 total, 2 open (open issue + open PR), 3 closed (closed issue + merged PR + not_planned issue)
       await expect(countAll).toHaveText('5');
       await expect(countOpen).toHaveText('2');
       await expect(countClosed).toHaveText('3');
+      await expect(countUninteresting).toHaveText('0');
     });
   });
 

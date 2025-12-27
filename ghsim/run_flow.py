@@ -10,6 +10,7 @@ Available flows:
     comment_prefetch_validation - Validate last_read_at for comment prefetching
     notification_timestamps - Probe notification timestamp meaning and event loading
     pagination        - Generate 26+ notifications to test pagination
+    prod_notifications_snapshot - Capture notifications HTML/JSON without side effects
     read_vs_done      - Test read vs done state visibility in API
     parser_validation - Validate HTML parser against API notifications
 """
@@ -24,6 +25,7 @@ from ghsim.flows import (
     NotificationTimestampsFlow,
     PaginationFlow,
     ParserValidationFlow,
+    ProdNotificationsSnapshotFlow,
     ReadVsDoneFlow,
 )
 
@@ -36,6 +38,7 @@ FLOWS = {
     "pagination": PaginationFlow,
     "read_vs_done": ReadVsDoneFlow,
     "parser_validation": ParserValidationFlow,
+    "prod_notifications_snapshot": ProdNotificationsSnapshotFlow,
 }
 
 
@@ -50,6 +53,7 @@ Available flows:
   comment_prefetch_validation - Validate last_read_at for comment prefetching
   notification_timestamps - Probe notification timestamp meaning and event loading
   pagination        - Generate 26+ notifications to test pagination
+  prod_notifications_snapshot - Capture notifications HTML/JSON without side effects
   read_vs_done      - Test whether API can distinguish read from done notifications
   parser_validation - Validate HTML parser against API notifications
         """,
@@ -83,6 +87,16 @@ Available flows:
         default=30,
         help="Number of issues to create (pagination flow only, default: 30)",
     )
+    parser.add_argument(
+        "--repo",
+        help="Repository to snapshot (owner/repo, prod_notifications_snapshot only)",
+    )
+    parser.add_argument(
+        "--pages",
+        type=int,
+        default=1,
+        help="Pages of notifications to capture (prod_notifications_snapshot only)",
+    )
 
     args = parser.parse_args()
 
@@ -99,6 +113,9 @@ Available flows:
     # Add flow-specific arguments
     if args.flow == "pagination":
         kwargs["num_issues"] = args.num_issues
+    if args.flow == "prod_notifications_snapshot":
+        kwargs["repo"] = args.repo
+        kwargs["pages"] = args.pages
 
     flow = flow_class(**kwargs)
 

@@ -10,6 +10,7 @@ from ghsim.flows.comment_prefetch_validation import CommentPrefetchValidationFlo
 from ghsim.flows.notification_timestamps import NotificationTimestampsFlow
 from ghsim.flows.pagination import PaginationFlow
 from ghsim.flows.parser_validation import ParserValidationFlow
+from ghsim.flows.prod_notifications_snapshot import ProdNotificationsSnapshotFlow
 from ghsim.flows.read_vs_done import ReadVsDoneFlow
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "NotificationTimestampsFlow",
     "PaginationFlow",
     "ParserValidationFlow",
+    "ProdNotificationsSnapshotFlow",
     "ReadVsDoneFlow",
 ]

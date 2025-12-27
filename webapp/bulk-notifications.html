@@ -103,6 +103,29 @@
             flex-wrap: wrap;
         }
 
+        .controls-row.secondary {
+            margin-top: 12px;
+        }
+
+        .comment-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--color-fg-muted);
+        }
+
+        .comment-toggle input {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--color-accent-fg);
+        }
+
+        .comment-cache-status {
+            font-size: 12px;
+            color: var(--color-fg-muted);
+        }
+
         /* Form elements */
         .input-group {
             display: flex;
@@ -357,6 +380,49 @@
             font-size: 12px;
             color: var(--color-fg-muted);
             flex-wrap: wrap;
+        }
+
+        .comment-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0 8px;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 20px;
+            border-radius: 2em;
+            white-space: nowrap;
+            border: 1px solid transparent;
+        }
+
+        .comment-tag.off {
+            background-color: var(--color-bg-subtle);
+            color: var(--color-fg-muted);
+            border-color: var(--color-border-default);
+        }
+
+        .comment-tag.pending {
+            background-color: #fff5f0;
+            color: #b45309;
+            border-color: #fed7aa;
+        }
+
+        .comment-tag.uninteresting {
+            background-color: #dcfce7;
+            color: var(--color-success-fg);
+            border-color: #86efac;
+        }
+
+        .comment-tag.interesting {
+            background-color: #ffebe9;
+            color: var(--color-danger-fg);
+            border-color: #fecaca;
+        }
+
+        .comment-tag.error {
+            background-color: #fef3c7;
+            color: #b45309;
+            border-color: #fcd34d;
         }
 
         .notification-reason {
@@ -625,6 +691,13 @@
                 </button>
                 <span id="auth-status" class="auth-status">Checking auth...</span>
             </div>
+            <div class="controls-row secondary">
+                <label class="comment-toggle" for="comment-prefetch-toggle">
+                    <input type="checkbox" id="comment-prefetch-toggle">
+                    Fetch comments for uninteresting filter
+                </label>
+                <span id="comment-cache-status" class="comment-cache-status"></span>
+            </div>
             <div id="status-bar" class="status-bar"></div>
         </section>
 
@@ -662,6 +735,15 @@
                     id="filter-closed"
                 >
                     Closed <span class="count" id="count-closed">0</span>
+                </button>
+                <button
+                    class="filter-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-filter="uninteresting"
+                    id="filter-uninteresting"
+                >
+                    Uninteresting <span class="count" id="count-uninteresting">0</span>
                 </button>
             </nav>
 
@@ -702,17 +784,26 @@
     </main>
 
     <script>
+        const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
+        const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+        const COMMENT_CONCURRENCY = 4;
+        const COMMENT_PREFETCH_KEY = 'ghnotif_comment_prefetch_enabled';
+
         // Application state
         const state = {
             repo: null,
             notifications: [],
             loading: false,
             error: null,
-            filter: 'all', // 'all', 'open', 'closed'
+            filter: 'all', // 'all', 'open', 'closed', 'uninteresting'
             selected: new Set(), // Set of selected notification IDs
             lastClickedId: null, // For shift-click range selection
             markingInProgress: false, // Whether Mark Done is in progress
             markProgress: { current: 0, total: 0 }, // Progress tracking
+            commentPrefetchEnabled: false,
+            commentQueue: [],
+            commentQueueRunning: false,
+            commentCache: loadCommentCache(),
         };
 
         // DOM elements
@@ -721,6 +812,8 @@
             syncBtn: document.getElementById('sync-btn'),
             authStatus: document.getElementById('auth-status'),
             statusBar: document.getElementById('status-bar'),
+            commentPrefetchToggle: document.getElementById('comment-prefetch-toggle'),
+            commentCacheStatus: document.getElementById('comment-cache-status'),
             loading: document.getElementById('loading'),
             emptyState: document.getElementById('empty-state'),
             notificationsList: document.getElementById('notifications-list'),
@@ -729,6 +822,7 @@
             countAll: document.getElementById('count-all'),
             countOpen: document.getElementById('count-open'),
             countClosed: document.getElementById('count-closed'),
+            countUninteresting: document.getElementById('count-uninteresting'),
             selectAllRow: document.getElementById('select-all-row'),
             selectAllCheckbox: document.getElementById('select-all-checkbox'),
             selectionCount: document.getElementById('selection-count'),
@@ -737,6 +831,34 @@
             progressBarFill: document.getElementById('progress-bar-fill'),
             progressText: document.getElementById('progress-text'),
         };
+
+        function loadCommentCache() {
+            const raw = localStorage.getItem(COMMENT_CACHE_KEY);
+            if (!raw) {
+                return { version: 1, threads: {} };
+            }
+            try {
+                return JSON.parse(raw);
+            } catch (e) {
+                console.error('Failed to parse comment cache:', e);
+                return { version: 1, threads: {} };
+            }
+        }
+
+        function saveCommentCache() {
+            localStorage.setItem(COMMENT_CACHE_KEY, JSON.stringify(state.commentCache));
+        }
+
+        function isCommentCacheFresh(cached) {
+            if (!cached?.fetchedAt) {
+                return false;
+            }
+            const fetchedAtMs = Date.parse(cached.fetchedAt);
+            if (Number.isNaN(fetchedAtMs)) {
+                return false;
+            }
+            return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+        }
 
         // Initialize app
         function init() {
@@ -759,9 +881,15 @@
 
             // Load saved filter from localStorage
             const savedFilter = localStorage.getItem('ghnotif_filter');
-            if (savedFilter && ['all', 'open', 'closed'].includes(savedFilter)) {
+            if (savedFilter && ['all', 'open', 'closed', 'uninteresting'].includes(savedFilter)) {
                 state.filter = savedFilter;
             }
+
+            const savedCommentPrefetch = localStorage.getItem(COMMENT_PREFETCH_KEY);
+            if (savedCommentPrefetch === 'true') {
+                state.commentPrefetchEnabled = true;
+            }
+            elements.commentPrefetchToggle.checked = state.commentPrefetchEnabled;
 
             // Set up event listeners
             elements.syncBtn.addEventListener('click', handleSync);
@@ -778,6 +906,10 @@
                     const filter = tab.dataset.filter;
                     setFilter(filter);
                 });
+            });
+
+            elements.commentPrefetchToggle.addEventListener('change', (event) => {
+                setCommentPrefetchEnabled(event.target.checked);
             });
 
             // Select all checkbox handler
@@ -803,11 +935,39 @@
             localStorage.setItem('ghnotif_repo', value);
         }
 
+        function setCommentPrefetchEnabled(enabled) {
+            state.commentPrefetchEnabled = enabled;
+            localStorage.setItem(COMMENT_PREFETCH_KEY, String(enabled));
+            if (!enabled) {
+                render();
+                return;
+            }
+            showStatus('Fetching comments for uninteresting filter...', 'info');
+            ensureLastReadAtData(state.notifications)
+                .then((notifications) => {
+                    state.notifications = notifications;
+                    localStorage.setItem(
+                        'ghnotif_notifications',
+                        JSON.stringify(notifications)
+                    );
+                    state.commentQueue = [];
+                    scheduleCommentPrefetch(notifications);
+                    render();
+                })
+                .catch((e) => {
+                    showStatus(`Comment prefetch setup failed: ${e.message}`, 'error');
+                    render();
+                });
+        }
+
         // Set the current filter
         function setFilter(filter) {
-            if (!['all', 'open', 'closed'].includes(filter)) return;
+            if (!['all', 'open', 'closed', 'uninteresting'].includes(filter)) return;
             state.filter = filter;
             localStorage.setItem('ghnotif_filter', filter);
+            if (filter === 'uninteresting' && !state.commentPrefetchEnabled) {
+                showStatus('Enable comment fetching to evaluate uninteresting notifications.', 'info');
+            }
             render();
         }
 
@@ -824,6 +984,9 @@
                 if (state.filter === 'closed') {
                     return notifState === 'closed' || notifState === 'merged';
                 }
+                if (state.filter === 'uninteresting') {
+                    return isNotificationUninteresting(notif);
+                }
                 return true;
             });
         }
@@ -832,6 +995,7 @@
         function getFilterCounts() {
             let open = 0;
             let closed = 0;
+            let uninteresting = 0;
             state.notifications.forEach(notif => {
                 const notifState = notif.subject.state;
                 if (notifState === 'open' || notifState === 'draft') {
@@ -839,12 +1003,318 @@
                 } else if (notifState === 'closed' || notifState === 'merged') {
                     closed++;
                 }
+                if (isNotificationUninteresting(notif)) {
+                    uninteresting++;
+                }
             });
             return {
                 all: state.notifications.length,
                 open,
                 closed,
+                uninteresting,
             };
+        }
+
+        function updateCommentCacheStatus() {
+            const cachedCount = Object.keys(state.commentCache.threads || {}).length;
+            if (!state.commentPrefetchEnabled) {
+                elements.commentCacheStatus.textContent = 'Comments: off';
+                return;
+            }
+            elements.commentCacheStatus.textContent = `Comments cached: ${cachedCount}`;
+        }
+
+        function getNotificationKey(notification) {
+            return String(notification.id);
+        }
+
+        function getIssueNumber(notification) {
+            const number = notification?.subject?.number;
+            return typeof number === 'number' ? number : null;
+        }
+
+        function getNotificationMatchKey(notification) {
+            const repo = parseRepoInput(state.repo || '');
+            const number = notification?.subject?.number;
+            const type = notification?.subject?.type || 'unknown';
+            if (repo && typeof number === 'number') {
+                return `${repo.owner}/${repo.repo}:${type}:${number}`;
+            }
+            return `id:${getNotificationKey(notification)}`;
+        }
+
+        function getRestNotificationMatchKey(notification) {
+            const repo = notification?.repository?.full_name;
+            const type = notification?.subject?.type || 'unknown';
+            const url = notification?.subject?.url || '';
+            const match = url.match(/\/(issues|pulls)\/(\d+)/);
+            if (!repo || !match) {
+                return null;
+            }
+            return `${repo}:${type}:${match[2]}`;
+        }
+
+        async function fetchJson(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                let detail = '';
+                try {
+                    detail = await response.text();
+                } catch (error) {
+                    detail = String(error);
+                }
+                throw new Error(`Request failed: ${url} (${response.status}) ${detail}`);
+            }
+            return response.json();
+        }
+
+        async function fetchRestNotificationsMap(targetKeys) {
+            const result = new Map();
+            const maxPages = 5;
+            for (let page = 1; page <= maxPages; page += 1) {
+                const params = new URLSearchParams();
+                params.set('all', 'true');
+                params.set('per_page', '50');
+                params.set('page', String(page));
+                const url = `/github/rest/notifications?${params}`;
+                let payload = [];
+                try {
+                    payload = await fetchJson(url);
+                } catch (error) {
+                    showStatus(`Rate limit fetch failed: ${error.message || error}`, 'error');
+                    break;
+                }
+                if (!Array.isArray(payload) || payload.length === 0) {
+                    break;
+                }
+                payload.forEach((notif) => {
+                    const key = getRestNotificationMatchKey(notif);
+                    if (key && targetKeys.has(key)) {
+                        result.set(key, notif);
+                    }
+                });
+                const remaining = [...targetKeys].filter((id) => !result.has(id));
+                if (remaining.length === 0) {
+                    break;
+                }
+            }
+            return result;
+        }
+
+        async function ensureLastReadAtData(notifications) {
+            const missing = notifications.filter((notif) => !notif.last_read_at);
+            if (!missing.length) {
+                return notifications;
+            }
+            const cachedLastReadAt = new Map();
+            missing.forEach((notif) => {
+                const cached = state.commentCache.threads[getNotificationKey(notif)];
+                if (cached?.lastReadAt && isCommentCacheFresh(cached)) {
+                    cachedLastReadAt.set(getNotificationKey(notif), cached.lastReadAt);
+                }
+            });
+            const missingKeys = new Set();
+            missing.forEach((notif) => {
+                if (cachedLastReadAt.has(getNotificationKey(notif))) {
+                    return;
+                }
+                const key = getNotificationMatchKey(notif);
+                if (key) {
+                    missingKeys.add(key);
+                }
+            });
+            const restMap =
+                missingKeys.size > 0
+                    ? await fetchRestNotificationsMap(missingKeys)
+                    : new Map();
+            return notifications.map((notif) => {
+                const cached = cachedLastReadAt.get(getNotificationKey(notif));
+                if (cached && !notif.last_read_at) {
+                    return { ...notif, last_read_at: cached };
+                }
+                const rest = restMap.get(getNotificationMatchKey(notif));
+                if (rest && rest.last_read_at && !notif.last_read_at) {
+                    return { ...notif, last_read_at: rest.last_read_at };
+                }
+                return notif;
+            });
+        }
+
+        function scheduleCommentPrefetch(notifications) {
+            if (!state.commentPrefetchEnabled) {
+                return;
+            }
+            notifications.forEach((notif) => {
+                state.commentQueue.push(() => prefetchNotificationComments(notif));
+            });
+            runCommentQueue();
+        }
+
+        async function runCommentQueue() {
+            if (state.commentQueueRunning) {
+                return;
+            }
+            state.commentQueueRunning = true;
+            while (state.commentQueue.length) {
+                const batch = state.commentQueue.splice(0, COMMENT_CONCURRENCY);
+                await Promise.all(batch.map((task) => task()));
+                saveCommentCache();
+                render();
+            }
+            state.commentQueueRunning = false;
+        }
+
+        async function prefetchNotificationComments(notification) {
+            const threadId = getNotificationKey(notification);
+            const cached = state.commentCache.threads[threadId];
+            if (
+                cached &&
+                cached.notificationUpdatedAt === notification.updated_at &&
+                cached.lastReadAt === (notification.last_read_at || null) &&
+                isCommentCacheFresh(cached)
+            ) {
+                return;
+            }
+
+            const issueNumber = getIssueNumber(notification);
+            if (!issueNumber) {
+                state.commentCache.threads[threadId] = {
+                    notificationUpdatedAt: notification.updated_at,
+                    comments: [],
+                    error: 'No issue number found.',
+                    fetchedAt: new Date().toISOString(),
+                };
+                return;
+            }
+
+            try {
+                const repo = parseRepoInput(state.repo || '');
+                if (!repo) {
+                    throw new Error('Missing repository input.');
+                }
+                const lastReadAt = notification.last_read_at || cached?.lastReadAt || null;
+                if (!lastReadAt) {
+                    state.commentCache.threads[threadId] = {
+                        notificationUpdatedAt: notification.updated_at,
+                        comments: [],
+                        error: 'Missing last_read_at; enable refresh via REST.',
+                        fetchedAt: new Date().toISOString(),
+                    };
+                    return;
+                }
+                let commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
+                commentUrl += `?since=${encodeURIComponent(lastReadAt)}`;
+                const comments = await fetchJson(commentUrl);
+
+                state.commentCache.threads[threadId] = {
+                    notificationUpdatedAt: notification.updated_at,
+                    lastReadAt,
+                    unread: notification.unread,
+                    comments,
+                    fetchedAt: new Date().toISOString(),
+                };
+            } catch (error) {
+                state.commentCache.threads[threadId] = {
+                    notificationUpdatedAt: notification.updated_at,
+                    comments: [],
+                    error: error.message || String(error),
+                    fetchedAt: new Date().toISOString(),
+                };
+            }
+        }
+
+        function getCommentStatus(notification) {
+            const cached = state.commentCache.threads[getNotificationKey(notification)];
+            if (!state.commentPrefetchEnabled) {
+                return { label: 'Comments: off', className: 'off' };
+            }
+            if (!cached) {
+                return { label: 'Comments: pending', className: 'pending' };
+            }
+            if (cached.error) {
+                return { label: 'Comments: error', className: 'error' };
+            }
+            const count = cached.comments ? cached.comments.length : 0;
+            if (count === 0) {
+                return { label: 'Comments: none', className: 'pending' };
+            }
+            if (isNotificationUninteresting(notification)) {
+                return { label: `Uninteresting (${count})`, className: 'uninteresting' };
+            }
+            return { label: `Interesting (${count})`, className: 'interesting' };
+        }
+
+        function isNotificationUninteresting(notification) {
+            if (!state.commentPrefetchEnabled) {
+                return false;
+            }
+            const cached = state.commentCache.threads[getNotificationKey(notification)];
+            if (!cached || cached.error) {
+                return false;
+            }
+            const comments = cached.comments || [];
+            if (comments.length === 0) {
+                return false;
+            }
+            return comments.every(isUninterestingComment);
+        }
+
+        function isUninterestingComment(comment) {
+            const body = String(comment?.body || '');
+            if (isRevertRelated(body)) {
+                return false;
+            }
+            const author = comment?.user?.login || '';
+            if (isBotAuthor(author)) {
+                return true;
+            }
+            return isBotInteractionComment(body);
+        }
+
+        function isRevertRelated(body) {
+            return /\brevert(ed|ing)?\b/i.test(body) || /\brollback\b/i.test(body);
+        }
+
+        function isBotAuthor(login) {
+            if (!login) {
+                return false;
+            }
+            const normalized = login.toLowerCase();
+            if (normalized.endsWith('[bot]')) {
+                return true;
+            }
+            const knownBots = new Set([
+                'dr-ci',
+                'dr-ci-bot',
+                'bors',
+                'homu',
+                'mergify',
+                'htmlpurifierbot',
+                'github-actions',
+                'dependabot',
+                'dependabot-preview',
+            ]);
+            return knownBots.has(normalized);
+        }
+
+        function isBotInteractionComment(body) {
+            const lines = String(body || '')
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+            if (lines.length === 0) {
+                return false;
+            }
+            const patterns = [
+                /^\/(label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|backport|cherry-pick|assign|unassign|cc|triage|priority|kind|lgtm|r\+)\b/i,
+                /^bors\b/i,
+                /^@?bors\b/i,
+                /^@?homu\b/i,
+                /^@?mergify\b/i,
+                /^@?dr[-.\s]?ci\b/i,
+                /^r\+$/i,
+            ];
+            return lines.every((line) => patterns.some((pattern) => pattern.test(line)));
         }
 
         // Handle select all checkbox
@@ -1147,6 +1617,19 @@
                 };
             }
 
+            if (state.filter === 'uninteresting') {
+                if (!state.commentPrefetchEnabled) {
+                    return {
+                        title: 'Comment fetching disabled',
+                        message: 'Enable comment fetching to evaluate uninteresting notifications.',
+                    };
+                }
+                return {
+                    title: 'No uninteresting notifications',
+                    message: 'All recent comments include something worth a look.',
+                };
+            }
+
             return {
                 title: 'No notifications',
                 message: 'No notifications match the current filter.',
@@ -1227,13 +1710,23 @@
                     new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
                 );
 
-                state.notifications = allNotifications;
+                let notifications = allNotifications;
+                if (state.commentPrefetchEnabled) {
+                    notifications = await ensureLastReadAtData(allNotifications);
+                }
+
+                state.notifications = notifications;
                 state.loading = false;
 
                 // Save to localStorage
-                localStorage.setItem('ghnotif_notifications', JSON.stringify(allNotifications));
+                localStorage.setItem('ghnotif_notifications', JSON.stringify(notifications));
 
-                showStatus(`Synced ${allNotifications.length} notifications`, 'success');
+                if (state.commentPrefetchEnabled) {
+                    state.commentQueue = [];
+                    scheduleCommentPrefetch(notifications);
+                }
+
+                showStatus(`Synced ${notifications.length} notifications`, 'success');
                 render();
 
             } catch (e) {
@@ -1382,6 +1875,8 @@
             elements.countAll.textContent = counts.all;
             elements.countOpen.textContent = counts.open;
             elements.countClosed.textContent = counts.closed;
+            elements.countUninteresting.textContent = counts.uninteresting;
+            updateCommentCacheStatus();
 
             // Update filter tab active states
             elements.filterTabs.forEach(tab => {
@@ -1453,6 +1948,13 @@
                     const stateBadge = getStateBadge(notif);
                     const relativeTime = formatRelativeTime(notif.updated_at);
                     const reason = formatReason(notif.reason);
+                    const commentStatus =
+                        state.commentPrefetchEnabled || state.filter === 'uninteresting'
+                            ? getCommentStatus(notif)
+                            : null;
+                    const commentBadge = commentStatus
+                        ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
+                        : '';
 
                     // Actors HTML
                     let actorsHtml = '';
@@ -1483,6 +1985,7 @@
                                 ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
                                 ${stateBadge}
                                 <span class="notification-reason">${reason}</span>
+                                ${commentBadge}
                             </div>
                         </div>
                         ${actorsHtml}
@@ -1508,6 +2011,18 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function parseRepoInput(value) {
+            const trimmed = value.trim();
+            if (!trimmed) {
+                return null;
+            }
+            const parts = trimmed.split('/');
+            if (parts.length !== 2 || !parts[0] || !parts[1]) {
+                return null;
+            }
+            return { owner: parts[0], repo: parts[1] };
         }
 
         // Start the app
