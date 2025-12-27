@@ -95,7 +95,7 @@ test.describe('Mark Done', () => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
         apiCalls.push(route.request().url());
         route.fulfill({
-          status: 205,
+          status: 204,
           contentType: 'application/json',
           body: JSON.stringify({}),
         });
@@ -117,19 +117,19 @@ test.describe('Mark Done', () => {
       expect(apiCalls.some((url) => url.includes('notif-2'))).toBe(true);
     });
 
-    test('Mark Done uses PATCH method', async ({ page }) => {
+    test('Mark Done uses DELETE method', async ({ page }) => {
       let requestMethod = '';
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
         requestMethod = route.request().method();
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Marked 1 notification as done');
-      expect(requestMethod).toBe('PATCH');
+      expect(requestMethod).toBe('DELETE');
     });
   });
 
@@ -138,7 +138,7 @@ test.describe('Mark Done', () => {
       // Mock with delay to see progress
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
         await new Promise((r) => setTimeout(r, 200));
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       // Select multiple items
@@ -158,7 +158,7 @@ test.describe('Mark Done', () => {
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
         callCount++;
         await new Promise((r) => setTimeout(r, 100));
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       // Select 3 items
@@ -178,7 +178,7 @@ test.describe('Mark Done', () => {
 
     test('progress bar hides after completion', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -194,7 +194,7 @@ test.describe('Mark Done', () => {
   test.describe('Removing Marked Notifications', () => {
     test('successfully marked notifications are removed from list', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       // Verify 5 notifications initially
@@ -213,7 +213,7 @@ test.describe('Mark Done', () => {
 
     test('notification count updates after marking done', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await expect(page.locator('#count-all')).toHaveText('5');
@@ -228,7 +228,7 @@ test.describe('Mark Done', () => {
 
     test('localStorage is updated after marking done', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -247,7 +247,7 @@ test.describe('Mark Done', () => {
 
     test('selection is cleared for marked items', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -293,7 +293,7 @@ test.describe('Mark Done', () => {
         callCount++;
         // First call succeeds, second fails
         if (callCount === 1) {
-          route.fulfill({ status: 205 });
+          route.fulfill({ status: 204 });
         } else {
           route.fulfill({ status: 500 });
         }
@@ -313,7 +313,7 @@ test.describe('Mark Done', () => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
         callCount++;
         if (callCount === 1) {
-          route.fulfill({ status: 205 });
+          route.fulfill({ status: 204 });
         } else {
           route.fulfill({ status: 500 });
         }
@@ -334,7 +334,7 @@ test.describe('Mark Done', () => {
     test('Mark Done button is disabled during operation', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
         await new Promise((r) => setTimeout(r, 200));
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -348,7 +348,7 @@ test.describe('Mark Done', () => {
     test('Select All checkbox is disabled during operation', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
         await new Promise((r) => setTimeout(r, 200));
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -361,7 +361,7 @@ test.describe('Mark Done', () => {
 
     test('buttons are re-enabled after completion', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 205 });
+        route.fulfill({ status: 204 });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
@@ -391,7 +391,7 @@ test.describe('Mark Done', () => {
           });
         } else {
           // Retry: success
-          route.fulfill({ status: 205 });
+          route.fulfill({ status: 204 });
         }
       });
 
@@ -450,7 +450,7 @@ test.describe('Mark Done with Node IDs', () => {
     // Mock REST API endpoint
     await page.route('**/github/rest/notifications/threads/**', async (route) => {
       apiCalls.push(route.request().url());
-      route.fulfill({ status: 205 });
+      route.fulfill({ status: 204 });
     });
 
     // Select first item (which has a node ID)
@@ -469,19 +469,19 @@ test.describe('Mark Done with Node IDs', () => {
     expect(apiCalls[0]).toContain('/threads/21474444000');
   });
 
-  test('REST API uses PATCH method for node IDs', async ({ page }) => {
+  test('REST API uses DELETE method for node IDs', async ({ page }) => {
     let requestMethod = '';
 
     await page.route('**/github/rest/notifications/threads/**', async (route) => {
       requestMethod = route.request().method();
-      route.fulfill({ status: 205 });
+      route.fulfill({ status: 204 });
     });
 
     await page.locator('.notification-item').first().locator('.notification-checkbox').click();
     await page.locator('#mark-done-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Marked 1 notification as done');
-    expect(requestMethod).toBe('PATCH');
+    expect(requestMethod).toBe('DELETE');
   });
 
   test('handles REST API errors for node IDs gracefully', async ({ page }) => {
@@ -499,7 +499,7 @@ test.describe('Mark Done with Node IDs', () => {
 
   test('removes notification after successful REST API mark done with node ID', async ({ page }) => {
     await page.route('**/github/rest/notifications/threads/**', (route) => {
-      route.fulfill({ status: 205 });
+      route.fulfill({ status: 204 });
     });
 
     await expect(page.locator('.notification-item')).toHaveCount(5);

@@ -1033,13 +1033,12 @@
             }
 
             // Use REST API with the thread_id
+            // DELETE marks as "Done", PATCH only marks as "Read"
             const url = `/github/rest/notifications/threads/${threadId}`;
-            console.log(`[MarkDone] REST request: PATCH ${url}`);
+            console.log(`[MarkDone] REST request: DELETE ${url}`);
 
             const response = await fetch(url, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}),
+                method: 'DELETE',
             });
 
             console.log(`[MarkDone] REST response status: ${response.status} ${response.statusText}`);
@@ -1054,7 +1053,8 @@
                 };
             }
 
-            if (!response.ok && response.status !== 205) {
+            // DELETE returns 204 No Content on success
+            if (!response.ok && response.status !== 204) {
                 const responseText = await response.text();
                 const error = `REST error: ${response.status} ${response.statusText}`;
                 console.error(`[MarkDone] ${error}`, responseText);
