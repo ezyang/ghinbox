@@ -119,9 +119,16 @@ class GitHubAPI:
             {"title": title, "body": body},
         )
 
-    def add_collaborator(self, owner: str, repo: str, username: str) -> None:
+    def add_collaborator(
+        self,
+        owner: str,
+        repo: str,
+        username: str,
+        permission: str | None = None,
+    ) -> None:
         """Add a collaborator to a repository."""
-        self.put(f"/repos/{owner}/{repo}/collaborators/{username}")
+        payload = {"permission": permission} if permission else None
+        self.put(f"/repos/{owner}/{repo}/collaborators/{username}", payload)
 
     def get_notifications(
         self, all_notifications: bool = False, participating: bool = False

@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, Page, BrowserContext, TimeoutError
+from playwright.sync_api import sync_playwright, Page, BrowserContext
 
 
 AUTH_STATE_DIR = Path("auth_state")
@@ -32,32 +32,25 @@ def is_logged_in(page: Page) -> bool:
     return logged_in_indicator.count() > 0
 
 
-def wait_for_login(page: Page, timeout_ms: int = 300000) -> bool:
+def wait_for_login(page: Page) -> bool:
     """
     Wait for the user to complete the login process.
 
     Args:
         page: The Playwright page object
-        timeout_ms: Maximum time to wait for login (default 5 minutes)
 
     Returns:
         True if login was successful, False otherwise
     """
     print("Waiting for login to complete...")
     print("Please log in to GitHub in the browser window.")
-    print(f"Timeout: {timeout_ms // 1000} seconds")
-
-    try:
-        # Wait for the user navigation menu to appear (indicates logged in)
-        page.wait_for_selector(
-            'button[aria-label="Open user navigation menu"]',
-            timeout=timeout_ms,
-            state="visible",
-        )
-        return True
-    except TimeoutError as e:
-        print(f"Login wait failed: {e}")
-        return False
+    # Wait for the user navigation menu to appear (indicates logged in)
+    page.wait_for_selector(
+        'button[aria-label="Open user navigation menu"]',
+        timeout=0,
+        state="visible",
+    )
+    return True
 
 
 def save_auth_state(context: BrowserContext, account: str) -> Path:

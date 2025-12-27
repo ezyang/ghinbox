@@ -88,9 +88,12 @@ class BaseFlow(ABC):
 
         time.sleep(2)
 
-        # Add collaborator
+        # Add collaborator with push permissions so they can create branches/PRs.
         self.owner_api.add_collaborator(
-            self.owner_username, self.repo_name, self.trigger_username
+            self.owner_username,
+            self.repo_name,
+            self.trigger_username,
+            permission="push",
         )
         print(f"Added {self.trigger_username} as collaborator")
 
