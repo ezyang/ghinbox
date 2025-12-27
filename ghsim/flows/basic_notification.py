@@ -81,7 +81,9 @@ class BasicNotificationFlow(BaseFlow):
                     repo=self.repo_name,
                     source_url=url,
                 )
-                save_response("basic_notification_json", parsed.model_dump(mode="json"), "json")
+                save_response(
+                    "basic_notification_json", parsed.model_dump(mode="json"), "json"
+                )
 
                 if context.browser:
                     context.browser.close()

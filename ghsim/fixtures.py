@@ -44,8 +44,16 @@ FIXTURE_MAPPING = {
 E2E_FIXTURE_MAPPING: dict[str, tuple[str, str, str]] = {
     "pagination_page1.html": ("notifications_pagination_page1.json", "fixture", "repo"),
     "pagination_page2.html": ("notifications_pagination_page2.json", "fixture", "repo"),
-    "notification_before_done.html": ("notifications_before_done.json", "fixture", "repo"),
-    "notification_after_done.html": ("notifications_after_done.json", "fixture", "repo"),
+    "notification_before_done.html": (
+        "notifications_before_done.json",
+        "fixture",
+        "repo",
+    ),
+    "notification_after_done.html": (
+        "notifications_after_done.json",
+        "fixture",
+        "repo",
+    ),
     "notifications_inbox.html": ("notifications_inbox.json", "fixture", "repo"),
 }
 

@@ -135,7 +135,7 @@ async def timing_profile(
     if fetcher is None:
         return {"error": "No fetcher configured"}
 
-    timing = {}
+    timing: dict[str, object] = {}
 
     # Measure fetch (in thread pool)
     t0 = time.perf_counter()

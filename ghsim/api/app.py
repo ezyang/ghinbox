@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(fetcher.stop)
         set_fetcher(None)
 
+
 # Static files directory for the webapp
 STATIC_DIR = Path(__file__).parent.parent.parent / "webapp"
 

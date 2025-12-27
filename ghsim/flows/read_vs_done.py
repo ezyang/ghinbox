@@ -213,9 +213,9 @@ class ReadVsDoneFlow(BaseFlow):
             # Wait for navigation to the issue page
             page.wait_for_url(f"**/{self.repo_name}/issues/**", timeout=10000)
             # Wait for issue content to load
-            page.locator('[data-testid="issue-title"], .markdown-body, .comment-body').first.wait_for(
-                state="attached", timeout=10000
-            )
+            page.locator(
+                '[data-testid="issue-title"], .markdown-body, .comment-body'
+            ).first.wait_for(state="attached", timeout=10000)
             print("Clicked notification link - marked as read")
 
             # Screenshot the issue page

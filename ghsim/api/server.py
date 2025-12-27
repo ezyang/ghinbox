@@ -14,7 +14,6 @@ import sys
 import uvicorn
 
 from ghsim.auth import has_valid_auth
-from ghsim.api.fetcher import NotificationsFetcher, set_fetcher
 
 
 def main() -> int:

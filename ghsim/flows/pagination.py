@@ -86,7 +86,9 @@ class PaginationFlow(BaseFlow):
                 page = context.new_page()
 
                 # Capture page 1
-                page1_data = self._capture_notifications_page(page, cursor=None, page_num=1)
+                page1_data = self._capture_notifications_page(
+                    page, cursor=None, page_num=1
+                )
 
                 # If there's a next page, capture it
                 if page1_data.get("next_cursor"):
@@ -132,9 +134,7 @@ class PaginationFlow(BaseFlow):
         title = f"Test issue #{num} - {datetime.now().isoformat()}"
         body = f"Pagination test issue {num} of {self.num_issues}"
 
-        self.trigger_api.create_issue(
-            self.owner_username, self.repo_name, title, body
-        )
+        self.trigger_api.create_issue(self.owner_username, self.repo_name, title, body)
 
     def _wait_for_notifications(
         self,
@@ -145,9 +145,12 @@ class PaginationFlow(BaseFlow):
         """Wait for notifications to appear, return count found."""
         assert self.owner_api is not None
 
+        count = 0
         for attempt in range(max_attempts):
             if attempt > 0:
-                print(f"  Waiting {wait_seconds}s... (attempt {attempt + 1}/{max_attempts})")
+                print(
+                    f"  Waiting {wait_seconds}s... (attempt {attempt + 1}/{max_attempts})"
+                )
                 time.sleep(wait_seconds)
 
             notifications = self.owner_api.get_notifications(all_notifications=True)
@@ -226,7 +229,8 @@ class PaginationFlow(BaseFlow):
             if href and "before=" in href:
                 # Extract cursor from href
                 import re
-                match = re.search(r'before=([^&]+)', href)
+
+                match = re.search(r"before=([^&]+)", href)
                 if match:
                     result["prev_cursor"] = urllib.parse.unquote(match.group(1))
                     print(f"  Prev cursor: {result['prev_cursor'][:50]}...")
@@ -237,7 +241,8 @@ class PaginationFlow(BaseFlow):
             href = next_button.get_attribute("href")
             if href and "after=" in href:
                 import re
-                match = re.search(r'after=([^&]+)', href)
+
+                match = re.search(r"after=([^&]+)", href)
                 if match:
                     result["next_cursor"] = urllib.parse.unquote(match.group(1))
                     print(f"  Next cursor: {result['next_cursor'][:50]}...")
