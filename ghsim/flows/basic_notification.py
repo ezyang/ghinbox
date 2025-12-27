@@ -2,7 +2,6 @@
 Basic notification flow - verifies notifications are generated and visible.
 """
 
-import time
 import urllib.parse
 
 from playwright.sync_api import sync_playwright
@@ -60,7 +59,10 @@ class BasicNotificationFlow(BaseFlow):
                 url = f"https://github.com/notifications?query={urllib.parse.quote(query)}"
 
                 page.goto(url, wait_until="domcontentloaded")
-                time.sleep(3)
+                # Wait for notifications list or empty state
+                page.locator(".notifications-list-item, .blankslate").first.wait_for(
+                    state="attached", timeout=10000
+                )
 
                 # Take screenshot
                 RESPONSES_DIR.mkdir(parents=True, exist_ok=True)

@@ -14,9 +14,20 @@ debug_*.py
 # Playwright credential storage (contains sensitive auth state)
 auth_state/
 
-# Playwright artifacts
+# Playwright artifacts (Python)
 playwright-report/
 test-results/
+
+# Playwright artifacts (Node.js E2E tests)
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
+e2e/.playwright/
+
+# Node.js
+node_modules/
+package-lock.json
+e2e/package-lock.json
 
 # Saved HTML/JSON responses for offline testing
 responses/

@@ -150,7 +150,12 @@ def _create_classic_token(page: Page, token_name: str, scopes: list[str]) -> str
     # Navigate to classic token creation page
     print("Navigating to classic token creation page...")
     page.goto("https://github.com/settings/tokens/new", wait_until="domcontentloaded")
-    time.sleep(1)  # Brief pause for JS to initialize
+    # Wait for the token form to be ready
+    page.locator(
+        "#oauth_access_token_description, "
+        'input[name="oauth_access[description]"], '
+        'input[name="description"]'
+    ).first.wait_for(state="visible", timeout=30000)
 
     # Take a debug screenshot
     page.screenshot(path="token_page_loaded.png")
@@ -174,7 +179,12 @@ def _create_classic_token(page: Page, token_name: str, scopes: list[str]) -> str
             "**/settings/tokens/new",
             timeout=120000,  # 2 minutes to enter password
         )
-        time.sleep(1)
+        # Wait for the form to be ready again
+        page.locator(
+            "#oauth_access_token_description, "
+            'input[name="oauth_access[description]"], '
+            'input[name="description"]'
+        ).first.wait_for(state="visible", timeout=30000)
 
     # Fill in token note/name - try multiple selectors
     print("Filling in token details...")
@@ -236,9 +246,10 @@ def _create_classic_token(page: Page, token_name: str, scopes: list[str]) -> str
 
     generate_button.click()
 
-    # Wait for the token to be generated
-    page.wait_for_load_state("domcontentloaded")
-    time.sleep(2)  # Give the page a moment to render the token
+    # Wait for the token to be generated - look for token display elements
+    page.locator(
+        '#new-oauth-token, input[readonly][value^="ghp_"], code:has-text("ghp_")'
+    ).first.wait_for(state="visible", timeout=30000)
 
     # Classic tokens start with "ghp_"
     token = None

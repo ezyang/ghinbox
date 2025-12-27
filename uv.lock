@@ -107,6 +107,7 @@ source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "lxml" },
     { name = "playwright" },
     { name = "uvicorn" },
@@ -125,6 +126,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
     { name = "lxml", specifier = ">=5.0.0" },
     { name = "playwright", specifier = ">=1.49.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },

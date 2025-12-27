@@ -198,8 +198,10 @@ def fetch_notifications_page(
     print(f"Fetching notifications page: {url}")
     page.goto(url, wait_until="domcontentloaded")
 
-    # Wait for notifications to load
-    time.sleep(3)
+    # Wait for notifications list or empty state to be visible
+    page.locator(".notifications-list-item, .blankslate").first.wait_for(
+        state="attached", timeout=10000
+    )
 
     # Get the HTML content
     html_content = page.content()
@@ -456,7 +458,10 @@ def run_notification_test(
                 f"https://github.com/notifications?query={urllib.parse.quote(query)}",
                 wait_until="domcontentloaded",
             )
-            time.sleep(3)
+            # Wait for notifications list or empty state to be visible
+            page.locator(".notifications-list-item, .blankslate").first.wait_for(
+                state="attached", timeout=10000
+            )
             screenshot_path = RESPONSES_DIR / "notifications_screenshot.png"
             RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(screenshot_path), full_page=True)

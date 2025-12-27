@@ -181,7 +181,10 @@ class PaginationFlow(BaseFlow):
 
         print(f"\nCapturing page {page_num}: {url}")
         page.goto(url, wait_until="domcontentloaded")
-        time.sleep(3)
+        # Wait for notifications list or empty state
+        page.locator(".notifications-list-item, .blankslate").first.wait_for(
+            state="attached", timeout=10000
+        )
 
         # Save screenshot
         RESPONSES_DIR.mkdir(parents=True, exist_ok=True)

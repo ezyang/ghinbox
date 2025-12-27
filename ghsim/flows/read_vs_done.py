@@ -194,7 +194,10 @@ class ReadVsDoneFlow(BaseFlow):
         url = f"https://github.com/notifications?query={urllib.parse.quote(query)}"
 
         page.goto(url, wait_until="domcontentloaded")
-        time.sleep(3)
+        # Wait for notifications list or empty state
+        page.locator(".notifications-list-item, .blankslate").first.wait_for(
+            state="attached", timeout=10000
+        )
 
         # Screenshot before
         RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
@@ -206,7 +209,12 @@ class ReadVsDoneFlow(BaseFlow):
         notification_link = page.locator(f'a[href*="{self.repo_name}/issues"]').first
         if notification_link.count() > 0:
             notification_link.click()
-            time.sleep(2)
+            # Wait for navigation to the issue page
+            page.wait_for_url(f"**/{self.repo_name}/issues/**", timeout=10000)
+            # Wait for issue content to load
+            page.locator('[data-testid="issue-title"], .markdown-body, .comment-body').first.wait_for(
+                state="attached", timeout=10000
+            )
             print("Clicked notification link - marked as read")
 
             # Screenshot the issue page
@@ -221,7 +229,10 @@ class ReadVsDoneFlow(BaseFlow):
         url = f"https://github.com/notifications?query={urllib.parse.quote(query)}"
 
         page.goto(url, wait_until="domcontentloaded")
-        time.sleep(3)
+        # Wait for notifications list or empty state
+        page.locator(".notifications-list-item, .blankslate").first.wait_for(
+            state="attached", timeout=10000
+        )
 
         # Screenshot before
         RESPONSES_DIR.mkdir(parents=True, exist_ok=True)
@@ -240,18 +251,18 @@ class ReadVsDoneFlow(BaseFlow):
         if notification_checkbox.count() > 0:
             # Check the checkbox to select the notification
             notification_checkbox.check()
-            time.sleep(1)
+            # Wait for the bulk action bar with Done button to appear
+            done_button = page.locator('button:has-text("Done")').first
+            done_button.wait_for(state="visible", timeout=5000)
             print("Selected notification checkbox")
 
-            # Now find and click the Done button in the bulk action bar
-            # The Done button appears after selection
-            done_button = page.locator('button:has-text("Done")').first
-            if done_button.count() > 0:
-                done_button.click()
-                time.sleep(2)
-                print("Clicked Done button in action bar")
-            else:
-                print("WARNING: Could not find Done button after selecting")
+            # Click the Done button
+            done_button.click()
+            # Wait for the notification to be removed from the list
+            page.locator(
+                f'.notifications-list-item:has(a[href*="{self.repo_name}"])'
+            ).wait_for(state="hidden", timeout=10000)
+            print("Clicked Done button in action bar")
         else:
             # Try alternative: find the row and hover to reveal actions
             notification_row = page.locator(
@@ -261,16 +272,15 @@ class ReadVsDoneFlow(BaseFlow):
             if notification_row.count() > 0:
                 # Hover over the row to reveal action buttons
                 notification_row.hover()
-                time.sleep(0.5)
-
-                # Look for Done button that appears on hover
+                # Wait for Done button to appear
                 done_icon = notification_row.locator('button[aria-label*="Done"]').first
-                if done_icon.count() > 0:
-                    done_icon.click()
-                    time.sleep(2)
-                    print("Clicked Done icon on row")
-                else:
-                    print("WARNING: Could not find Done button on hover")
+                done_icon.wait_for(state="visible", timeout=5000)
+
+                # Click Done button
+                done_icon.click()
+                # Wait for the notification to be removed from the list
+                notification_row.wait_for(state="hidden", timeout=10000)
+                print("Clicked Done icon on row")
             else:
                 print("WARNING: Could not find notification row")
 
