@@ -1,0 +1,137 @@
+{
+  "source_url": "https://github.com/notifications?query=repo:fixture/repo",
+  "generated_at": "2025-12-27T15:12:52.261430",
+  "repository": {
+    "owner": "fixture",
+    "name": "repo",
+    "full_name": "fixture/repo"
+  },
+  "notifications": [
+    {
+      "id": "NT_kwDOAZShobQyMTUwNzk0MjI3OToyNjUxNzkyMQ",
+      "unread": true,
+      "reason": "subscribed",
+      "updated_at": "2025-12-27T16:11:53Z",
+      "subject": {
+        "title": "Test issue #3 - 2025-12-27T11:11:30.705454",
+        "url": "https://github.com/ezyang0/ghsim-test-20251227111126/issues/3",
+        "type": "Issue",
+        "number": 3,
+        "state": "open",
+        "state_reason": null
+      },
+      "actors": [
+        {
+          "login": "htmlpurifierbot",
+          "avatar_url": "https://avatars.githubusercontent.com/u/113821202?s=40&v=4"
+        }
+      ],
+      "ui": {
+        "saved": false,
+        "done": false
+      }
+    },
+    {
+      "id": "NT_kwDOAZShobQyMTUwNzk0MjE4MToyNjUxNzkyMQ",
+      "unread": true,
+      "reason": "subscribed",
+      "updated_at": "2025-12-27T16:11:52Z",
+      "subject": {
+        "title": "Test issue #4 - 2025-12-27T11:11:31.060289",
+        "url": "https://github.com/ezyang0/ghsim-test-20251227111126/issues/4",
+        "type": "Issue",
+        "number": 4,
+        "state": "open",
+        "state_reason": null
+      },
+      "actors": [
+        {
+          "login": "htmlpurifierbot",
+          "avatar_url": "https://avatars.githubusercontent.com/u/113821202?s=40&v=4"
+        }
+      ],
+      "ui": {
+        "saved": false,
+        "done": false
+      }
+    },
+    {
+      "id": "NT_kwDOAZShobQyMTUwNzk0MjE1MDoyNjUxNzkyMQ",
+      "unread": true,
+      "reason": "subscribed",
+      "updated_at": "2025-12-27T16:11:52Z",
+      "subject": {
+        "title": "Test issue #5 - 2025-12-27T11:11:31.394398",
+        "url": "https://github.com/ezyang0/ghsim-test-20251227111126/issues/5",
+        "type": "Issue",
+        "number": 5,
+        "state": "open",
+        "state_reason": null
+      },
+      "actors": [
+        {
+          "login": "htmlpurifierbot",
+          "avatar_url": "https://avatars.githubusercontent.com/u/113821202?s=40&v=4"
+        }
+      ],
+      "ui": {
+        "saved": false,
+        "done": false
+      }
+    },
+    {
+      "id": "NT_kwDOAZShobQyMTUwNzk0MTk4NDoyNjUxNzkyMQ",
+      "unread": true,
+      "reason": "subscribed",
+      "updated_at": "2025-12-27T16:11:51Z",
+      "subject": {
+        "title": "Test issue #1 - 2025-12-27T11:11:30.030711",
+        "url": "https://github.com/ezyang0/ghsim-test-20251227111126/issues/1",
+        "type": "Issue",
+        "number": 1,
+        "state": "open",
+        "state_reason": null
+      },
+      "actors": [
+        {
+          "login": "htmlpurifierbot",
+          "avatar_url": "https://avatars.githubusercontent.com/u/113821202?s=40&v=4"
+        }
+      ],
+      "ui": {
+        "saved": false,
+        "done": false
+      }
+    },
+    {
+      "id": "NT_kwDOAZShobQyMTUwNzk0MjAwNjoyNjUxNzkyMQ",
+      "unread": true,
+      "reason": "subscribed",
+      "updated_at": "2025-12-27T16:11:51Z",
+      "subject": {
+        "title": "Test issue #2 - 2025-12-27T11:11:30.389527",
+        "url": "https://github.com/ezyang0/ghsim-test-20251227111126/issues/2",
+        "type": "Issue",
+        "number": 2,
+        "state": "open",
+        "state_reason": null
+      },
+      "actors": [
+        {
+          "login": "htmlpurifierbot",
+          "avatar_url": "https://avatars.githubusercontent.com/u/113821202?s=40&v=4"
+        }
+      ],
+      "ui": {
+        "saved": false,
+        "done": false
+      }
+    }
+  ],
+  "pagination": {
+    "before_cursor": null,
+    "after_cursor": null,
+    "has_previous": false,
+    "has_next": false
+  }
+}
