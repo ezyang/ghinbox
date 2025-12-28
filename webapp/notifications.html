@@ -157,6 +157,20 @@
             accent-color: var(--color-accent-fg);
         }
 
+        .comment-hide {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--color-fg-muted);
+        }
+
+        .comment-hide input {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--color-accent-fg);
+        }
+
         .comment-list {
             margin-top: 10px;
             padding-left: 0;
@@ -796,6 +810,10 @@
                     <input type="checkbox" id="comment-expand-toggle">
                     Show unread comments
                 </label>
+                <label class="comment-hide" for="comment-hide-uninteresting-toggle">
+                    <input type="checkbox" id="comment-hide-uninteresting-toggle">
+                    Hide uninteresting comments
+                </label>
                 <div class="comment-cache-actions">
                     <span id="comment-cache-status" class="comment-cache-status"></span>
                     <button id="clear-comment-cache-btn" class="btn btn-small" type="button">
@@ -895,6 +913,7 @@
         const COMMENT_CONCURRENCY = 4;
         const COMMENT_PREFETCH_KEY = 'ghnotif_comment_prefetch_enabled';
         const COMMENT_EXPAND_KEY = 'ghnotif_comment_expand_enabled';
+        const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
 
         // Application state
         const state = {
@@ -909,6 +928,7 @@
             markProgress: { current: 0, total: 0 }, // Progress tracking
             commentPrefetchEnabled: false,
             commentExpandEnabled: false,
+            commentHideUninteresting: false,
             commentQueue: [],
             commentQueueRunning: false,
             commentCache: loadCommentCache(),
@@ -924,6 +944,7 @@
             statusBar: document.getElementById('status-bar'),
             commentPrefetchToggle: document.getElementById('comment-prefetch-toggle'),
             commentExpandToggle: document.getElementById('comment-expand-toggle'),
+            commentHideUninterestingToggle: document.getElementById('comment-hide-uninteresting-toggle'),
             commentCacheStatus: document.getElementById('comment-cache-status'),
             clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
             rateLimitBox: document.getElementById('rate-limit-box'),
@@ -1010,6 +1031,12 @@
             }
             elements.commentExpandToggle.checked = state.commentExpandEnabled;
 
+            const savedCommentHideUninteresting = localStorage.getItem(COMMENT_HIDE_UNINTERESTING_KEY);
+            if (savedCommentHideUninteresting === 'true') {
+                state.commentHideUninteresting = true;
+            }
+            elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
+
             // Set up event listeners
             elements.syncBtn.addEventListener('click', handleSync);
             elements.repoInput.addEventListener('input', handleRepoInput);
@@ -1032,6 +1059,9 @@
             });
             elements.commentExpandToggle.addEventListener('change', (event) => {
                 setCommentExpandEnabled(event.target.checked);
+            });
+            elements.commentHideUninterestingToggle.addEventListener('change', (event) => {
+                setCommentHideUninteresting(event.target.checked);
             });
             elements.clearCommentCacheBtn.addEventListener('click', handleClearCommentCache);
 
@@ -1087,6 +1117,12 @@
         function setCommentExpandEnabled(enabled) {
             state.commentExpandEnabled = enabled;
             localStorage.setItem(COMMENT_EXPAND_KEY, String(enabled));
+            render();
+        }
+
+        function setCommentHideUninteresting(enabled) {
+            state.commentHideUninteresting = enabled;
+            localStorage.setItem(COMMENT_HIDE_UNINTERESTING_KEY, String(enabled));
             render();
         }
 
@@ -1498,7 +1534,13 @@
                 const label = cached.allComments ? 'No comments found.' : 'No unread comments found.';
                 return `<li class="comment-item">${label}</li>`;
             }
-            return comments
+            const visibleComments = state.commentHideUninteresting
+                ? comments.filter((comment) => !isUninterestingComment(comment))
+                : comments;
+            if (visibleComments.length === 0) {
+                return '<li class="comment-item">No interesting unread comments found.</li>';
+            }
+            return visibleComments
                 .map((comment) => {
                     const author = comment.user?.login || 'unknown';
                     const timestamp = comment.updated_at || comment.created_at || '';

@@ -36,6 +36,10 @@ test.describe('Sync Functionality', () => {
     if (await expandToggle.isChecked()) {
       await expandToggle.uncheck();
     }
+    const hideToggle = page.locator('#comment-hide-uninteresting-toggle');
+    if (await hideToggle.isChecked()) {
+      await hideToggle.uncheck();
+    }
   });
 
   test('sync button triggers API call', async ({ page }) => {
