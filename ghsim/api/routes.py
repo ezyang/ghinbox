@@ -21,7 +21,7 @@ class NotificationActionRequest(BaseModel):
     """Request body for notification actions."""
 
     action: Literal["unarchive", "subscribe"]
-    notification_id: str
+    notification_ids: list[str]
     authenticity_token: str
 
 
@@ -248,7 +248,7 @@ async def submit_action(
     result = await run_fetcher_call(
         fetcher.submit_notification_action,
         action=request.action,
-        notification_id=request.notification_id,
+        notification_ids=request.notification_ids,
         authenticity_token=request.authenticity_token,
     )
 

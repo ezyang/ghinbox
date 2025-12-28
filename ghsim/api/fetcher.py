@@ -5,10 +5,11 @@ Fetches notifications HTML from GitHub using an authenticated browser session.
 """
 
 import asyncio
+import html
 import time
 import urllib.parse
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
 
 from playwright.sync_api import sync_playwright, BrowserContext
@@ -166,7 +167,7 @@ class NotificationsFetcher:
     def submit_notification_action(
         self,
         action: str,
-        notification_id: str,
+        notification_ids: list[str],
         authenticity_token: str,
     ) -> ActionResult:
         """
@@ -174,7 +175,7 @@ class NotificationsFetcher:
 
         Args:
             action: The action to perform ('unarchive' or 'subscribe')
-            notification_id: The NT_... notification ID
+            notification_ids: The NT_... notification IDs
             authenticity_token: CSRF token from the page
 
         Returns:
@@ -196,9 +197,19 @@ class NotificationsFetcher:
                 status="error",
                 error=f"Unknown action: {action}. Valid actions: {list(action_paths.keys())}",
             )
+        if not notification_ids:
+            return ActionResult(
+                status="error",
+                error="No notification IDs provided for action",
+            )
 
         action_path = action_paths[action]
         url = f"https://github.com{action_path}"
+        escaped_token = html.escape(authenticity_token, quote=True)
+        id_inputs = "\n".join(
+            f'<input type="hidden" name="notification_ids[]" value="{html.escape(notification_id, quote=True)}">'
+            for notification_id in notification_ids
+        )
 
         page = None
         try:
@@ -212,8 +223,8 @@ class NotificationsFetcher:
             <html>
             <body>
                 <form id="action-form" method="POST" action="{url}">
-                    <input type="hidden" name="authenticity_token" value="{authenticity_token}">
-                    <input type="hidden" name="notification_ids[]" value="{notification_id}">
+                    <input type="hidden" name="authenticity_token" value="{escaped_token}">
+                    {id_inputs}
                 </form>
                 <script>document.getElementById('action-form').submit();</script>
             </body>

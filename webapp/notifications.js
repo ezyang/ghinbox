@@ -28,7 +28,7 @@
             lastSyncedRepo: null,
             // Undo support
             authenticity_token: null, // CSRF token for HTML form actions
-            undoStack: [], // Stack of {action, notification, timestamp}
+            undoStack: [], // Stack of {action, notifications, timestamp}
             undoInProgress: false,
         };
 
@@ -173,6 +173,9 @@
 
             // Mark Done button handler
             elements.markDoneBtn.addEventListener('click', handleMarkDone);
+
+            // Undo banner close handler
+            elements.undoBannerClose.addEventListener('click', hideUndoBanner);
 
             // Keyboard shortcuts
             document.addEventListener('keydown', handleKeyDown);
@@ -718,6 +721,9 @@
             if (!show || ids.length === 0) return;
 
             const selectedIds = ids;
+            const notificationLookup = new Map(
+                state.notifications.map(notification => [notification.id, notification])
+            );
 
             // Confirm if marking many items
             if (selectedIds.length >= 10) {
@@ -783,6 +789,9 @@
             const filteredBeforeRemoval = getFilteredNotifications();
             const scrollAnchor = captureScrollAnchor(successfulIds, filteredBeforeRemoval);
             const successfulIdSet = new Set(successfulIds);
+            const notificationsToRestore = successfulIds
+                .map(id => notificationLookup.get(id))
+                .filter(Boolean);
             state.notifications = state.notifications.filter(
                 notif => !successfulIdSet.has(notif.id)
             );
@@ -812,6 +821,11 @@
                 const firstError = failedResults[0].error;
                 showStatus(`Marked ${successfulIds.length} done, ${failedResults.length} failed: ${firstError}`, 'error');
                 console.error('[MarkDone] Partial failure. Errors:', failedResults);
+            }
+
+            if (notificationsToRestore.length > 0) {
+                pushToUndoStack('done', notificationsToRestore);
+                showUndoBanner('done', notificationsToRestore.length);
             }
 
             await refreshRateLimit();
@@ -960,6 +974,9 @@
             button.disabled = true;
             let scrollAnchor = null;
 
+            // Find and save the notification for undo before removing
+            const notificationToRemove = state.notifications.find(n => n.id === notifId);
+
             try {
                 const result = await markNotificationDone(notifId);
 
@@ -985,6 +1002,11 @@
                 state.selected.delete(notifId);
                 persistNotifications();
 
+                // Save for undo and show banner
+                if (notificationToRemove) {
+                    pushToUndoStack('done', [notificationToRemove]);
+                    showUndoBanner('done', 1);
+                }
                 showStatus('Marked 1 notification as done', 'success');
             } catch (e) {
                 const errorDetail = e.message || String(e);
@@ -1005,6 +1027,9 @@
 
             button.disabled = true;
             let scrollAnchor = null;
+
+            // Find and save the notification for undo before removing
+            const notificationToRemove = state.notifications.find(n => n.id === notifId);
 
             try {
                 const result = await unsubscribeNotification(notifId);
@@ -1044,6 +1069,12 @@
                 );
                 state.selected.delete(notifId);
                 persistNotifications();
+
+                // Save for undo and show banner
+                if (notificationToRemove) {
+                    pushToUndoStack('unsubscribe', [notificationToRemove]);
+                    showUndoBanner('unsubscribe', 1);
+                }
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
@@ -1058,6 +1089,123 @@
             });
         }
 
+        // Undo support functions
+        function showUndoBanner(action, count = 1) {
+            const actionText = action === 'done' ? 'Marked as done' : 'Unsubscribed';
+            const countText = count > 1 ? `${count} notifications` : '1 notification';
+            elements.undoBannerText.textContent = `${actionText} ${countText}.`;
+            elements.undoBanner.style.display = 'flex';
+        }
+
+        function hideUndoBanner() {
+            elements.undoBanner.style.display = 'none';
+            // Clear undo stack when banner is dismissed
+            state.undoStack = [];
+        }
+
+        function pushToUndoStack(action, notifications) {
+            const normalizedNotifications = Array.isArray(notifications)
+                ? notifications
+                : [notifications];
+            if (normalizedNotifications.length === 0) {
+                return;
+            }
+            state.undoStack.push({
+                action,
+                notifications: normalizedNotifications,
+                timestamp: Date.now(),
+            });
+            // Keep only the most recent undo (single action undo)
+            if (state.undoStack.length > 1) {
+                state.undoStack = [state.undoStack[state.undoStack.length - 1]];
+            }
+        }
+
+        async function handleUndo() {
+            if (state.undoStack.length === 0 || state.undoInProgress) {
+                return;
+            }
+
+            const undoItem = state.undoStack.pop();
+            if (!undoItem) {
+                return;
+            }
+
+            // Check if undo is still valid (within 30 seconds)
+            const elapsed = Date.now() - undoItem.timestamp;
+            if (elapsed > 30000) {
+                showStatus('Undo expired. Actions can only be undone within 30 seconds.', 'info');
+                hideUndoBanner();
+                return;
+            }
+
+            // Check if we have a token
+            if (!state.authenticity_token) {
+                showStatus('Cannot undo: no authenticity token available. Try syncing first.', 'error');
+                hideUndoBanner();
+                return;
+            }
+
+            state.undoInProgress = true;
+            hideUndoBanner();
+
+            try {
+                const action = undoItem.action === 'done' ? 'unarchive' : 'subscribe';
+                const response = await fetch('/notifications/html/action', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: action,
+                        notification_ids: undoItem.notifications.map(notification => notification.id),
+                        authenticity_token: state.authenticity_token,
+                    }),
+                });
+
+                const result = await response.json();
+
+                if (result.status !== 'ok') {
+                    throw new Error(result.error || 'Unknown error');
+                }
+
+                // Restore notifications to the list in updated_at order
+                const notificationsToRestore = undoItem.notifications
+                    .slice()
+                    .sort(
+                        (a, b) =>
+                            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                    );
+                notificationsToRestore.forEach(notification => {
+                    const insertIndex = state.notifications.findIndex(
+                        n => new Date(n.updated_at) < new Date(notification.updated_at)
+                    );
+                    if (insertIndex === -1) {
+                        state.notifications.push(notification);
+                    } else {
+                        state.notifications.splice(insertIndex, 0, notification);
+                    }
+                });
+
+                persistNotifications();
+                const restoredCount = undoItem.notifications.length;
+                showStatus(
+                    `Undo successful: restored ${restoredCount} notification${restoredCount !== 1 ? 's' : ''}`,
+                    'success'
+                );
+                render();
+
+            } catch (e) {
+                const errorDetail = e.message || String(e);
+                showStatus(`Undo failed: ${errorDetail}`, 'error');
+                // Put the item back on the stack so user can retry
+                state.undoStack.push(undoItem);
+                showUndoBanner(undoItem.action, undoItem.notifications.length);
+            } finally {
+                state.undoInProgress = false;
+            }
+        }
+
         function getSelectableNotifications() {
             return getFilteredNotifications();
         }
@@ -1067,6 +1215,14 @@
                 return null;
             }
             const removedSet = new Set(removedIds);
+            const shouldSnapToTop = removedIds.some(id => {
+                const removedElement = getNotificationElement(id);
+                if (!removedElement) {
+                    return false;
+                }
+                const rect = removedElement.getBoundingClientRect();
+                return rect.top < 0 && rect.bottom > 0;
+            });
             let lastRemovedIndex = -1;
             notifications.forEach((notif, index) => {
                 if (removedSet.has(notif.id)) {
@@ -1083,7 +1239,7 @@
             }
             return {
                 id: anchorId,
-                top: anchorElement.getBoundingClientRect().top,
+                top: shouldSnapToTop ? 0 : anchorElement.getBoundingClientRect().top,
             };
         }
 
@@ -1244,6 +1400,11 @@
                 if (e.key === 'r') {
                     e.preventDefault();
                     location.reload();
+                    return;
+                }
+                if (e.key === 'u') {
+                    e.preventDefault();
+                    handleUndo();
                     return;
                 }
                 if (e.key === 'Enter') {
@@ -1418,6 +1579,8 @@
             state.error = null;
             state.notifications = [];
             state.selected.clear();
+            state.authenticity_token = null;
+            hideUndoBanner();
             render();
 
             showStatus(`${syncLabel} starting for ${repo}...`, 'info', { flash: true });
@@ -1452,6 +1615,10 @@
 
                     const data = await response.json();
                     allNotifications.push(...data.notifications);
+                    // Store authenticity_token from first page (valid for the session)
+                    if (data.authenticity_token && !state.authenticity_token) {
+                        state.authenticity_token = data.authenticity_token;
+                    }
                     afterCursor = data.pagination.has_next ? data.pagination.after_cursor : null;
                     if (previousMatchMap && overlapIndex === null) {
                         overlapIndex = findIncrementalOverlapIndex(

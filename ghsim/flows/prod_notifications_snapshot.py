@@ -12,7 +12,10 @@ from __future__ import annotations
 from ghsim.api.fetcher import NotificationsFetcher
 from ghsim.flows.base import BaseFlow
 from ghsim.github_api import save_response, RESPONSES_DIR
-from ghsim.parser.notifications import parse_notifications_html, extract_authenticity_token
+from ghsim.parser.notifications import (
+    parse_notifications_html,
+    extract_authenticity_token,
+)
 
 
 class ProdNotificationsSnapshotFlow(BaseFlow):

@@ -911,6 +911,9 @@
             gap: 12px;
             padding: 10px 16px;
             margin-top: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
             background-color: #ddf4ff;
             border: 1px solid #54aeff;
             border-radius: 6px;
