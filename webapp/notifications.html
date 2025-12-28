@@ -632,6 +632,22 @@
             height: 16px;
         }
 
+        .notification-actions-bottom {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 8px;
+        }
+
+        .notification-done-btn-bottom {
+            gap: 6px;
+            font-size: 12px;
+            padding: 6px 10px;
+        }
+
+        .notification-done-btn-bottom span {
+            line-height: 1;
+        }
+
         .notification-unsubscribe-btn {
             display: inline-flex;
             align-items: center;
@@ -1329,6 +1345,18 @@
             return true;
         }
 
+        function safeIsNotificationNeedsReview(notification) {
+            return typeof isNotificationNeedsReview === 'function'
+                ? isNotificationNeedsReview(notification)
+                : false;
+        }
+
+        function safeIsNotificationApproved(notification) {
+            return typeof isNotificationApproved === 'function'
+                ? isNotificationApproved(notification)
+                : false;
+        }
+
         // Get filtered notifications based on current filter
         function getFilteredNotifications() {
             let filtered = state.notifications;
@@ -1342,10 +1370,10 @@
                         return notifState === 'closed' || notifState === 'merged';
                     }
                     if (state.filter === 'needs-review') {
-                        return isNotificationNeedsReview(notif);
+                        return safeIsNotificationNeedsReview(notif);
                     }
                     if (state.filter === 'approved') {
-                        return isNotificationApproved(notif);
+                        return safeIsNotificationApproved(notif);
                     }
                     if (state.filter === 'uninteresting') {
                         return isNotificationUninteresting(notif);
@@ -1363,17 +1391,18 @@
             let needsReview = 0;
             let approved = 0;
             let uninteresting = 0;
-            state.notifications.forEach(notif => {
+            const typedNotifications = state.notifications.filter(matchesTypeFilter);
+            typedNotifications.forEach(notif => {
                 const notifState = notif.subject.state;
                 if (notifState === 'open' || notifState === 'draft') {
                     open++;
                 } else if (notifState === 'closed' || notifState === 'merged') {
                     closed++;
                 }
-                if (isNotificationNeedsReview(notif)) {
+                if (safeIsNotificationNeedsReview(notif)) {
                     needsReview++;
                 }
-                if (isNotificationApproved(notif)) {
+                if (safeIsNotificationApproved(notif)) {
                     approved++;
                 }
                 if (isNotificationUninteresting(notif)) {
@@ -1381,7 +1410,7 @@
                 }
             });
             return {
-                all: state.notifications.length,
+                all: typedNotifications.length,
                 open,
                 closed,
                 needsReview,
@@ -1734,10 +1763,10 @@
                 return { label: 'Comments: error', className: 'error' };
             }
             const count = cached.comments ? cached.comments.length : 0;
-            if (isNotificationApproved(notification)) {
+            if (safeIsNotificationApproved(notification)) {
                 return { label: 'Approved', className: 'approved' };
             }
-            if (isNotificationNeedsReview(notification)) {
+            if (safeIsNotificationNeedsReview(notification)) {
                 return { label: 'Needs review', className: 'needs-review' };
             }
             if (count === 0) {
@@ -1802,7 +1831,7 @@
             }
             const comments = cached.comments || [];
             if (notification.subject?.type === 'PullRequest') {
-                if (isNotificationApproved(notification)) {
+                if (safeIsNotificationApproved(notification)) {
                     return false;
                 }
                 if (comments.length === 0) {
@@ -1821,7 +1850,7 @@
             if (notification.subject?.type !== 'PullRequest') {
                 return false;
             }
-            if (isNotificationApproved(notification)) {
+            if (safeIsNotificationApproved(notification)) {
                 return false;
             }
             const cached = state.commentCache.threads[getNotificationKey(notification)];
@@ -2791,6 +2820,21 @@
                     const commentList = commentItems
                         ? `<ul class="comment-list">${commentItems}</ul>`
                         : '';
+                    const bottomDoneButton = commentItems
+                        ? `
+                            <div class="notification-actions-bottom">
+                                <button
+                                    type="button"
+                                    class="notification-done-btn notification-done-btn-bottom"
+                                    aria-label="Mark notification as done"
+                                    ${state.markingInProgress ? 'disabled' : ''}
+                                >
+                                    ${icons.check}
+                                    <span>Mark done</span>
+                                </button>
+                            </div>
+                        `
+                        : '';
                     const doneButton = `
                         <button
                             type="button"
@@ -2846,6 +2890,7 @@
                                 ${commentBadge}
                             </div>
                             ${commentList}
+                            ${bottomDoneButton}
                         </div>
                         ${actorsHtml}
                         <div class="notification-actions-inline">
@@ -2864,10 +2909,12 @@
                         handleNotificationCheckbox(notif.id, e);
                     });
 
-                    const doneBtn = li.querySelector('.notification-done-btn');
-                    doneBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        handleInlineMarkDone(notif.id, doneBtn);
+                    const doneButtons = li.querySelectorAll('.notification-done-btn');
+                    doneButtons.forEach((doneBtn) => {
+                        doneBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            handleInlineMarkDone(notif.id, doneBtn);
+                        });
                     });
 
                     const unsubscribeBtn = li.querySelector('.notification-unsubscribe-btn');

@@ -123,4 +123,22 @@ test.describe('Comment visibility', () => {
       'Please take a look at this.'
     );
   });
+
+  test('shows bottom mark done button when comments are expanded', async ({
+    page,
+  }) => {
+    await page.route('**/github/rest/notifications/threads/**', (route) => {
+      route.fulfill({ status: 204, body: '' });
+    });
+
+    const bottomDoneButton = page.locator('.notification-done-btn-bottom');
+    await expect(bottomDoneButton).toBeVisible();
+
+    await bottomDoneButton.click();
+
+    await expect(page.locator('#status-bar')).toContainText(
+      'Marked 1 notification as done'
+    );
+    await expect(page.locator('#notifications-list li')).toHaveCount(0);
+  });
 });

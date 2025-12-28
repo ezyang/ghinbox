@@ -161,6 +161,32 @@ test.describe('Filtering', () => {
       await expect(countApproved).toHaveText('0');
       await expect(countUninteresting).toHaveText('0');
     });
+
+    test('updates counts when type filter is applied', async ({ page }) => {
+      const input = page.locator('#repo-input');
+      await input.fill('test/repo');
+      await page.locator('#sync-btn').click();
+
+      // Wait for sync to complete
+      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+
+      await page.locator('#type-filter-issue').click();
+
+      const countAll = page.locator('#count-all');
+      const countOpen = page.locator('#count-open');
+      const countClosed = page.locator('#count-closed');
+      const countNeedsReview = page.locator('#count-needs-review');
+      const countApproved = page.locator('#count-approved');
+      const countUninteresting = page.locator('#count-uninteresting');
+
+      // 3 issues total, 1 open, 2 closed
+      await expect(countAll).toHaveText('3');
+      await expect(countOpen).toHaveText('1');
+      await expect(countClosed).toHaveText('2');
+      await expect(countNeedsReview).toHaveText('0');
+      await expect(countApproved).toHaveText('0');
+      await expect(countUninteresting).toHaveText('0');
+    });
   });
 
   test.describe('Filter Switching', () => {
