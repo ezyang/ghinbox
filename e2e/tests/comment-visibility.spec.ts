@@ -151,6 +151,21 @@ test.describe('Comment visibility', () => {
     );
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
+
+  test('shows open in new tab button when comments are expanded', async ({
+    page,
+  }) => {
+    const openButton = page.locator('.notification-open-btn-bottom');
+    await expect(openButton).toBeVisible();
+
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      openButton.click(),
+    ]);
+
+    await expect(popup).toHaveURL('https://github.com/test/repo/issues/1');
+    await popup.close();
+  });
 });
 
 test.describe('Own comment filtering', () => {

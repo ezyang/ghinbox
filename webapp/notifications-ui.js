@@ -432,6 +432,8 @@
                     elements.authStatus.textContent = `Signed in as ${data.login}`;
                     elements.authStatus.className = 'auth-status authenticated';
                     state.currentUserLogin = data.login;
+                    // Re-render to update view counts that depend on current user
+                    render();
                 } else {
                     elements.authStatus.textContent = 'Not authenticated';
                     elements.authStatus.className = 'auth-status error';
@@ -647,6 +649,7 @@
             release: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>`,
             check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
             bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
+            openInNewTab: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path></svg>`,
         };
 
         // Get icon for notification type and state
@@ -902,6 +905,15 @@
                             <div class="notification-actions-bottom">
                                 <button
                                     type="button"
+                                    class="notification-open-btn notification-open-btn-bottom"
+                                    aria-label="Open notification in new tab"
+                                    ${state.markingInProgress ? 'disabled' : ''}
+                                >
+                                    ${icons.openInNewTab}
+                                    <span>Open in new tab</span>
+                                </button>
+                                <button
+                                    type="button"
                                     class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
                                     aria-label="Unsubscribe from notification"
                                     ${state.markingInProgress ? 'disabled' : ''}
@@ -1006,6 +1018,14 @@
                         unsubscribeBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             handleInlineUnsubscribe(notif.id, unsubscribeBtn);
+                        });
+                    });
+
+                    const openButtons = li.querySelectorAll('.notification-open-btn');
+                    openButtons.forEach((openBtn) => {
+                        openBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            window.open(notif.subject.url, '_blank', 'noopener');
                         });
                     });
 

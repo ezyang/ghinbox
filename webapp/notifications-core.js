@@ -7,7 +7,7 @@
         const DEFAULT_VIEW_FILTERS = {
             'issues': 'all',           // 'all' | 'open' | 'closed'
             'my-prs': 'all',           // 'all' (minimal for now)
-            'others-prs': 'needs-review'  // 'needs-review' | 'approved' | 'closed'
+            'others-prs': 'all'        // 'all' | 'needs-review' | 'approved' | 'closed'
         };
 
         // Application state

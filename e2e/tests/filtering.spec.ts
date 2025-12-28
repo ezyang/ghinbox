@@ -95,6 +95,7 @@ test.describe('Filtering', () => {
 
       const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
       await expect(othersPrsSubfilters).not.toHaveClass(/hidden/);
+      await expect(othersPrsSubfilters.locator('[data-subfilter="all"]')).toBeVisible();
       await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"]')).toBeVisible();
       await expect(othersPrsSubfilters.locator('[data-subfilter="approved"]')).toBeVisible();
       await expect(othersPrsSubfilters.locator('[data-subfilter="closed"]')).toBeVisible();
@@ -201,6 +202,7 @@ test.describe('Filtering', () => {
 
       // 2 PRs: 1 open, 1 merged (closed)
       // needs-review and approved both show 0 without comment prefetch
+      await expect(othersPrsSubfilters.locator('[data-subfilter="all"] .count')).toHaveText('2');
       await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('0');
       await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('0');
       await expect(othersPrsSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('1');
@@ -408,9 +410,9 @@ test.describe('Filtering', () => {
       // Should show 3 PRs (2 original + 1 draft)
       await expect(page.locator('#view-others-prs .count')).toHaveText('3');
 
-      // Draft PR should be visible in default (needs-review) view
-      // Note: needs-review filter requires comment prefetch, so by default shows 0
-      // Let's check the "all" subfilter by clicking on closed then manually
+      // Default subfilter is 'all', so all 3 PRs should be visible
+      const items = page.locator('.notification-item');
+      await expect(items).toHaveCount(3);
     });
   });
 

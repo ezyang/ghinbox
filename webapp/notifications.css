@@ -622,7 +622,9 @@
             flex-shrink: 0;
         }
 
-        .notification-done-btn {
+        .notification-done-btn,
+        .notification-unsubscribe-btn,
+        .notification-open-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -634,18 +636,24 @@
             cursor: pointer;
         }
 
-        .notification-done-btn:hover {
+        .notification-done-btn:hover,
+        .notification-unsubscribe-btn:hover,
+        .notification-open-btn:hover {
             background-color: var(--color-btn-hover-bg);
             border-color: var(--color-border-default);
             color: var(--color-fg-default);
         }
 
-        .notification-done-btn:disabled {
+        .notification-done-btn:disabled,
+        .notification-unsubscribe-btn:disabled,
+        .notification-open-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
 
-        .notification-done-btn svg {
+        .notification-done-btn svg,
+        .notification-unsubscribe-btn svg,
+        .notification-open-btn svg {
             width: 16px;
             height: 16px;
         }
@@ -658,43 +666,17 @@
         }
 
         .notification-done-btn-bottom,
-        .notification-unsubscribe-btn-bottom {
+        .notification-unsubscribe-btn-bottom,
+        .notification-open-btn-bottom {
             gap: 6px;
             font-size: 12px;
             padding: 6px 10px;
         }
 
         .notification-done-btn-bottom span,
-        .notification-unsubscribe-btn-bottom span {
+        .notification-unsubscribe-btn-bottom span,
+        .notification-open-btn-bottom span {
             line-height: 1;
-        }
-
-        .notification-unsubscribe-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 4px 6px;
-            border-radius: 6px;
-            border: 1px solid transparent;
-            background: transparent;
-            color: var(--color-fg-muted);
-            cursor: pointer;
-        }
-
-        .notification-unsubscribe-btn:hover {
-            background-color: var(--color-btn-hover-bg);
-            border-color: var(--color-border-default);
-            color: var(--color-fg-default);
-        }
-
-        .notification-unsubscribe-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .notification-unsubscribe-btn svg {
-            width: 16px;
-            height: 16px;
         }
 
         /* View tabs (primary navigation: Issues / My PRs / Others' PRs) */
