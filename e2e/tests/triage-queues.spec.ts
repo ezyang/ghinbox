@@ -135,6 +135,7 @@ test.describe('Triage queues', () => {
 
   test('approved queue allows unsubscribe', async ({ page }) => {
     let unsubscribeCalled = false;
+    let markDoneCalled = false;
     await page.route(
       '**/github/rest/notifications/threads/thread-pr-2/subscription',
       (route) => {
@@ -142,20 +143,28 @@ test.describe('Triage queues', () => {
         route.fulfill({ status: 204, body: '' });
       }
     );
+    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
+      markDoneCalled = route.request().method() === 'DELETE';
+      route.fulfill({ status: 204, body: '' });
+    });
 
     await page.locator('#filter-approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await page.locator('[data-id="thread-pr-2"] .notification-unsubscribe-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Unsubscribed from 1 notification');
+    await expect(page.locator('#status-bar')).toContainText(
+      'Unsubscribed and marked 1 notification as done'
+    );
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
     expect(unsubscribeCalled).toBe(true);
+    expect(markDoneCalled).toBe(true);
   });
 
   test('approved queue shows bottom unsubscribe when comments are expanded', async ({
     page,
   }) => {
     let unsubscribeCalled = false;
+    let markDoneCalled = false;
     await page.route(
       '**/github/rest/notifications/threads/thread-pr-2/subscription',
       (route) => {
@@ -163,6 +172,10 @@ test.describe('Triage queues', () => {
         route.fulfill({ status: 204, body: '' });
       }
     );
+    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
+      markDoneCalled = route.request().method() === 'DELETE';
+      route.fulfill({ status: 204, body: '' });
+    });
 
     await page.locator('#comment-expand-toggle').check();
     await page.locator('#filter-approved').click();
@@ -176,9 +189,10 @@ test.describe('Triage queues', () => {
     await bottomUnsubscribeButton.click();
 
     await expect(page.locator('#status-bar')).toContainText(
-      'Unsubscribed from 1 notification'
+      'Unsubscribed and marked 1 notification as done'
     );
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
     expect(unsubscribeCalled).toBe(true);
+    expect(markDoneCalled).toBe(true);
   });
 });

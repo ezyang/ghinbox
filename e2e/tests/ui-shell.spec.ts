@@ -84,12 +84,18 @@ test.describe('UI Shell', () => {
     test('has sync button', async ({ page }) => {
       const syncBtn = page.locator('#sync-btn');
       await expect(syncBtn).toBeVisible();
-      await expect(syncBtn).toHaveText('Sync');
+      await expect(syncBtn).toHaveText('Quick Sync');
     });
 
     test('sync button has primary styling', async ({ page }) => {
       const syncBtn = page.locator('#sync-btn');
       await expect(syncBtn).toHaveClass(/btn-primary/);
+    });
+
+    test('has full sync button', async ({ page }) => {
+      const fullSyncBtn = page.locator('#full-sync-btn');
+      await expect(fullSyncBtn).toBeVisible();
+      await expect(fullSyncBtn).toHaveText('Full Sync');
     });
 
     test('has auth status display', async ({ page }) => {

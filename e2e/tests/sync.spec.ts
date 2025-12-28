@@ -109,6 +109,502 @@ test.describe('Sync Functionality', () => {
     expect(stored[0].subject.title).toBeTruthy();
   });
 
+  test('quick sync stops after hitting an unchanged notification', async ({ page }) => {
+    const previousNotifications = [
+      {
+        id: 'prev-1',
+        unread: true,
+        reason: 'author',
+        updated_at: '2024-12-27T10:00:00Z',
+        subject: {
+          title: 'Previous notification 1',
+          url: 'https://github.com/test/repo/issues/1',
+          type: 'Issue',
+          number: 1,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+      {
+        id: 'prev-2',
+        unread: false,
+        reason: 'mention',
+        updated_at: '2024-12-27T09:00:00Z',
+        subject: {
+          title: 'Previous notification 2',
+          url: 'https://github.com/test/repo/issues/2',
+          type: 'Issue',
+          number: 2,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+      {
+        id: 'prev-3',
+        unread: false,
+        reason: 'mention',
+        updated_at: '2024-12-27T08:00:00Z',
+        subject: {
+          title: 'Previous notification 3',
+          url: 'https://github.com/test/repo/issues/3',
+          type: 'Issue',
+          number: 3,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+    ];
+
+    await page.evaluate((payload) => {
+      localStorage.setItem('ghnotif_notifications', JSON.stringify(payload));
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
+    }, previousNotifications);
+    await page.reload();
+
+    const page1Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'new-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T11:00:00Z',
+          subject: {
+            title: 'New notification',
+            url: 'https://github.com/test/repo/issues/99',
+            type: 'Issue',
+            number: 99,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+        {
+          id: 'api-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T10:00:00Z',
+          subject: {
+            title: 'Previous notification 1',
+            url: 'https://github.com/test/repo/issues/1',
+            type: 'Issue',
+            number: 1,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: null,
+        after_cursor: 'cursor123',
+        has_previous: false,
+        has_next: true,
+      },
+    };
+
+    const page2Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'api-2',
+          unread: false,
+          reason: 'mention',
+          updated_at: '2024-12-27T09:00:00Z',
+          subject: {
+            title: 'API notification 2',
+            url: 'https://github.com/test/repo/issues/2',
+            type: 'Issue',
+            number: 2,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: 'cursor123',
+        after_cursor: null,
+        has_previous: true,
+        has_next: false,
+      },
+    };
+
+    let requestCount = 0;
+
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      requestCount += 1;
+      const url = route.request().url();
+
+      if (url.includes('after=cursor123')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page2Response),
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page1Response),
+        });
+      }
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+    expect(requestCount).toBe(1);
+
+    const stored = await page.evaluate(() => {
+      const data = localStorage.getItem('ghnotif_notifications');
+      return data ? JSON.parse(data) : null;
+    });
+
+    expect(stored.map((notif: { id: string }) => notif.id)).toEqual([
+      'new-1',
+      'api-1',
+      'prev-2',
+      'prev-3',
+    ]);
+  });
+
+  test('quick sync matches notifications with equivalent updated_at formats', async ({ page }) => {
+    const previousNotifications = [
+      {
+        id: 'prev-1',
+        unread: true,
+        reason: 'author',
+        updated_at: '2024-12-27T10:00:00Z',
+        subject: {
+          title: 'Previous notification 1',
+          url: 'https://github.com/test/repo/issues/1',
+          type: 'Issue',
+          number: 1,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+      {
+        id: 'prev-2',
+        unread: false,
+        reason: 'mention',
+        updated_at: '2024-12-27T09:00:00Z',
+        subject: {
+          title: 'Previous notification 2',
+          url: 'https://github.com/test/repo/issues/2',
+          type: 'Issue',
+          number: 2,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+    ];
+
+    await page.evaluate((payload) => {
+      localStorage.setItem('ghnotif_notifications', JSON.stringify(payload));
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
+    }, previousNotifications);
+    await page.reload();
+
+    const page1Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'new-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T11:00:00+00:00',
+          subject: {
+            title: 'New notification',
+            url: 'https://github.com/test/repo/issues/99',
+            type: 'Issue',
+            number: 99,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+        {
+          id: 'api-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T10:00:00+00:00',
+          subject: {
+            title: 'Previous notification 1',
+            url: 'https://github.com/test/repo/issues/1',
+            type: 'Issue',
+            number: 1,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: null,
+        after_cursor: 'cursor123',
+        has_previous: false,
+        has_next: true,
+      },
+    };
+
+    const page2Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'api-2',
+          unread: false,
+          reason: 'mention',
+          updated_at: '2024-12-27T09:00:00+00:00',
+          subject: {
+            title: 'API notification 2',
+            url: 'https://github.com/test/repo/issues/2',
+            type: 'Issue',
+            number: 2,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: 'cursor123',
+        after_cursor: null,
+        has_previous: true,
+        has_next: false,
+      },
+    };
+
+    let requestCount = 0;
+
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      requestCount += 1;
+      const url = route.request().url();
+
+      if (url.includes('after=cursor123')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page2Response),
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page1Response),
+        });
+      }
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    expect(requestCount).toBe(1);
+
+    const stored = await page.evaluate(() => {
+      const data = localStorage.getItem('ghnotif_notifications');
+      return data ? JSON.parse(data) : null;
+    });
+
+    expect(stored.map((notif: { id: string }) => notif.id)).toEqual([
+      'new-1',
+      'api-1',
+      'prev-2',
+    ]);
+  });
+
+  test('full sync loads every page even with unchanged notifications', async ({ page }) => {
+    const previousNotifications = [
+      {
+        id: 'prev-1',
+        unread: true,
+        reason: 'author',
+        updated_at: '2024-12-27T10:00:00Z',
+        subject: {
+          title: 'Previous notification 1',
+          url: 'https://github.com/test/repo/issues/1',
+          type: 'Issue',
+          number: 1,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+      {
+        id: 'prev-2',
+        unread: false,
+        reason: 'mention',
+        updated_at: '2024-12-27T09:00:00Z',
+        subject: {
+          title: 'Previous notification 2',
+          url: 'https://github.com/test/repo/issues/2',
+          type: 'Issue',
+          number: 2,
+          state: 'open',
+          state_reason: null,
+        },
+        actors: [],
+        ui: { saved: false, done: false },
+      },
+    ];
+
+    await page.evaluate((payload) => {
+      localStorage.setItem('ghnotif_notifications', JSON.stringify(payload));
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
+    }, previousNotifications);
+    await page.reload();
+
+    const page1Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'new-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T11:00:00Z',
+          subject: {
+            title: 'New notification',
+            url: 'https://github.com/test/repo/issues/99',
+            type: 'Issue',
+            number: 99,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+        {
+          id: 'api-1',
+          unread: true,
+          reason: 'author',
+          updated_at: '2024-12-27T10:00:00Z',
+          subject: {
+            title: 'Previous notification 1',
+            url: 'https://github.com/test/repo/issues/1',
+            type: 'Issue',
+            number: 1,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: null,
+        after_cursor: 'cursor123',
+        has_previous: false,
+        has_next: true,
+      },
+    };
+
+    const page2Response = {
+      ...emptyResponse,
+      notifications: [
+        {
+          id: 'api-2',
+          unread: false,
+          reason: 'mention',
+          updated_at: '2024-12-27T09:00:00Z',
+          subject: {
+            title: 'API notification 2',
+            url: 'https://github.com/test/repo/issues/2',
+            type: 'Issue',
+            number: 2,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+        {
+          id: 'api-3',
+          unread: false,
+          reason: 'mention',
+          updated_at: '2024-12-27T08:00:00Z',
+          subject: {
+            title: 'API notification 3',
+            url: 'https://github.com/test/repo/issues/3',
+            type: 'Issue',
+            number: 3,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: { saved: false, done: false },
+        },
+      ],
+      pagination: {
+        before_cursor: 'cursor123',
+        after_cursor: null,
+        has_previous: true,
+        has_next: false,
+      },
+    };
+
+    let requestCount = 0;
+
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      requestCount += 1;
+      const url = route.request().url();
+
+      if (url.includes('after=cursor123')) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page2Response),
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(page1Response),
+        });
+      }
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+    expect(requestCount).toBe(2);
+
+    const stored = await page.evaluate(() => {
+      const data = localStorage.getItem('ghnotif_notifications');
+      return data ? JSON.parse(data) : null;
+    });
+
+    expect(stored.map((notif: { id: string }) => notif.id)).toEqual([
+      'new-1',
+      'api-1',
+      'api-2',
+      'api-3',
+    ]);
+  });
+
   test('notifications persist across page reload', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({

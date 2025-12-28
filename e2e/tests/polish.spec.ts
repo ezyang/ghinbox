@@ -103,7 +103,7 @@ test.describe('Polish', () => {
     test('shows default empty state before sync', async ({ page }) => {
       const emptyState = page.locator('#empty-state');
       await expect(emptyState).toContainText('No notifications');
-      await expect(emptyState).toContainText('Enter a repository and click Sync');
+      await expect(emptyState).toContainText('Enter a repository and click Quick Sync');
     });
 
     test('shows "no open" message when filtered to Open with none', async ({ page }) => {
@@ -220,7 +220,7 @@ test.describe('Polish', () => {
       );
 
       // Re-sync to get more notifications
-      await page.locator('#sync-btn').click();
+      await page.locator('#full-sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced 15 notifications');
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
@@ -266,7 +266,7 @@ test.describe('Polish', () => {
       );
 
       // Re-sync
-      await page.locator('#sync-btn').click();
+      await page.locator('#full-sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced 10 notifications');
 
       // Set up dialog handler to dismiss

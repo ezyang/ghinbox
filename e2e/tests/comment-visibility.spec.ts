@@ -35,6 +35,16 @@ const notificationsResponse = {
   },
 };
 
+const markdownBody = [
+  '**Bold** intro',
+  '',
+  '- item one',
+  '- item two',
+  '',
+  ...Array.from({ length: 40 }, (_, index) => `Line ${index + 1} lorem ipsum.`),
+].join('\n');
+const shortMarkdownBody = '**Short** note.';
+
 test.describe('Comment visibility', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
@@ -84,6 +94,13 @@ test.describe('Comment visibility', () => {
             {
               id: 202,
               user: { login: 'human' },
+              body: '@pytorchbot label feature',
+              created_at: '2025-01-01T01:30:00Z',
+              updated_at: '2025-01-01T01:30:00Z',
+            },
+            {
+              id: 203,
+              user: { login: 'human' },
               body: 'Please take a look at this.',
               created_at: '2025-01-01T02:00:00Z',
               updated_at: '2025-01-01T02:00:00Z',
@@ -108,11 +125,14 @@ test.describe('Comment visibility', () => {
   });
 
   test('hides uninteresting comments when enabled', async ({ page }) => {
-    await expect(page.locator('.comment-item')).toHaveCount(2);
+    await expect(page.locator('.comment-item')).toHaveCount(3);
     await expect(page.locator('.comment-item').nth(0)).toContainText(
       'Bumps deps'
     );
     await expect(page.locator('.comment-item').nth(1)).toContainText(
+      '@pytorchbot label feature'
+    );
+    await expect(page.locator('.comment-item').nth(2)).toContainText(
       'Please take a look at this.'
     );
 
@@ -141,6 +161,126 @@ test.describe('Comment visibility', () => {
     );
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('.notification-item.tombstone')).toHaveCount(1);
+  });
+});
+
+test.describe('Comment body expansion', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/marked.min.js', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: `
+          window.marked = {
+            setOptions: () => {},
+            parse: (text) => {
+              const raw = String(text || '');
+              const escaped = raw
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+              const strong = escaped.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+              return '<p>' + strong.replace(/\\n+/g, '</p><p>') + '</p>';
+            }
+          };
+        `,
+      });
+    });
+
+    await page.route('**/purify.min.js', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: 'window.DOMPurify = { sanitize: (html) => html };',
+      });
+    });
+
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+
+    await page.route('**/github/rest/rate_limit', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rate: { limit: 5000, remaining: 4999, reset: 0 },
+          resources: {},
+        }),
+      });
+    });
+
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(notificationsResponse),
+      });
+    });
+
+    const commentCache = {
+      version: 1,
+      threads: {
+        'thread-1': {
+          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
+          lastReadAt: notificationsResponse.notifications[0].last_read_at,
+          unread: true,
+          allComments: false,
+          fetchedAt: new Date().toISOString(),
+          comments: [
+            {
+              id: 401,
+              user: { login: 'reviewer' },
+              body: markdownBody,
+              created_at: '2025-01-01T01:00:00Z',
+              updated_at: '2025-01-01T01:00:00Z',
+            },
+            {
+              id: 402,
+              user: { login: 'reviewer' },
+              body: shortMarkdownBody,
+              created_at: '2025-01-01T01:10:00Z',
+              updated_at: '2025-01-01T01:10:00Z',
+            },
+          ],
+        },
+      },
+    };
+
+    await page.addInitScript((cache) => {
+      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
+      localStorage.setItem('ghnotif_comment_expand_enabled', 'true');
+      localStorage.setItem('ghnotif_comment_hide_uninteresting', 'false');
+      localStorage.setItem('ghnotif_bulk_comment_cache_v1', JSON.stringify(cache));
+    }, commentCache);
+
+    await page.goto('notifications.html');
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced');
+  });
+
+  test('can expand full comment body when enabled', async ({ page }) => {
+    const longBody = page.locator('.comment-body').first();
+    const shortBody = page.locator('.comment-body').nth(1);
+    const toggleButtons = page.locator('.comment-body-toggle-btn');
+
+    await expect(longBody.locator('strong')).toHaveText('Bold');
+    await expect(shortBody.locator('strong')).toHaveText('Short');
+
+    await expect(toggleButtons.nth(0)).toBeVisible();
+    await expect(toggleButtons.nth(0)).toHaveText('Show more');
+    await expect(toggleButtons.nth(1)).toBeHidden();
+    await expect(longBody).toHaveClass(/collapsed/);
+
+    await toggleButtons.nth(0).click();
+    await expect(longBody).not.toHaveClass(/collapsed/);
+    await expect(toggleButtons.nth(0)).toHaveText('Show less');
   });
 });
 

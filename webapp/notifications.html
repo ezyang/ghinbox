@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bulk Notifications Editor</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.css">
     <style>
         /* CSS Reset and Base Styles */
         *, *::before, *::after {
@@ -37,6 +38,8 @@
             --color-btn-hover-bg: #f3f4f6;
             --color-btn-primary-bg: #1f883d;
             --color-btn-primary-hover-bg: #1a7f37;
+            --comment-body-max-height: 180px;
+            --comment-body-fade-height: 32px;
         }
 
         /* Header */
@@ -157,6 +160,25 @@
             accent-color: var(--color-accent-fg);
         }
 
+        .comment-body-toggle-btn {
+            margin-top: 6px;
+            padding: 2px 6px;
+            font-size: 11px;
+            border-radius: 999px;
+            border: 1px solid var(--color-border-muted);
+            background: var(--color-bg-subtle);
+            color: var(--color-fg-muted);
+            cursor: pointer;
+        }
+
+        .comment-body-toggle-btn:hover {
+            background: var(--color-btn-hover-bg);
+        }
+
+        .comment-body-toggle-btn.is-hidden {
+            display: none;
+        }
+
         .comment-hide {
             display: inline-flex;
             align-items: center;
@@ -194,6 +216,37 @@
             color: var(--color-fg-muted);
             font-size: 11px;
             margin-bottom: 6px;
+        }
+
+        .comment-body {
+            font-size: 12px;
+        }
+
+        .comment-body.markdown-body {
+            padding: 0;
+            background: transparent;
+            color: inherit;
+        }
+
+        .comment-body.collapsed {
+            max-height: var(--comment-body-max-height);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .comment-body.collapsed::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: var(--comment-body-fade-height);
+            background: linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0),
+                var(--color-bg-default)
+            );
+            pointer-events: none;
         }
 
         /* Form elements */
@@ -401,10 +454,6 @@
             position: relative;
         }
 
-        .notification-item.tombstone {
-            visibility: hidden;
-            pointer-events: none;
-        }
 
         /* Type icon */
         .notification-icon {
@@ -797,6 +846,15 @@
             background-color: #c8e6ff;
         }
 
+        .notification-item.keyboard-selected {
+            background-color: #e7f3ff;
+            box-shadow: inset 0 0 0 2px rgba(9, 105, 218, 0.4);
+        }
+
+        .notification-item.keyboard-selected:hover {
+            background-color: #dbeeff;
+        }
+
         /* Select all header */
         .select-all-row {
             display: flex;
@@ -906,8 +964,11 @@
                         aria-label="Repository in owner/repo format"
                     >
                 </div>
-                <button id="sync-btn" class="btn btn-primary">
-                    Sync
+                <button id="sync-btn" class="btn btn-primary" type="button">
+                    Quick Sync
+                </button>
+                <button id="full-sync-btn" class="btn" type="button">
+                    Full Sync
                 </button>
                 <span id="auth-status" class="auth-status">Checking auth...</span>
             </div>
@@ -1066,15 +1127,17 @@
 
             <div id="empty-state" class="empty-state">
                 <h3>No notifications</h3>
-                <p>Enter a repository and click Sync to load notifications.</p>
+                <p>Enter a repository and click Quick Sync to load notifications.</p>
             </div>
 
-            <ul id="notifications-list" class="notifications-list" role="list">
-                <!-- Notifications will be rendered here -->
-            </ul>
-        </section>
-    </main>
+    <ul id="notifications-list" class="notifications-list" role="list">
+        <!-- Notifications will be rendered here -->
+    </ul>
+</section>
+</main>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
     <script>
         const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
         const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1083,6 +1146,7 @@
         const COMMENT_EXPAND_KEY = 'ghnotif_comment_expand_enabled';
         const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
         const TYPE_FILTER_KEY = 'ghnotif_type_filter';
+        const LAST_SYNCED_REPO_KEY = 'ghnotif_last_synced_repo';
 
         // Application state
         const state = {
@@ -1093,10 +1157,10 @@
             filter: 'all', // 'all', 'open', 'closed', 'needs-review', 'approved', 'uninteresting'
             typeFilter: 'all', // 'all', 'issue', 'pull'
             selected: new Set(), // Set of selected notification IDs
+            activeNotificationId: null, // Keyboard selection cursor
             lastClickedId: null, // For shift-click range selection
             markingInProgress: false, // Whether Mark Done is in progress
             markProgress: { current: 0, total: 0 }, // Progress tracking
-            tombstones: new Set(), // Keep done items' height to avoid scroll shifts
             commentPrefetchEnabled: false,
             commentExpandEnabled: false,
             commentHideUninteresting: false,
@@ -1106,12 +1170,15 @@
             rateLimit: null,
             rateLimitError: null,
             currentUserLogin: null,
+            commentBodyExpanded: new Set(),
+            lastSyncedRepo: null,
         };
 
         // DOM elements
         const elements = {
             repoInput: document.getElementById('repo-input'),
             syncBtn: document.getElementById('sync-btn'),
+            fullSyncBtn: document.getElementById('full-sync-btn'),
             authStatus: document.getElementById('auth-status'),
             statusBar: document.getElementById('status-bar'),
             commentPrefetchToggle: document.getElementById('comment-prefetch-toggle'),
@@ -1141,18 +1208,10 @@
             progressText: document.getElementById('progress-text'),
         };
 
-        function isTombstoned(notifId) {
-            return state.tombstones.has(notifId);
-        }
-
-        function getActiveNotifications() {
-            return state.notifications.filter(notif => !isTombstoned(notif.id));
-        }
-
         function persistNotifications() {
             localStorage.setItem(
                 'ghnotif_notifications',
-                JSON.stringify(getActiveNotifications())
+                JSON.stringify(state.notifications)
             );
         }
 
@@ -1202,6 +1261,7 @@
                     console.error('Failed to parse saved notifications:', e);
                 }
             }
+            state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
 
             // Load saved filter from localStorage
             const savedFilter = localStorage.getItem('ghnotif_filter');
@@ -1238,11 +1298,12 @@
             elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
 
             // Set up event listeners
-            elements.syncBtn.addEventListener('click', handleSync);
+            elements.syncBtn.addEventListener('click', () => handleSync({ mode: 'incremental' }));
+            elements.fullSyncBtn.addEventListener('click', () => handleSync({ mode: 'full' }));
             elements.repoInput.addEventListener('input', handleRepoInput);
             elements.repoInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
-                    handleSync();
+                    handleSync({ mode: 'incremental' });
                 }
             });
 
@@ -1380,8 +1441,8 @@
         }
 
         // Get filtered notifications based on current filter
-        function getFilteredNotifications({ includeTombstones = false } = {}) {
-            let filtered = includeTombstones ? state.notifications : getActiveNotifications();
+        function getFilteredNotifications() {
+            let filtered = state.notifications;
             if (state.filter !== 'all') {
                 filtered = filtered.filter(notif => {
                     const notifState = notif.subject.state;
@@ -1413,7 +1474,7 @@
             let needsReview = 0;
             let approved = 0;
             let uninteresting = 0;
-            const typedNotifications = getActiveNotifications().filter(matchesTypeFilter);
+            const typedNotifications = state.notifications.filter(matchesTypeFilter);
             typedNotifications.forEach(notif => {
                 const notifState = notif.subject.state;
                 if (notifState === 'open' || notifState === 'draft') {
@@ -1455,9 +1516,8 @@
             state.commentCache = { version: 1, threads: {} };
             state.commentQueue = [];
             localStorage.removeItem(COMMENT_CACHE_KEY);
-            const activeNotifications = getActiveNotifications();
-            if (state.commentPrefetchEnabled && activeNotifications.length > 0) {
-                scheduleCommentPrefetch(activeNotifications);
+            if (state.commentPrefetchEnabled && state.notifications.length > 0) {
+                scheduleCommentPrefetch(state.notifications);
                 showStatus('Comment cache cleared. Refetching comments...', 'info');
             } else {
                 showStatus('Comment cache cleared.', 'success');
@@ -1518,6 +1578,67 @@
                 return `${repo.owner}/${repo.repo}:${type}:${number}`;
             }
             return `id:${getNotificationKey(notification)}`;
+        }
+
+        function getNotificationDedupKey(notification) {
+            return getNotificationMatchKey(notification) || getNotificationKey(notification);
+        }
+
+        function getUpdatedAtSignature(updatedAt) {
+            const parsed = Date.parse(updatedAt);
+            if (Number.isNaN(parsed)) {
+                return String(updatedAt || '');
+            }
+            return `ms:${parsed}`;
+        }
+
+        function buildPreviousMatchMap(notifications) {
+            const map = new Map();
+            notifications.forEach((notif, index) => {
+                const key = getNotificationMatchKey(notif);
+                if (!key || map.has(key)) {
+                    return;
+                }
+                map.set(key, { updatedAt: getUpdatedAtSignature(notif.updated_at), index });
+            });
+            return map;
+        }
+
+        function findIncrementalOverlapIndex(notifications, previousMatchMap) {
+            for (const notif of notifications) {
+                const key = getNotificationMatchKey(notif);
+                if (!key) {
+                    continue;
+                }
+                const previous = previousMatchMap.get(key);
+                if (previous && previous.updatedAt === getUpdatedAtSignature(notif.updated_at)) {
+                    return previous.index;
+                }
+            }
+            return null;
+        }
+
+        function mergeIncrementalNotifications(newNotifications, previousNotifications, startIndex) {
+            const merged = newNotifications.slice();
+            const seenKeys = new Set();
+            merged.forEach((notif) => {
+                const key = getNotificationDedupKey(notif);
+                if (key) {
+                    seenKeys.add(key);
+                }
+            });
+            for (let i = startIndex; i < previousNotifications.length; i += 1) {
+                const notif = previousNotifications[i];
+                const key = getNotificationDedupKey(notif);
+                if (key && seenKeys.has(key)) {
+                    continue;
+                }
+                merged.push(notif);
+                if (key) {
+                    seenKeys.add(key);
+                }
+            }
+            return merged;
         }
 
         function getRestNotificationMatchKey(notification) {
@@ -1830,14 +1951,31 @@
                 .map((comment) => {
                     const author = comment.user?.login || 'unknown';
                     const timestamp = comment.updated_at || comment.created_at || '';
-                    const body = (comment.body || '').slice(0, 600);
+                    const bodyRaw = comment.body || '';
+                    const commentId = String(comment.id);
+                    const expanded = state.commentBodyExpanded.has(commentId);
+                    const renderedBody = renderMarkdown(bodyRaw);
+                    const bodyClass = expanded
+                        ? 'comment-body markdown-body'
+                        : 'comment-body markdown-body collapsed';
+                    const toggleLabel = expanded ? 'Show less' : 'Show more';
+                    const toggleButton = `
+                        <button
+                            type="button"
+                            class="comment-body-toggle-btn is-hidden"
+                            data-comment-id="${escapeHtml(commentId)}"
+                        >
+                            ${toggleLabel}
+                        </button>
+                    `;
                     return `
                         <li class="comment-item">
                             <div class="comment-meta">
                                 <span>${escapeHtml(author)}</span>
                                 <span>${escapeHtml(new Date(timestamp).toLocaleString())}</span>
                             </div>
-                            <div>${escapeHtml(body)}</div>
+                            <div class="${bodyClass}">${renderedBody}</div>
+                            ${toggleButton}
                         </li>
                     `;
                 })
@@ -1981,8 +2119,14 @@
             if (lines.length === 0) {
                 return false;
             }
+            const commandPattern =
+                '(?:label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|backport|cherry-pick|assign|unassign|cc|triage|priority|kind|lgtm|r\\+)';
             const patterns = [
-                /^\/(label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|backport|cherry-pick|assign|unassign|cc|triage|priority|kind|lgtm|r\+)\b/i,
+                new RegExp(`^/(?:${commandPattern})(?:\\s|$)`, 'i'),
+                new RegExp(
+                    `^@?[\\w-]*bot\\b\\s+(?:${commandPattern})(?:\\s|$)`,
+                    'i'
+                ),
                 /^bors\b/i,
                 /^@?bors\b/i,
                 /^@?homu\b/i,
@@ -2153,8 +2297,12 @@
                 }
             }
 
-            // Tombstone successfully marked notifications to preserve scroll position
-            successfulIds.forEach(id => state.tombstones.add(id));
+            const filteredBeforeRemoval = getFilteredNotifications();
+            const scrollAnchor = captureScrollAnchor(successfulIds, filteredBeforeRemoval);
+            const successfulIdSet = new Set(successfulIds);
+            state.notifications = state.notifications.filter(
+                notif => !successfulIdSet.has(notif.id)
+            );
 
             // Clear selection for successful items
             successfulIds.forEach(id => state.selected.delete(id));
@@ -2185,6 +2333,9 @@
 
             await refreshRateLimit();
             render();
+            requestAnimationFrame(() => {
+                restoreScrollAnchor(scrollAnchor);
+            });
         }
 
         // Sleep helper for delays
@@ -2324,6 +2475,7 @@
             if (state.markingInProgress) return;
 
             button.disabled = true;
+            let scrollAnchor = null;
 
             try {
                 const result = await markNotificationDone(notifId);
@@ -2341,7 +2493,11 @@
                     return;
                 }
 
-                state.tombstones.add(notifId);
+                const filteredBeforeRemoval = getFilteredNotifications();
+                scrollAnchor = captureScrollAnchor([notifId], filteredBeforeRemoval);
+                state.notifications = state.notifications.filter(
+                    n => n.id !== notifId
+                );
                 state.selected.delete(notifId);
                 persistNotifications();
 
@@ -2355,12 +2511,16 @@
 
             await refreshRateLimit();
             render();
+            requestAnimationFrame(() => {
+                restoreScrollAnchor(scrollAnchor);
+            });
         }
 
         async function handleInlineUnsubscribe(notifId, button) {
             if (state.markingInProgress) return;
 
             button.disabled = true;
+            let scrollAnchor = null;
 
             try {
                 const result = await unsubscribeNotification(notifId);
@@ -2378,13 +2538,27 @@
                     return;
                 }
 
+                const markDoneResult = await markNotificationDone(notifId);
+                if (markDoneResult.rateLimited) {
+                    showStatus(
+                        'Unsubscribed, but rate limited when marking as done. Please try again shortly.',
+                        'info'
+                    );
+                } else if (!markDoneResult.success) {
+                    const errorDetail =
+                        markDoneResult.error || `HTTP ${markDoneResult.status || 'unknown'}`;
+                    showStatus(`Unsubscribed, but failed to mark as done: ${errorDetail}`, 'error');
+                } else {
+                    showStatus('Unsubscribed and marked 1 notification as done', 'success');
+                }
+
+                const filteredBeforeRemoval = getFilteredNotifications();
+                scrollAnchor = captureScrollAnchor([notifId], filteredBeforeRemoval);
                 state.notifications = state.notifications.filter(
                     n => n.id !== notifId
                 );
                 state.selected.delete(notifId);
                 persistNotifications();
-
-                showStatus('Unsubscribed from 1 notification', 'success');
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
@@ -2394,13 +2568,174 @@
 
             await refreshRateLimit();
             render();
+            requestAnimationFrame(() => {
+                restoreScrollAnchor(scrollAnchor);
+            });
+        }
+
+        function getSelectableNotifications() {
+            return getFilteredNotifications();
+        }
+
+        function captureScrollAnchor(removedIds, notifications) {
+            if (!removedIds || removedIds.length === 0) {
+                return null;
+            }
+            const removedSet = new Set(removedIds);
+            let lastRemovedIndex = -1;
+            notifications.forEach((notif, index) => {
+                if (removedSet.has(notif.id)) {
+                    lastRemovedIndex = index;
+                }
+            });
+            if (lastRemovedIndex === -1 || lastRemovedIndex + 1 >= notifications.length) {
+                return null;
+            }
+            const anchorId = notifications[lastRemovedIndex + 1].id;
+            const anchorElement = getNotificationElement(anchorId);
+            if (!anchorElement) {
+                return null;
+            }
+            return {
+                id: anchorId,
+                top: anchorElement.getBoundingClientRect().top,
+            };
+        }
+
+        function restoreScrollAnchor(anchor) {
+            if (!anchor) {
+                return;
+            }
+            const anchorElement = getNotificationElement(anchor.id);
+            if (!anchorElement) {
+                return;
+            }
+            const newTop = anchorElement.getBoundingClientRect().top;
+            const delta = newTop - anchor.top;
+            if (delta !== 0) {
+                window.scrollBy(0, delta);
+            }
+        }
+
+        function getNotificationElement(notifId) {
+            return elements.notificationsList.querySelector(
+                `[data-id="${CSS.escape(String(notifId))}"]`
+            );
+        }
+
+        function scrollActiveNotificationIntoView() {
+            if (!state.activeNotificationId) {
+                return;
+            }
+            const item = getNotificationElement(state.activeNotificationId);
+            if (item) {
+                item.scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function setActiveNotification(notifId, { scroll = false } = {}) {
+            if (state.activeNotificationId === notifId) {
+                return;
+            }
+            state.activeNotificationId = notifId;
+            render();
+            if (scroll) {
+                scrollActiveNotificationIntoView();
+            }
+        }
+
+        function moveActiveNotification(delta) {
+            const selectable = getSelectableNotifications();
+            if (selectable.length === 0) {
+                return;
+            }
+            let index = selectable.findIndex(notif => notif.id === state.activeNotificationId);
+            if (index === -1) {
+                index = delta > 0 ? -1 : selectable.length;
+            }
+            const nextIndex = Math.min(
+                selectable.length - 1,
+                Math.max(0, index + delta)
+            );
+            state.activeNotificationId = selectable[nextIndex].id;
+            render();
+            scrollActiveNotificationIntoView();
+        }
+
+        async function triggerActiveNotificationAction(action) {
+            if (!state.activeNotificationId) {
+                return;
+            }
+            const item = getNotificationElement(state.activeNotificationId);
+            if (!item) {
+                return;
+            }
+            if (action === 'done') {
+                const doneButton = item.querySelector('.notification-done-btn');
+                if (doneButton) {
+                    await handleInlineMarkDone(state.activeNotificationId, doneButton);
+                }
+                return;
+            }
+            if (action === 'unsubscribe') {
+                const unsubscribeButton = item.querySelector('.notification-unsubscribe-btn');
+                if (!unsubscribeButton) {
+                    showStatus('Unsubscribe is not available for this notification.', 'info');
+                    return;
+                }
+                await handleInlineUnsubscribe(state.activeNotificationId, unsubscribeButton);
+            }
+        }
+
+        function ensureActiveNotification(filteredNotifications) {
+            if (filteredNotifications.length === 0) {
+                state.activeNotificationId = null;
+                return;
+            }
+            if (!state.activeNotificationId) {
+                return;
+            }
+            const exists = filteredNotifications.some(
+                notif => notif.id === state.activeNotificationId
+            );
+            if (!exists) {
+                state.activeNotificationId = filteredNotifications[0].id;
+            }
         }
 
         // Handle keyboard shortcuts
-        function handleKeyDown(e) {
+        async function handleKeyDown(e) {
             // Don't handle shortcuts when typing in inputs
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            if (
+                e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'TEXTAREA' ||
+                e.target.isContentEditable
+            ) {
                 return;
+            }
+
+            const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+            if (!hasModifier && !e.shiftKey) {
+                if (e.key === 'j') {
+                    moveActiveNotification(1);
+                    e.preventDefault();
+                    return;
+                }
+                if (e.key === 'k') {
+                    moveActiveNotification(-1);
+                    e.preventDefault();
+                    return;
+                }
+                if (e.key === 'e') {
+                    e.preventDefault();
+                    await triggerActiveNotificationAction('done');
+                    return;
+                }
+                if (e.key === 'm') {
+                    e.preventDefault();
+                    await triggerActiveNotificationAction('unsubscribe');
+                    return;
+                }
             }
 
             // Escape: Clear selection
@@ -2425,7 +2760,7 @@
             if (getActiveNotifications().length === 0) {
                 return {
                     title: 'No notifications',
-                    message: 'Enter a repository and click Sync to load notifications.',
+                    message: 'Enter a repository and click Quick Sync to load notifications.',
                 };
             }
 
@@ -2532,10 +2867,13 @@
         }
 
         // Handle sync button click
-        async function handleSync() {
+        async function handleSync({ mode = 'incremental' } = {}) {
             const repo = elements.repoInput.value.trim();
             if (!repo) {
                 showStatus('Please enter a repository (owner/repo)', 'error');
+                return;
+            }
+            if (state.loading) {
                 return;
             }
 
@@ -2549,24 +2887,32 @@
             const [owner, repoName] = parts;
             const previousNotifications = state.notifications.slice();
             const previousSelected = new Set(state.selected);
+            const syncMode = mode === 'full' ? 'full' : 'incremental';
+            const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
+            const previousMatchMap =
+                syncMode === 'incremental' &&
+                previousNotifications.length > 0 &&
+                state.lastSyncedRepo === repo
+                    ? buildPreviousMatchMap(previousNotifications)
+                    : null;
             state.loading = true;
             state.error = null;
             state.notifications = [];
             state.selected.clear();
-            state.tombstones.clear();
             render();
 
-            showStatus('Syncing notifications...', 'info');
+            showStatus(`${syncLabel} in progress...`, 'info');
 
             try {
                 const allNotifications = [];
                 let afterCursor = null;
                 let pageCount = 0;
+                let overlapIndex = null;
 
                 // Fetch all pages
                 do {
                     pageCount++;
-                    showStatus(`Syncing page ${pageCount}...`, 'info');
+                    showStatus(`${syncLabel}: page ${pageCount}...`, 'info');
 
                     let url = `/notifications/html/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`;
                     if (afterCursor) {
@@ -2583,13 +2929,31 @@
                     const data = await response.json();
                     allNotifications.push(...data.notifications);
                     afterCursor = data.pagination.has_next ? data.pagination.after_cursor : null;
+                    if (previousMatchMap && overlapIndex === null) {
+                        overlapIndex = findIncrementalOverlapIndex(
+                            data.notifications,
+                            previousMatchMap
+                        );
+                        if (overlapIndex !== null) {
+                            afterCursor = null;
+                        }
+                    }
                     state.notifications = allNotifications.slice();
                     render();
 
                 } while (afterCursor);
 
+                let mergedNotifications = allNotifications;
+                if (previousMatchMap && overlapIndex !== null) {
+                    mergedNotifications = mergeIncrementalNotifications(
+                        allNotifications,
+                        previousNotifications,
+                        overlapIndex + 1
+                    );
+                }
+
                 // Sort by updated_at descending
-                const sortedNotifications = allNotifications.sort((a, b) =>
+                const sortedNotifications = mergedNotifications.sort((a, b) =>
                     new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
                 );
 
@@ -2600,6 +2964,8 @@
 
                 state.notifications = notifications;
                 state.loading = false;
+                state.lastSyncedRepo = repo;
+                localStorage.setItem(LAST_SYNCED_REPO_KEY, repo);
 
                 // Save to localStorage
                 persistNotifications();
@@ -2745,13 +3111,13 @@
 
             // Get filtered notifications
             const filteredNotifications = getFilteredNotifications();
-            const displayNotifications = getFilteredNotifications({ includeTombstones: true });
+            const displayNotifications = filteredNotifications;
+            ensureActiveNotification(filteredNotifications);
 
             // Show/hide empty state with dynamic message
             const showEmpty =
                 !state.loading &&
-                filteredNotifications.length === 0 &&
-                state.tombstones.size === 0;
+                filteredNotifications.length === 0;
             elements.emptyState.style.display = showEmpty ? 'block' : 'none';
             if (showEmpty) {
                 const emptyMsg = getEmptyStateMessage();
@@ -2837,16 +3203,16 @@
                 displayNotifications.forEach(notif => {
                     const li = document.createElement('li');
                     const isSelected = state.selected.has(notif.id);
-                    const isTombstone = isTombstoned(notif.id);
+                    const isActive = state.activeNotificationId === notif.id;
                     li.className = 'notification-item' +
                         (notif.unread ? ' unread' : '') +
                         (isSelected ? ' selected' : '') +
-                        (isTombstone ? ' tombstone' : '');
+                        (isActive ? ' keyboard-selected' : '');
                     li.setAttribute('data-id', notif.id);
                     li.setAttribute('data-type', notif.subject.type);
                     li.setAttribute('data-state', notif.subject.state || '');
-                    if (isTombstone) {
-                        li.setAttribute('aria-hidden', 'true');
+                    if (isActive) {
+                        li.setAttribute('aria-current', 'true');
                     }
 
                     // Build notification HTML
@@ -2963,34 +3329,103 @@
                         </div>
                     `;
 
-                    if (!isTombstone) {
-                        // Add checkbox click handler
-                        const checkbox = li.querySelector('.notification-checkbox');
-                        checkbox.addEventListener('click', (e) => {
+                    // Add checkbox click handler
+                    const checkbox = li.querySelector('.notification-checkbox');
+                    checkbox.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        handleNotificationCheckbox(notif.id, e);
+                    });
+
+                    const doneButtons = li.querySelectorAll('.notification-done-btn');
+                    doneButtons.forEach((doneBtn) => {
+                        doneBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            handleNotificationCheckbox(notif.id, e);
+                            handleInlineMarkDone(notif.id, doneBtn);
                         });
+                    });
 
-                        const doneButtons = li.querySelectorAll('.notification-done-btn');
-                        doneButtons.forEach((doneBtn) => {
-                            doneBtn.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                handleInlineMarkDone(notif.id, doneBtn);
-                            });
+                    const unsubscribeButtons = li.querySelectorAll('.notification-unsubscribe-btn');
+                    unsubscribeButtons.forEach((unsubscribeBtn) => {
+                        unsubscribeBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            handleInlineUnsubscribe(notif.id, unsubscribeBtn);
                         });
+                    });
 
-                        const unsubscribeButtons = li.querySelectorAll('.notification-unsubscribe-btn');
-                        unsubscribeButtons.forEach((unsubscribeBtn) => {
-                            unsubscribeBtn.addEventListener('click', (e) => {
-                                e.stopPropagation();
-                                handleInlineUnsubscribe(notif.id, unsubscribeBtn);
-                            });
+                    const commentToggleButtons = li.querySelectorAll('.comment-body-toggle-btn');
+                    commentToggleButtons.forEach((toggleBtn) => {
+                        toggleBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const commentId = toggleBtn.dataset.commentId;
+                            if (!commentId) {
+                                return;
+                            }
+                            if (state.commentBodyExpanded.has(commentId)) {
+                                state.commentBodyExpanded.delete(commentId);
+                            } else {
+                                state.commentBodyExpanded.add(commentId);
+                            }
+                            render();
                         });
-                    }
+                    });
+
+                    li.addEventListener('click', () => {
+                        setActiveNotification(notif.id);
+                    });
 
                     elements.notificationsList.appendChild(li);
+                    updateCommentOverflowControls(li);
                 });
             }
+        }
+
+        let markdownConfigured = false;
+        let commentBodyMaxHeight = null;
+
+        function getCommentBodyMaxHeight() {
+            if (commentBodyMaxHeight !== null) {
+                return commentBodyMaxHeight;
+            }
+            const value = getComputedStyle(document.documentElement)
+                .getPropertyValue('--comment-body-max-height');
+            const parsed = parseFloat(value);
+            commentBodyMaxHeight = Number.isFinite(parsed) ? parsed : 180;
+            return commentBodyMaxHeight;
+        }
+
+        function renderMarkdown(text) {
+            if (!window.marked || !window.DOMPurify) {
+                return escapeHtml(String(text || ''));
+            }
+            if (!markdownConfigured) {
+                window.marked.setOptions({
+                    gfm: true,
+                    breaks: true,
+                    mangle: false,
+                    headerIds: false,
+                });
+                markdownConfigured = true;
+            }
+            return window.DOMPurify.sanitize(window.marked.parse(String(text || '')));
+        }
+
+        function updateCommentOverflowControls(container) {
+            const maxHeight = getCommentBodyMaxHeight();
+            const items = container.querySelectorAll('.comment-item');
+            items.forEach((item) => {
+                const toggleBtn = item.querySelector('.comment-body-toggle-btn');
+                const body = item.querySelector('.comment-body');
+                if (!toggleBtn || !body) {
+                    return;
+                }
+                const commentId = toggleBtn.dataset.commentId || '';
+                const expanded = commentId && state.commentBodyExpanded.has(commentId);
+                body.classList.toggle('collapsed', !expanded);
+                const needsToggle = body.scrollHeight > maxHeight + 1;
+                toggleBtn.classList.toggle('is-hidden', !needsToggle && !expanded);
+                toggleBtn.textContent = expanded ? 'Show less' : 'Show more';
+                toggleBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            });
         }
 
         // Escape HTML to prevent XSS
