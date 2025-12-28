@@ -26,6 +26,8 @@
             currentUserLogin: null,
             commentBodyExpanded: new Set(),
             lastSyncedRepo: null,
+            // Keyboard navigation
+            lastGKeyTime: 0, // For vim-style 'gg' sequence
             // Undo support
             authenticity_token: null, // CSRF token for HTML form actions
             undoStack: [], // Stack of {action, notifications, timestamp}
@@ -61,9 +63,12 @@
             selectAllCheckbox: document.getElementById('select-all-checkbox'),
             selectionCount: document.getElementById('selection-count'),
             markDoneBtn: document.getElementById('mark-done-btn'),
+            unsubscribeAllBtn: document.getElementById('unsubscribe-all-btn'),
             progressContainer: document.getElementById('progress-container'),
             progressBarFill: document.getElementById('progress-bar-fill'),
             progressText: document.getElementById('progress-text'),
+            keyboardShortcutsOverlay: document.getElementById('keyboard-shortcuts-overlay'),
+            keyboardShortcutsClose: document.getElementById('keyboard-shortcuts-close'),
         };
 
         function persistNotifications() {
@@ -171,8 +176,20 @@
             // Mark Done button handler
             elements.markDoneBtn.addEventListener('click', handleMarkDone);
 
+            // Unsubscribe All button handler
+            elements.unsubscribeAllBtn.addEventListener('click', handleUnsubscribeAll);
+
             // Keyboard shortcuts
             document.addEventListener('keydown', handleKeyDown);
+
+            // Keyboard shortcuts overlay handlers
+            elements.keyboardShortcutsClose.addEventListener('click', hideKeyboardShortcutsOverlay);
+            elements.keyboardShortcutsOverlay.addEventListener('click', (e) => {
+                // Close when clicking the backdrop (not the modal itself)
+                if (e.target === elements.keyboardShortcutsOverlay) {
+                    hideKeyboardShortcutsOverlay();
+                }
+            });
 
             // Check auth status
             checkAuth();
@@ -707,6 +724,20 @@
             };
         }
 
+        function getUnsubscribeAllTargets(filteredNotifications = getFilteredNotifications()) {
+            // Only show when nothing is selected and we're in the approved filter
+            if (state.selected.size > 0) {
+                return { ids: [], show: false };
+            }
+            if (state.filter === 'approved' && filteredNotifications.length > 0) {
+                return {
+                    ids: filteredNotifications.map((notif) => notif.id),
+                    show: true,
+                };
+            }
+            return { ids: [], show: false };
+        }
+
         async function handleMarkDone() {
             if (state.markingInProgress) return;
 
@@ -819,6 +850,129 @@
 
             if (notificationsToRestore.length > 0) {
                 pushToUndoStack('done', notificationsToRestore);
+            }
+
+            await refreshRateLimit();
+            render();
+            requestAnimationFrame(() => {
+                restoreScrollAnchor(scrollAnchor);
+            });
+        }
+
+        async function handleUnsubscribeAll() {
+            if (state.markingInProgress) return;
+
+            const filteredNotifications = getFilteredNotifications();
+            const { ids, show } = getUnsubscribeAllTargets(filteredNotifications);
+            if (!show || ids.length === 0) return;
+
+            const selectedIds = ids;
+            const notificationLookup = new Map(
+                state.notifications.map(notification => [notification.id, notification])
+            );
+
+            // Confirm before unsubscribing
+            if (selectedIds.length >= 3) {
+                const confirmed = confirm(
+                    `Are you sure you want to unsubscribe from ${selectedIds.length} notifications?`
+                );
+                if (!confirmed) return;
+            }
+
+            state.markingInProgress = true;
+            state.markProgress = { current: 0, total: selectedIds.length };
+
+            // Disable UI during operation
+            elements.unsubscribeAllBtn.disabled = true;
+            elements.selectAllCheckbox.disabled = true;
+            render();
+
+            const successfulIds = [];
+            const failedResults = [];
+            let rateLimitDelay = 0;
+
+            for (let i = 0; i < selectedIds.length; i++) {
+                const notifId = selectedIds[i];
+                state.markProgress.current = i + 1;
+                render();
+
+                if (rateLimitDelay > 0) {
+                    await sleep(rateLimitDelay);
+                    rateLimitDelay = 0;
+                }
+
+                try {
+                    const result = await unsubscribeNotification(notifId);
+
+                    if (result.rateLimited) {
+                        rateLimitDelay = result.retryAfter || 60000;
+                        showStatus(`Rate limited. Waiting ${Math.ceil(rateLimitDelay / 1000)}s...`, 'info');
+                        i--;
+                        continue;
+                    }
+
+                    if (result.success) {
+                        // Also mark as done after unsubscribing
+                        const markDoneResult = await markNotificationDone(notifId);
+                        if (markDoneResult.rateLimited) {
+                            rateLimitDelay = markDoneResult.retryAfter || 60000;
+                            showStatus(`Rate limited. Waiting ${Math.ceil(rateLimitDelay / 1000)}s...`, 'info');
+                        }
+                        successfulIds.push(notifId);
+                    } else {
+                        const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
+                        console.error(`[UnsubscribeAll] Failed for ${notifId}:`, errorDetail);
+                        failedResults.push({ id: notifId, error: errorDetail });
+                    }
+                } catch (e) {
+                    const errorDetail = e.message || String(e);
+                    console.error(`[UnsubscribeAll] Exception for ${notifId}:`, e);
+                    failedResults.push({ id: notifId, error: errorDetail });
+                }
+
+                // Small delay between requests to avoid rate limiting
+                if (i < selectedIds.length - 1) {
+                    await sleep(100);
+                }
+            }
+
+            const filteredBeforeRemoval = getFilteredNotifications();
+            const scrollAnchor = captureScrollAnchor(successfulIds, filteredBeforeRemoval);
+            const successfulIdSet = new Set(successfulIds);
+            const notificationsToRestore = successfulIds
+                .map(id => notificationLookup.get(id))
+                .filter(Boolean);
+            state.notifications = state.notifications.filter(
+                notif => !successfulIdSet.has(notif.id)
+            );
+
+            // Clear selection for successful items
+            successfulIds.forEach(id => state.selected.delete(id));
+
+            // Update localStorage
+            persistNotifications();
+
+            // Reset marking state
+            state.markingInProgress = false;
+            state.markProgress = { current: 0, total: 0 };
+            elements.unsubscribeAllBtn.disabled = false;
+            elements.selectAllCheckbox.disabled = false;
+
+            // Show result message with details
+            if (failedResults.length === 0) {
+                showStatus(`Unsubscribed from ${successfulIds.length} notification${successfulIds.length !== 1 ? 's' : ''}`, 'success');
+            } else if (successfulIds.length === 0) {
+                const firstError = failedResults[0].error;
+                showStatus(`Failed to unsubscribe: ${firstError}`, 'error');
+                console.error('[UnsubscribeAll] All failed. Errors:', failedResults);
+            } else {
+                const firstError = failedResults[0].error;
+                showStatus(`Unsubscribed from ${successfulIds.length}, ${failedResults.length} failed: ${firstError}`, 'error');
+                console.error('[UnsubscribeAll] Partial failure. Errors:', failedResults);
+            }
+
+            if (notificationsToRestore.length > 0) {
+                pushToUndoStack('unsubscribe', notificationsToRestore);
             }
 
             await refreshRateLimit();
@@ -1256,8 +1410,8 @@
             if (state.activeNotificationId === notifId) {
                 return;
             }
+            updateActiveNotificationClass(state.activeNotificationId, notifId);
             state.activeNotificationId = notifId;
-            render();
             if (scroll) {
                 scrollActiveNotificationIntoView();
             }
@@ -1276,9 +1430,57 @@
                 selectable.length - 1,
                 Math.max(0, index + delta)
             );
-            state.activeNotificationId = selectable[nextIndex].id;
-            render();
+            const newActiveId = selectable[nextIndex].id;
+            updateActiveNotificationClass(state.activeNotificationId, newActiveId);
+            state.activeNotificationId = newActiveId;
             scrollActiveNotificationIntoView();
+        }
+
+        // Update keyboard-selected class directly on DOM elements without full re-render
+        function updateActiveNotificationClass(oldId, newId) {
+            if (oldId === newId) {
+                return;
+            }
+            if (oldId) {
+                const oldItem = getNotificationElement(oldId);
+                if (oldItem) {
+                    oldItem.classList.remove('keyboard-selected');
+                    oldItem.removeAttribute('aria-current');
+                }
+            }
+            if (newId) {
+                const newItem = getNotificationElement(newId);
+                if (newItem) {
+                    newItem.classList.add('keyboard-selected');
+                    newItem.setAttribute('aria-current', 'true');
+                }
+            }
+        }
+
+        function smoothScrollTo(targetY, duration = 150) {
+            const startY = window.scrollY;
+            const distance = targetY - startY;
+            const startTime = performance.now();
+
+            function step(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                // Ease-out cubic for smooth deceleration
+                const eased = 1 - Math.pow(1 - progress, 3);
+                window.scrollTo(0, startY + distance * eased);
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                }
+            }
+            requestAnimationFrame(step);
+        }
+
+        function scrollToTop() {
+            smoothScrollTo(0);
+        }
+
+        function scrollToBottom() {
+            smoothScrollTo(document.body.scrollHeight);
         }
 
         async function triggerActiveNotificationAction(action) {
@@ -1365,6 +1567,19 @@
                     e.preventDefault();
                     return;
                 }
+                if (e.key === 'g') {
+                    const now = Date.now();
+                    if (now - state.lastGKeyTime < 500) {
+                        // gg - scroll to top
+                        scrollToTop();
+                        state.lastGKeyTime = 0;
+                        e.preventDefault();
+                        return;
+                    }
+                    state.lastGKeyTime = now;
+                    e.preventDefault();
+                    return;
+                }
                 if (e.key === 'e') {
                     e.preventDefault();
                     await triggerActiveNotificationAction('done');
@@ -1385,6 +1600,14 @@
                     handleUndo();
                     return;
                 }
+                if (e.key === 't') {
+                    if (state.activeNotificationId) {
+                        e.preventDefault();
+                        toggleSelection(state.activeNotificationId);
+                        render();
+                    }
+                    return;
+                }
                 if (e.key === 'Enter') {
                     const item = getNotificationElement(state.activeNotificationId);
                     const link = item?.querySelector('.notification-title');
@@ -1396,10 +1619,32 @@
                 }
             }
 
-            // Escape: Clear selection
-            if (e.key === 'Escape' && state.selected.size > 0) {
-                clearSelection();
+            // G (shift+g) - scroll to bottom
+            if (!hasModifier && e.shiftKey && e.key === 'G') {
+                scrollToBottom();
                 e.preventDefault();
+                return;
+            }
+
+            // ? (shift+/) - show keyboard shortcuts help
+            if (!hasModifier && e.key === '?') {
+                showKeyboardShortcutsOverlay();
+                e.preventDefault();
+                return;
+            }
+
+            // Escape: Close keyboard shortcuts overlay first, then clear selection
+            if (e.key === 'Escape') {
+                if (isKeyboardShortcutsOverlayOpen()) {
+                    hideKeyboardShortcutsOverlay();
+                    e.preventDefault();
+                    return;
+                }
+                if (state.selected.size > 0) {
+                    clearSelection();
+                    e.preventDefault();
+                }
+                return;
             }
 
             // Ctrl/Cmd + A: Select all (when notifications exist)
@@ -1411,6 +1656,19 @@
                     render();
                 }
             }
+        }
+
+        // Keyboard shortcuts overlay functions
+        function isKeyboardShortcutsOverlayOpen() {
+            return elements.keyboardShortcutsOverlay.classList.contains('visible');
+        }
+
+        function showKeyboardShortcutsOverlay() {
+            elements.keyboardShortcutsOverlay.classList.add('visible');
+        }
+
+        function hideKeyboardShortcutsOverlay() {
+            elements.keyboardShortcutsOverlay.classList.remove('visible');
         }
 
         // Get appropriate empty state message
@@ -1726,7 +1984,7 @@
             commit: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>`,
             release: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>`,
             check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
-            bellOff: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.61 1.11a.75.75 0 0 1 1.06 0l10.22 10.22a.75.75 0 1 1-1.06 1.06l-2.02-2.02H2.5a.75.75 0 0 1 0-1.5h1.09L1.1 3.4a.75.75 0 0 1 0-1.06l2.5-2.5Zm3.64 3.64L5.98 3.48 3.4 6.06 4.67 7.33a2.75 2.75 0 0 0 2.58 1.54h1.58l-1.58-1.58Zm3.61 3.61 1.54 1.54a2.75 2.75 0 0 0 .89-2.04V6a3.5 3.5 0 0 0-3-3.46V2a1.5 1.5 0 0 0-3 0v.54a3.49 3.49 0 0 0-1.55.73l1.1 1.1a2 2 0 0 1 3.69 1.1v1.33l1.33 1.33Zm-1.68 4.16a2 2 0 0 1-3.36 0h3.36Z"></path></svg>`,
+            bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
         };
 
         // Get icon for notification type and state
@@ -1903,6 +2161,9 @@
                 if (markDoneState.show) {
                     elements.markDoneBtn.textContent = markDoneState.label;
                 }
+
+                const unsubscribeAllState = getUnsubscribeAllTargets(filteredNotifications);
+                elements.unsubscribeAllBtn.style.display = unsubscribeAllState.show ? 'inline-block' : 'none';
             }
 
             // Update progress bar
@@ -1952,35 +2213,30 @@
                     const commentList = commentItems
                         ? `<ul class="comment-list">${commentItems}</ul>`
                         : '';
-                    const bottomUnsubscribeButton = `
-                        <button
-                            type="button"
-                            class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
-                            aria-label="Unsubscribe from notification"
-                            ${state.markingInProgress ? 'disabled' : ''}
-                        >
-                            ${icons.bellOff}
-                            <span>Unsubscribe</span>
-                        </button>
-                    `;
-                    const bottomActions = `
-                        <div class="notification-actions-bottom">
-                            ${bottomUnsubscribeButton}
-                            ${commentItems
-                                ? `
-                                    <button
-                                        type="button"
-                                        class="notification-done-btn notification-done-btn-bottom"
-                                        aria-label="Mark notification as done"
-                                        ${state.markingInProgress ? 'disabled' : ''}
-                                    >
-                                        ${icons.check}
-                                        <span>Done</span>
-                                    </button>
-                                `
-                                : ''}
-                        </div>
-                    `;
+                    const bottomActions = commentItems
+                        ? `
+                            <div class="notification-actions-bottom">
+                                <button
+                                    type="button"
+                                    class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
+                                    aria-label="Unsubscribe from notification"
+                                    ${state.markingInProgress ? 'disabled' : ''}
+                                >
+                                    ${icons.bellSlash}
+                                    <span>Unsubscribe</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    class="notification-done-btn notification-done-btn-bottom"
+                                    aria-label="Mark notification as done"
+                                    ${state.markingInProgress ? 'disabled' : ''}
+                                >
+                                    ${icons.check}
+                                    <span>Done</span>
+                                </button>
+                            </div>
+                        `
+                        : '';
                     const doneButton = `
                         <button
                             type="button"
@@ -1998,7 +2254,7 @@
                             aria-label="Unsubscribe from notification"
                             ${state.markingInProgress ? 'disabled' : ''}
                         >
-                            ${icons.bellOff}
+                            ${icons.bellSlash}
                         </button>
                     `;
 
@@ -2041,8 +2297,8 @@
                             <time class="notification-time" datetime="${notif.updated_at}" title="${new Date(notif.updated_at).toLocaleString()}">
                                 ${relativeTime}
                             </time>
-                            ${unsubscribeButton}
                             ${doneButton}
+                            ${unsubscribeButton}
                         </div>
                     `;
 

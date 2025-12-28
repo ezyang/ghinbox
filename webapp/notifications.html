@@ -178,6 +178,9 @@
                 <button id="mark-done-btn" class="btn btn-danger" style="display: none;">
                     Mark selected as Done
                 </button>
+                <button id="unsubscribe-all-btn" class="btn btn-danger" style="display: none;">
+                    Unsubscribe from all
+                </button>
             </div>
 
             <div id="progress-container" class="progress-container">
@@ -201,6 +204,86 @@
     </ul>
 </section>
 </main>
+
+    <!-- Keyboard Shortcuts Help Overlay -->
+    <div id="keyboard-shortcuts-overlay" class="keyboard-shortcuts-overlay" role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title">
+        <div class="keyboard-shortcuts-modal">
+            <div class="keyboard-shortcuts-header">
+                <h3 id="keyboard-shortcuts-title">Keyboard Shortcuts</h3>
+                <button class="keyboard-shortcuts-close" aria-label="Close" id="keyboard-shortcuts-close">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="keyboard-shortcuts-content">
+                <div class="keyboard-shortcuts-section">
+                    <h4>Navigation</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Move down</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">j</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Move up</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">k</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Scroll to top</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">g</kbd><kbd class="keyboard-shortcut-key">g</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Scroll to bottom</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">G</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Open notification</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Enter</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Actions</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Mark as done</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">e</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Unsubscribe</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">m</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Undo last action</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">u</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Reload page</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">r</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Selection</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Toggle selection</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">t</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Select all</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Ctrl</kbd><kbd class="keyboard-shortcut-key">a</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Clear selection</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Esc</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Help</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Show this help</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">?</kbd></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>

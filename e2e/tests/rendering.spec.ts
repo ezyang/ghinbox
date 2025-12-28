@@ -221,14 +221,14 @@ test.describe('Notification Rendering', () => {
       await expect(mergedItem).toHaveAttribute('data-state', 'merged');
     });
 
-    test('notification shows unsubscribe buttons on top and bottom', async ({ page }) => {
+    test('notification shows inline unsubscribe button (bottom only appears when comments expanded)', async ({
+      page,
+    }) => {
       const totalNotifications = testNotifications.notifications.length;
-      await expect(page.locator('.notification-unsubscribe-btn')).toHaveCount(
-        totalNotifications * 2
-      );
-      await expect(page.locator('.notification-unsubscribe-btn-bottom')).toHaveCount(
-        totalNotifications
-      );
+      // Without comments expanded, only inline unsubscribe buttons are shown
+      await expect(page.locator('.notification-unsubscribe-btn')).toHaveCount(totalNotifications);
+      // Bottom unsubscribe buttons only appear when comments are expanded
+      await expect(page.locator('.notification-unsubscribe-btn-bottom')).toHaveCount(0);
     });
   });
 

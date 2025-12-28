@@ -197,4 +197,73 @@ test.describe('Triage queues', () => {
     expect(unsubscribeCalled).toBe(true);
     expect(markDoneCalled).toBe(true);
   });
+
+  test('approved queue shows Unsubscribe All button when nothing is selected', async ({
+    page,
+  }) => {
+    await page.locator('#filter-approved').click();
+    await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
+
+    // Button should be visible when nothing is selected
+    const unsubscribeAllBtn = page.locator('#unsubscribe-all-btn');
+    await expect(unsubscribeAllBtn).toBeVisible();
+    await expect(unsubscribeAllBtn).toHaveText('Unsubscribe from all');
+
+    // Button should be hidden when an item is selected
+    await page.locator('[data-id="thread-pr-2"] .notification-checkbox').click();
+    await expect(unsubscribeAllBtn).not.toBeVisible();
+
+    // Button reappears when selection is cleared
+    await page.locator('[data-id="thread-pr-2"] .notification-checkbox').click();
+    await expect(unsubscribeAllBtn).toBeVisible();
+  });
+
+  test('Unsubscribe All button unsubscribes all approved notifications', async ({ page }) => {
+    let unsubscribeCalled = false;
+    let markDoneCalled = false;
+    await page.route(
+      '**/github/rest/notifications/threads/thread-pr-2/subscription',
+      (route) => {
+        unsubscribeCalled = route.request().method() === 'DELETE';
+        route.fulfill({ status: 204, body: '' });
+      }
+    );
+    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
+      markDoneCalled = route.request().method() === 'DELETE';
+      route.fulfill({ status: 204, body: '' });
+    });
+
+    await page.locator('#filter-approved').click();
+    await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
+
+    await page.locator('#unsubscribe-all-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Unsubscribed from 1 notification');
+    await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
+    expect(unsubscribeCalled).toBe(true);
+    expect(markDoneCalled).toBe(true);
+  });
+
+  test('Unsubscribe All button is not visible in non-approved filters', async ({ page }) => {
+    const unsubscribeAllBtn = page.locator('#unsubscribe-all-btn');
+
+    // Not visible in All tab
+    await expect(unsubscribeAllBtn).not.toBeVisible();
+
+    // Not visible in Open tab
+    await page.locator('#filter-open').click();
+    await expect(unsubscribeAllBtn).not.toBeVisible();
+
+    // Not visible in Closed tab
+    await page.locator('#filter-closed').click();
+    await expect(unsubscribeAllBtn).not.toBeVisible();
+
+    // Not visible in Needs Review tab
+    await page.locator('#filter-needs-review').click();
+    await expect(unsubscribeAllBtn).not.toBeVisible();
+
+    // Visible in Approved tab
+    await page.locator('#filter-approved').click();
+    await expect(unsubscribeAllBtn).toBeVisible();
+  });
 });
