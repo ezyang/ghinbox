@@ -278,7 +278,9 @@ class TestEmptyPage:
 class TestExtractAuthenticityToken:
     """Tests for extracting authenticity_token from HTML."""
 
-    def test_extracts_token_from_fixture(self, notification_before_done_html: str) -> None:
+    def test_extracts_token_from_fixture(
+        self, notification_before_done_html: str
+    ) -> None:
         """Test that token is extracted from real fixture."""
         token = extract_authenticity_token(notification_before_done_html)
 
@@ -299,7 +301,9 @@ class TestExtractAuthenticityToken:
         """
         token_before = extract_authenticity_token(notification_before_done_html)
 
-        notification_after_done_html = (FIXTURES_DIR / "notification_after_done.html").read_text()
+        notification_after_done_html = (
+            FIXTURES_DIR / "notification_after_done.html"
+        ).read_text()
         token_after = extract_authenticity_token(notification_after_done_html)
 
         assert token_before is not None
@@ -314,12 +318,12 @@ class TestExtractAuthenticityToken:
 
     def test_returns_none_for_form_without_token(self) -> None:
         """Test returns None when form lacks authenticity_token input."""
-        html = '''
+        html = """
         <html><body>
         <form action="/notifications/beta/archive" method="post">
             <button type="submit">Submit</button>
         </form>
         </body></html>
-        '''
+        """
         token = extract_authenticity_token(html)
         assert token is None
