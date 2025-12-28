@@ -47,46 +47,6 @@ test.describe('Undo', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
   });
 
-  test.describe('Undo Banner', () => {
-    test('undo banner appears after marking done', async ({ page }) => {
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-
-      await expect(page.locator('#status-bar')).toContainText('Marked 1 notification as done');
-      await expect(page.locator('#undo-banner')).toBeVisible();
-      await expect(page.locator('#undo-banner-text')).toContainText('Marked as done 1 notification');
-    });
-
-    test('undo banner shows keyboard hint', async ({ page }) => {
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-
-      await expect(page.locator('#undo-banner .undo-hint')).toContainText('Press');
-      await expect(page.locator('#undo-banner kbd')).toContainText('u');
-    });
-
-    test('undo banner can be dismissed with close button', async ({ page }) => {
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-
-      await expect(page.locator('#undo-banner')).toBeVisible();
-
-      await page.locator('#undo-banner-close').click();
-
-      await expect(page.locator('#undo-banner')).not.toBeVisible();
-    });
-
-    test('undo banner appears after unsubscribe', async ({ page }) => {
-      // Mock unsubscribe API
-      await page.route('**/github/rest/notifications/threads/*/subscription', (route) => {
-        route.fulfill({ status: 204 });
-      });
-
-      await page.locator('[data-id="notif-1"] .notification-unsubscribe-btn').first().click();
-
-      await expect(page.locator('#status-bar')).toContainText('Unsubscribed');
-      await expect(page.locator('#undo-banner')).toBeVisible();
-      await expect(page.locator('#undo-banner-text')).toContainText('Unsubscribed 1 notification');
-    });
-  });
-
   test.describe('Undo via Keyboard', () => {
     test('pressing u triggers undo', async ({ page }) => {
       // Mock the undo action endpoint
@@ -107,7 +67,6 @@ test.describe('Undo', () => {
       // Mark as done
       await page.locator('[data-id="notif-1"] .notification-done-btn').click();
       await expect(page.locator('.notification-item')).toHaveCount(4);
-      await expect(page.locator('#undo-banner')).toBeVisible();
 
       // Press u to undo
       await page.keyboard.press('u');
@@ -115,7 +74,6 @@ test.describe('Undo', () => {
       // Notification should be restored
       await expect(page.locator('#status-bar')).toContainText('Undo successful');
       await expect(page.locator('.notification-item')).toHaveCount(5);
-      await expect(page.locator('#undo-banner')).not.toBeVisible();
     });
 
     test('pressing u does nothing when no undo available', async ({ page }) => {
@@ -128,14 +86,14 @@ test.describe('Undo', () => {
 
     test('u key is ignored when typing in input', async ({ page }) => {
       await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
       // Focus on repo input and type 'u'
       await page.locator('#repo-input').focus();
       await page.keyboard.press('u');
 
-      // Undo should NOT be triggered (banner still visible)
-      await expect(page.locator('#undo-banner')).toBeVisible();
+      // Undo should NOT be triggered
+      await expect(page.locator('.notification-item')).toHaveCount(4);
     });
   });
 
@@ -157,7 +115,6 @@ test.describe('Undo', () => {
       });
 
       await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
       await page.keyboard.press('u');
 
       await expect(page.locator('#status-bar')).toContainText('Undo successful');
@@ -185,7 +142,6 @@ test.describe('Undo', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('[data-id="notif-2"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
 
       await page.keyboard.press('u');
 
@@ -219,7 +175,6 @@ test.describe('Undo', () => {
       });
 
       await page.locator('[data-id="notif-1"] .notification-unsubscribe-btn').first().click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
 
       await page.keyboard.press('u');
 
@@ -239,13 +194,10 @@ test.describe('Undo', () => {
       });
 
       await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
       await page.keyboard.press('u');
 
       await expect(page.locator('#status-bar')).toContainText('Undo failed');
       await expect(page.locator('#status-bar')).toContainText('Token expired');
-      // Banner should reappear so user can retry
-      await expect(page.locator('#undo-banner')).toBeVisible();
     });
   });
 
@@ -277,18 +229,6 @@ test.describe('Undo', () => {
       await expect(page.locator('.notification-item')).toHaveCount(4);
     });
 
-    test('dismissing banner clears undo stack', async ({ page }) => {
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
-      await expect(page.locator('#undo-banner')).toBeVisible();
-
-      // Dismiss the banner
-      await page.locator('#undo-banner-close').click();
-      await expect(page.locator('#undo-banner')).not.toBeVisible();
-
-      // Undo should do nothing
-      await page.keyboard.press('u');
-      await expect(page.locator('.notification-item')).toHaveCount(4);
-    });
   });
 
   test.describe('Notification Restoration', () => {

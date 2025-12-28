@@ -64,9 +64,6 @@
             progressContainer: document.getElementById('progress-container'),
             progressBarFill: document.getElementById('progress-bar-fill'),
             progressText: document.getElementById('progress-text'),
-            undoBanner: document.getElementById('undo-banner'),
-            undoBannerText: document.getElementById('undo-banner-text'),
-            undoBannerClose: document.getElementById('undo-banner-close'),
         };
 
         function persistNotifications() {
@@ -173,9 +170,6 @@
 
             // Mark Done button handler
             elements.markDoneBtn.addEventListener('click', handleMarkDone);
-
-            // Undo banner close handler
-            elements.undoBannerClose.addEventListener('click', hideUndoBanner);
 
             // Keyboard shortcuts
             document.addEventListener('keydown', handleKeyDown);
@@ -825,7 +819,6 @@
 
             if (notificationsToRestore.length > 0) {
                 pushToUndoStack('done', notificationsToRestore);
-                showUndoBanner('done', notificationsToRestore.length);
             }
 
             await refreshRateLimit();
@@ -1002,10 +995,9 @@
                 state.selected.delete(notifId);
                 persistNotifications();
 
-                // Save for undo and show banner
+                // Save for undo
                 if (notificationToRemove) {
                     pushToUndoStack('done', [notificationToRemove]);
-                    showUndoBanner('done', 1);
                 }
                 showStatus('Marked 1 notification as done', 'success');
             } catch (e) {
@@ -1070,10 +1062,9 @@
                 state.selected.delete(notifId);
                 persistNotifications();
 
-                // Save for undo and show banner
+                // Save for undo
                 if (notificationToRemove) {
                     pushToUndoStack('unsubscribe', [notificationToRemove]);
-                    showUndoBanner('unsubscribe', 1);
                 }
             } catch (e) {
                 const errorDetail = e.message || String(e);
@@ -1089,18 +1080,9 @@
             });
         }
 
-        // Undo support functions
-        function showUndoBanner(action, count = 1) {
-            const actionText = action === 'done' ? 'Marked as done' : 'Unsubscribed';
-            const countText = count > 1 ? `${count} notifications` : '1 notification';
-            elements.undoBannerText.textContent = `${actionText} ${countText}.`;
-            elements.undoBanner.style.display = 'flex';
-        }
-
-        function hideUndoBanner() {
-            elements.undoBanner.style.display = 'none';
-            // Clear undo stack when banner is dismissed
+        function clearUndoState() {
             state.undoStack = [];
+            state.undoInProgress = false;
         }
 
         function pushToUndoStack(action, notifications) {
@@ -1135,19 +1117,16 @@
             const elapsed = Date.now() - undoItem.timestamp;
             if (elapsed > 30000) {
                 showStatus('Undo expired. Actions can only be undone within 30 seconds.', 'info');
-                hideUndoBanner();
                 return;
             }
 
             // Check if we have a token
             if (!state.authenticity_token) {
                 showStatus('Cannot undo: no authenticity token available. Try syncing first.', 'error');
-                hideUndoBanner();
                 return;
             }
 
             state.undoInProgress = true;
-            hideUndoBanner();
 
             try {
                 const action = undoItem.action === 'done' ? 'unarchive' : 'subscribe';
@@ -1200,7 +1179,6 @@
                 showStatus(`Undo failed: ${errorDetail}`, 'error');
                 // Put the item back on the stack so user can retry
                 state.undoStack.push(undoItem);
-                showUndoBanner(undoItem.action, undoItem.notifications.length);
             } finally {
                 state.undoInProgress = false;
             }
@@ -1580,7 +1558,7 @@
             state.notifications = [];
             state.selected.clear();
             state.authenticity_token = null;
-            hideUndoBanner();
+            clearUndoState();
             render();
 
             showStatus(`${syncLabel} starting for ${repo}...`, 'info', { flash: true });
