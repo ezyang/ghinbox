@@ -977,14 +977,16 @@
                             ${iconSvg}
                         </div>
                         <div class="notification-content">
-                            <a href="${notif.subject.url}" class="notification-title" target="_blank" rel="noopener">
-                                ${renderInlineCode(notif.subject.title)}
-                            </a>
-                            <div class="notification-meta">
-                                ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
-                                ${stateBadge}
-                                <span class="notification-reason">${reason}</span>
-                                ${commentBadge}
+                            <div class="notification-header">
+                                <a href="${notif.subject.url}" class="notification-title" target="_blank" rel="noopener">
+                                    ${renderInlineCode(notif.subject.title)}
+                                </a>
+                                <div class="notification-meta">
+                                    ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
+                                    ${stateBadge}
+                                    <span class="notification-reason">${reason}</span>
+                                    ${commentBadge}
+                                </div>
                             </div>
                             ${commentList}
                             ${bottomActions}

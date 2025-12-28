@@ -184,6 +184,23 @@ test.describe('Comment visibility', () => {
     });
     expect(maxWidth).toBe('1200px');
   });
+
+  test('notification header has sticky positioning when comments are expanded', async ({
+    page,
+  }) => {
+    const notificationHeader = page.locator('.notification-header').first();
+    await expect(notificationHeader).toBeVisible();
+
+    const position = await notificationHeader.evaluate((element) => {
+      return window.getComputedStyle(element).position;
+    });
+    expect(position).toBe('sticky');
+
+    const top = await notificationHeader.evaluate((element) => {
+      return window.getComputedStyle(element).top;
+    });
+    expect(top).toBe('0px');
+  });
 });
 
 test.describe('Own comment filtering', () => {

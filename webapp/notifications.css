@@ -454,6 +454,38 @@
             min-width: 0;
         }
 
+        /* Sticky header for notifications with expanded comments */
+        .notification-item:has(.comment-list) .notification-header {
+            position: sticky;
+            top: 0;
+            background: var(--color-bg-default);
+            z-index: 10;
+            padding-bottom: 8px;
+            margin-top: -4px;
+            padding-top: 4px;
+        }
+
+        /* Match hover/selection background for sticky header */
+        .notification-item:hover:has(.comment-list) .notification-header {
+            background: var(--color-bg-subtle);
+        }
+
+        .notification-item.selected:has(.comment-list) .notification-header {
+            background-color: #ddf4ff;
+        }
+
+        .notification-item.selected:hover:has(.comment-list) .notification-header {
+            background-color: #c8e6ff;
+        }
+
+        .notification-item.keyboard-selected:has(.comment-list) .notification-header {
+            background-color: #e7f3ff;
+        }
+
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-header {
+            background-color: #dbeeff;
+        }
+
         .notification-title {
             font-weight: 600;
             color: var(--color-fg-default);
