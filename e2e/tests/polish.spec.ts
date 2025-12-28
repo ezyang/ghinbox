@@ -131,20 +131,21 @@ test.describe('Polish', () => {
       await page.locator('#sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced');
 
-      // Switch to Open filter
-      await page.locator('#filter-open').click();
+      // Switch to Open subfilter in Issues view
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
 
       const emptyState = page.locator('#empty-state');
-      await expect(emptyState).toContainText('No open notifications');
+      await expect(emptyState).toContainText('No open issue notifications');
       await expect(emptyState).toContainText('closed or merged');
     });
 
     test('shows "no closed" message when filtered to Closed with none', async ({ page }) => {
-      // Create fixture with only open notifications
+      // Create fixture with only open issues
       const onlyOpenFixture = {
         ...mixedFixture,
         notifications: mixedFixture.notifications.filter(
-          (n) => n.subject.state === 'open'
+          (n) => n.subject.state === 'open' && n.subject.type === 'Issue'
         ),
       };
 
@@ -164,11 +165,12 @@ test.describe('Polish', () => {
       await page.locator('#sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced');
 
-      // Switch to Closed filter
-      await page.locator('#filter-closed').click();
+      // Switch to Closed subfilter in Issues view
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       const emptyState = page.locator('#empty-state');
-      await expect(emptyState).toContainText('No closed notifications');
+      await expect(emptyState).toContainText('No closed issue notifications');
       await expect(emptyState).toContainText('still open');
     });
   });

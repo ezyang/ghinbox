@@ -90,9 +90,9 @@
                     show: true,
                 };
             }
-            const isClosedOrUninteresting =
-                state.filter === 'closed' || state.filter === 'uninteresting';
-            if (isClosedOrUninteresting && filteredNotifications.length > 0) {
+            const currentSubfilter = state.viewFilters[state.view];
+            const isClosed = currentSubfilter === 'closed';
+            if (isClosed && filteredNotifications.length > 0) {
                 return {
                     ids: filteredNotifications.map((notif) => notif.id),
                     label: 'Mark all as Done',
@@ -111,7 +111,8 @@
             if (state.selected.size > 0) {
                 return { ids: [], show: false };
             }
-            if (state.filter === 'approved' && filteredNotifications.length > 0) {
+            const currentSubfilter = state.viewFilters[state.view];
+            if (currentSubfilter === 'approved' && filteredNotifications.length > 0) {
                 return {
                     ids: filteredNotifications.map((notif) => notif.id),
                     show: true,

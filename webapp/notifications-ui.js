@@ -340,33 +340,57 @@
                 };
             }
 
-            const typeLabel =
-                state.typeFilter === 'issue'
-                    ? 'issue'
-                    : state.typeFilter === 'pull'
-                        ? 'PR'
-                        : null;
+            const viewLabels = {
+                'issues': 'issue',
+                'my-prs': 'PR',
+                'others-prs': 'PR'
+            };
+            const viewLabel = viewLabels[state.view];
+            const subfilter = state.viewFilters[state.view];
 
-            // Have notifications but filter shows none
-            if (state.filter === 'open') {
+            // Check if view has no notifications at all
+            const viewCounts = getViewCounts();
+            const viewCount = state.view === 'issues' ? viewCounts.issues :
+                              state.view === 'my-prs' ? viewCounts.myPrs :
+                              viewCounts.othersPrs;
+
+            if (viewCount === 0) {
+                if (state.view === 'issues') {
+                    return {
+                        title: 'No issue notifications',
+                        message: 'No issue notifications in this repository.',
+                    };
+                }
+                if (state.view === 'my-prs') {
+                    return {
+                        title: 'No notifications for your PRs',
+                        message: 'No notifications for pull requests you authored.',
+                    };
+                }
+                if (state.view === 'others-prs') {
+                    return {
+                        title: "No notifications for others' PRs",
+                        message: 'No notifications for pull requests authored by others.',
+                    };
+                }
+            }
+
+            // Have notifications but subfilter shows none
+            if (subfilter === 'open') {
                 return {
-                    title: typeLabel
-                        ? `No open ${typeLabel} notifications`
-                        : 'No open notifications',
-                    message: 'All notifications in this repository are closed or merged.',
+                    title: `No open ${viewLabel} notifications`,
+                    message: `All ${viewLabel} notifications in this view are closed or merged.`,
                 };
             }
 
-            if (state.filter === 'closed') {
+            if (subfilter === 'closed') {
                 return {
-                    title: typeLabel
-                        ? `No closed ${typeLabel} notifications`
-                        : 'No closed notifications',
-                    message: 'All notifications in this repository are still open.',
+                    title: `No closed ${viewLabel} notifications`,
+                    message: `All ${viewLabel} notifications in this view are still open.`,
                 };
             }
 
-            if (state.filter === 'needs-review') {
+            if (subfilter === 'needs-review') {
                 if (!state.commentPrefetchEnabled) {
                     return {
                         title: 'Comment fetching disabled',
@@ -375,11 +399,11 @@
                 }
                 return {
                     title: 'No PRs need review',
-                    message: 'No PRs without comments need your review right now.',
+                    message: 'No PRs need your review right now.',
                 };
             }
 
-            if (state.filter === 'approved') {
+            if (subfilter === 'approved') {
                 if (!state.commentPrefetchEnabled) {
                     return {
                         title: 'Comment fetching disabled',
@@ -389,28 +413,6 @@
                 return {
                     title: 'No approved PRs',
                     message: 'No approved PR notifications are pending.',
-                };
-            }
-
-            if (state.filter === 'uninteresting') {
-                if (!state.commentPrefetchEnabled) {
-                    return {
-                        title: 'Comment fetching disabled',
-                        message: 'Enable comment fetching to evaluate triage filters.',
-                    };
-                }
-                return {
-                    title: typeLabel
-                        ? `No uninteresting ${typeLabel} notifications`
-                        : 'No uninteresting notifications',
-                    message: 'All recent comments include something worth a look.',
-                };
-            }
-
-            if (typeLabel) {
-                return {
-                    title: `No ${typeLabel} notifications`,
-                    message: `No ${typeLabel} notifications match the current filter.`,
                 };
             }
 
@@ -764,28 +766,49 @@
                 `;
             }
 
-            // Update filter tab counts and active state
-            const counts = getFilterCounts();
-            elements.countAll.textContent = counts.all;
-            elements.countOpen.textContent = counts.open;
-            elements.countClosed.textContent = counts.closed;
-            elements.countNeedsReview.textContent = counts.needsReview;
-            elements.countApproved.textContent = counts.approved;
-            elements.countUninteresting.textContent = counts.uninteresting;
-            updateCommentCacheStatus();
-
-            // Update filter tab active states
-            elements.filterTabs.forEach(tab => {
-                const isActive = tab.dataset.filter === state.filter;
+            // Update view tab counts and active state
+            const viewCounts = getViewCounts();
+            elements.viewTabs.forEach(tab => {
+                const view = tab.dataset.view;
+                const isActive = view === state.view;
                 tab.classList.toggle('active', isActive);
                 tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+                // Update count badge
+                const countSpan = tab.querySelector('.count');
+                if (countSpan) {
+                    if (view === 'issues') countSpan.textContent = viewCounts.issues;
+                    else if (view === 'my-prs') countSpan.textContent = viewCounts.myPrs;
+                    else if (view === 'others-prs') countSpan.textContent = viewCounts.othersPrs;
+                }
             });
 
-            elements.typeFilterButtons.forEach(button => {
-                const isActive = button.dataset.type === state.typeFilter;
-                button.classList.toggle('active', isActive);
-                button.setAttribute('aria-checked', isActive ? 'true' : 'false');
+            // Update subfilter tab counts and active state
+            const subfilterCounts = getSubfilterCounts();
+            const currentSubfilter = state.viewFilters[state.view];
+            elements.subfilterTabs.forEach(tab => {
+                const subfilter = tab.dataset.subfilter;
+                const tabView = tab.closest('.subfilter-tabs')?.dataset.forView;
+                const isActive = tabView === state.view && subfilter === currentSubfilter;
+                tab.classList.toggle('active', isActive);
+                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+                // Update count badge for visible tabs
+                if (tabView === state.view) {
+                    const countSpan = tab.querySelector('.count');
+                    if (countSpan) {
+                        if (subfilter === 'all') countSpan.textContent = subfilterCounts.all;
+                        else if (subfilter === 'open') countSpan.textContent = subfilterCounts.open;
+                        else if (subfilter === 'closed') countSpan.textContent = subfilterCounts.closed;
+                        else if (subfilter === 'needs-review') countSpan.textContent = subfilterCounts.needsReview;
+                        else if (subfilter === 'approved') countSpan.textContent = subfilterCounts.approved;
+                    }
+                }
             });
+
+            // Ensure correct subfilter tabs are visible
+            updateSubfilterVisibility();
+            updateCommentCacheStatus();
 
             // Update notification count header
             if (filteredNotifications.length > 0) {
@@ -861,9 +884,10 @@
                     const stateBadge = getStateBadge(notif);
                     const relativeTime = formatRelativeTime(notif.updated_at);
                     const reason = formatReason(notif.reason);
+                    const currentSubfilter = state.viewFilters[state.view];
                     const commentStatus =
                         state.commentPrefetchEnabled ||
-                        ['uninteresting', 'needs-review', 'approved'].includes(state.filter)
+                        ['needs-review', 'approved'].includes(currentSubfilter)
                             ? getCommentStatus(notif)
                             : null;
                     const commentBadge = commentStatus

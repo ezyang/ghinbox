@@ -279,33 +279,35 @@ test.describe('Selection', () => {
 
   test.describe('Selection with Filters', () => {
     test('select all only selects filtered notifications', async ({ page }) => {
-      // Switch to Open filter
-      await page.locator('#filter-open').click();
-      await expect(page.locator('.notification-item')).toHaveCount(2);
+      // Switch to Open subfilter (Issues view is default)
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(1);
 
       // Select all (in Open filter)
       await page.locator('#select-all-checkbox').click();
 
-      // Count should be 2
-      await expect(page.locator('#selection-count')).toHaveText('2 selected');
+      // Count should be 1 (only 1 open issue)
+      await expect(page.locator('#selection-count')).toHaveText('1 selected');
 
-      // Switch to All filter
-      await page.locator('#filter-all').click();
+      // Switch to All subfilter
+      await issuesSubfilters.locator('[data-subfilter="all"]').click();
 
-      // Only 2 should be selected (the open ones)
+      // Only 1 should be selected (the open one)
       const selectedItems = page.locator('.notification-item.selected');
-      await expect(selectedItems).toHaveCount(2);
+      await expect(selectedItems).toHaveCount(1);
     });
 
     test('selection persists when switching filters', async ({ page }) => {
       // Select an item
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
 
-      // Switch to Closed filter
-      await page.locator('#filter-closed').click();
+      // Switch to Closed subfilter
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       // Switch back to All
-      await page.locator('#filter-all').click();
+      await issuesSubfilters.locator('[data-subfilter="all"]').click();
 
       // Item should still be selected
       await expect(page.locator('[data-id="notif-1"]')).toHaveClass(/selected/);
@@ -313,14 +315,15 @@ test.describe('Selection', () => {
 
     test('select all checkbox reflects filtered selection state', async ({ page }) => {
       // Select all open notifications
-      await page.locator('#filter-open').click();
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await page.locator('#select-all-checkbox').click();
 
       // Select all should be checked
       await expect(page.locator('#select-all-checkbox')).toBeChecked();
 
-      // Switch to All filter - select all should be indeterminate
-      await page.locator('#filter-all').click();
+      // Switch to All subfilter - select all should be indeterminate
+      await issuesSubfilters.locator('[data-subfilter="all"]').click();
       const isIndeterminate = await page
         .locator('#select-all-checkbox')
         .evaluate((el: HTMLInputElement) => el.indeterminate);

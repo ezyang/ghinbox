@@ -64,16 +64,20 @@ test.describe('Mark Done', () => {
       await expect(markDoneBtn).not.toBeVisible();
     });
 
-    test('Mark all button appears in Closed tab when nothing is selected', async ({ page }) => {
-      await page.locator('#filter-closed').click();
+    test('Mark all button appears in Closed subfilter when nothing is selected', async ({ page }) => {
+      // Switch to Closed subfilter in Issues view
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       const markDoneBtn = page.locator('#mark-done-btn');
       await expect(markDoneBtn).toBeVisible();
       await expect(markDoneBtn).toHaveText('Mark all as Done');
     });
 
-    test('Mark all button switches to Mark selected in Closed tab', async ({ page }) => {
-      await page.locator('#filter-closed').click();
+    test('Mark all button switches to Mark selected in Closed subfilter', async ({ page }) => {
+      // Switch to Closed subfilter in Issues view
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       const markDoneBtn = page.locator('#mark-done-btn');
       await expect(markDoneBtn).toHaveText('Mark all as Done');
@@ -135,7 +139,7 @@ test.describe('Mark Done', () => {
       expect(apiCalls.some((url) => url.includes('notif-2'))).toBe(true);
     });
 
-    test('Mark all in Closed tab calls API for each closed notification', async ({ page }) => {
+    test('Mark all in Closed subfilter calls API for each closed issue', async ({ page }) => {
       const apiCalls: string[] = [];
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
@@ -143,13 +147,15 @@ test.describe('Mark Done', () => {
         route.fulfill({ status: 204 });
       });
 
-      await page.locator('#filter-closed').click();
+      // Switch to Closed subfilter in Issues view
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Marked 3 notifications as done');
-      expect(apiCalls.length).toBe(3);
+      // Only 2 closed issues (notif-3 and notif-5), not merged PR
+      await expect(page.locator('#status-bar')).toContainText('Marked 2 notifications as done');
+      expect(apiCalls.length).toBe(2);
       expect(apiCalls.some((url) => url.includes('notif-3'))).toBe(true);
-      expect(apiCalls.some((url) => url.includes('notif-4'))).toBe(true);
       expect(apiCalls.some((url) => url.includes('notif-5'))).toBe(true);
     });
 

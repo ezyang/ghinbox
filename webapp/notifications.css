@@ -697,8 +697,8 @@
             height: 16px;
         }
 
-        /* Filter tabs */
-        .filter-tabs {
+        /* View tabs (primary navigation: Issues / My PRs / Others' PRs) */
+        .view-tabs {
             display: flex;
             gap: 0;
             border-bottom: 1px solid var(--color-border-default);
@@ -706,7 +706,7 @@
             padding: 0 16px;
         }
 
-        .filter-tab {
+        .view-tab {
             padding: 8px 16px;
             font-size: 14px;
             font-weight: 500;
@@ -719,16 +719,16 @@
             transition: color 0.1s, border-color 0.1s;
         }
 
-        .filter-tab:hover {
+        .view-tab:hover {
             color: var(--color-fg-default);
         }
 
-        .filter-tab.active {
+        .view-tab.active {
             color: var(--color-fg-default);
             border-bottom-color: #fd8c73;
         }
 
-        .filter-tab .count {
+        .view-tab .count {
             display: inline-block;
             min-width: 18px;
             padding: 0 6px;
@@ -741,53 +741,61 @@
             margin-left: 4px;
         }
 
-        .filter-tab.active .count {
+        .view-tab.active .count {
             background-color: #fff5f3;
             color: #d1242f;
         }
 
-        /* Type filter */
-        .type-filter-bar {
+        /* Subfilter tabs (secondary navigation: Open / Closed / Needs Review / etc) */
+        .subfilter-tabs {
             display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 16px;
+            gap: 0;
             border-bottom: 1px solid var(--color-border-default);
-            background-color: var(--color-bg-default);
-        }
-
-        .type-filter-label {
-            font-size: 12px;
-            color: var(--color-fg-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-
-        .type-filter-buttons {
-            display: inline-flex;
-            align-items: center;
-            border: 1px solid var(--color-border-default);
-            border-radius: 999px;
-            overflow: hidden;
+            margin: 0 -16px;
+            padding: 0 16px;
             background-color: var(--color-bg-subtle);
         }
 
-        .type-filter-btn {
-            padding: 4px 12px;
-            border: none;
-            background: transparent;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--color-fg-muted);
-            cursor: pointer;
+        .subfilter-tabs.hidden {
+            display: none;
         }
 
-        .type-filter-btn:hover {
+        .subfilter-tab {
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-fg-muted);
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            margin-bottom: -1px;
+            transition: color 0.1s, border-color 0.1s;
+        }
+
+        .subfilter-tab:hover {
             color: var(--color-fg-default);
         }
 
-        .type-filter-btn.active {
+        .subfilter-tab.active {
+            color: var(--color-fg-default);
+            border-bottom-color: #fd8c73;
+        }
+
+        .subfilter-tab .count {
+            display: inline-block;
+            min-width: 16px;
+            padding: 0 4px;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 16px;
+            text-align: center;
+            background-color: var(--color-bg-default);
+            border-radius: 2em;
+            margin-left: 4px;
+        }
+
+        .subfilter-tab.active .count {
             background-color: #fff5f3;
             color: #d1242f;
         }

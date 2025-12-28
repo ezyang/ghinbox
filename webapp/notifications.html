@@ -158,100 +158,102 @@
                 <span id="notification-count"></span>
             </header>
 
-            <div class="type-filter-bar">
-                <span class="type-filter-label">Type</span>
-                <div
-                    class="type-filter-buttons"
-                    role="radiogroup"
-                    aria-label="Filter by type"
-                >
-                    <button
-                        class="type-filter-btn active"
-                        type="button"
-                        role="radio"
-                        aria-checked="true"
-                        data-type="all"
-                        id="type-filter-all"
-                    >
-                        All
-                    </button>
-                    <button
-                        class="type-filter-btn"
-                        type="button"
-                        role="radio"
-                        aria-checked="false"
-                        data-type="issue"
-                        id="type-filter-issue"
-                    >
-                        Issues
-                    </button>
-                    <button
-                        class="type-filter-btn"
-                        type="button"
-                        role="radio"
-                        aria-checked="false"
-                        data-type="pull"
-                        id="type-filter-pull"
-                    >
-                        PRs
-                    </button>
-                </div>
-            </div>
-
-            <nav class="filter-tabs" role="tablist" aria-label="Filter notifications">
+            <!-- Primary View Tabs -->
+            <nav class="view-tabs" role="tablist" aria-label="View notifications by type">
                 <button
-                    class="filter-tab active"
+                    class="view-tab active"
                     role="tab"
                     aria-selected="true"
-                    data-filter="all"
-                    id="filter-all"
+                    data-view="issues"
+                    id="view-issues"
                 >
-                    All <span class="count" id="count-all">0</span>
+                    Issues <span class="count">0</span>
                 </button>
                 <button
-                    class="filter-tab"
+                    class="view-tab"
                     role="tab"
                     aria-selected="false"
-                    data-filter="open"
-                    id="filter-open"
+                    data-view="my-prs"
+                    id="view-my-prs"
                 >
-                    Open <span class="count" id="count-open">0</span>
+                    My PRs <span class="count">0</span>
                 </button>
                 <button
-                    class="filter-tab"
+                    class="view-tab"
                     role="tab"
                     aria-selected="false"
-                    data-filter="closed"
-                    id="filter-closed"
+                    data-view="others-prs"
+                    id="view-others-prs"
                 >
-                    Closed <span class="count" id="count-closed">0</span>
+                    Others' PRs <span class="count">0</span>
+                </button>
+            </nav>
+
+            <!-- Subfilter Tabs for Issues -->
+            <nav class="subfilter-tabs" role="tablist" aria-label="Filter issues" data-for-view="issues">
+                <button
+                    class="subfilter-tab active"
+                    role="tab"
+                    aria-selected="true"
+                    data-subfilter="all"
+                >
+                    All <span class="count">0</span>
                 </button>
                 <button
-                    class="filter-tab"
+                    class="subfilter-tab"
                     role="tab"
                     aria-selected="false"
-                    data-filter="needs-review"
-                    id="filter-needs-review"
+                    data-subfilter="open"
                 >
-                    Needs review <span class="count" id="count-needs-review">0</span>
+                    Open <span class="count">0</span>
                 </button>
                 <button
-                    class="filter-tab"
+                    class="subfilter-tab"
                     role="tab"
                     aria-selected="false"
-                    data-filter="approved"
-                    id="filter-approved"
+                    data-subfilter="closed"
                 >
-                    Approved <span class="count" id="count-approved">0</span>
+                    Closed <span class="count">0</span>
+                </button>
+            </nav>
+
+            <!-- Subfilter Tabs for My PRs (minimal for now) -->
+            <nav class="subfilter-tabs hidden" role="tablist" aria-label="Filter my PRs" data-for-view="my-prs">
+                <button
+                    class="subfilter-tab active"
+                    role="tab"
+                    aria-selected="true"
+                    data-subfilter="all"
+                >
+                    All <span class="count">0</span>
+                </button>
+            </nav>
+
+            <!-- Subfilter Tabs for Others' PRs -->
+            <nav class="subfilter-tabs hidden" role="tablist" aria-label="Filter others' PRs" data-for-view="others-prs">
+                <button
+                    class="subfilter-tab active"
+                    role="tab"
+                    aria-selected="true"
+                    data-subfilter="needs-review"
+                >
+                    Needs review <span class="count">0</span>
                 </button>
                 <button
-                    class="filter-tab"
+                    class="subfilter-tab"
                     role="tab"
                     aria-selected="false"
-                    data-filter="uninteresting"
-                    id="filter-uninteresting"
+                    data-subfilter="approved"
                 >
-                    Uninteresting <span class="count" id="count-uninteresting">0</span>
+                    Approved <span class="count">0</span>
+                </button>
+                <button
+                    class="subfilter-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-subfilter="closed"
+                >
+                    Closed <span class="count">0</span>
                 </button>
             </nav>
 

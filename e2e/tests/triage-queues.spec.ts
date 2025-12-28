@@ -124,10 +124,14 @@ test.describe('Triage queues', () => {
   });
 
   test('routes PRs without comments to needs review', async ({ page }) => {
-    await expect(page.locator('#count-needs-review')).toHaveText('1');
-    await expect(page.locator('#count-approved')).toHaveText('1');
+    // Switch to Others' PRs view
+    await page.locator('#view-others-prs').click();
 
-    await page.locator('#filter-needs-review').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
+    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
+
+    // needs-review is the default subfilter for others-prs
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="thread-pr-1"]')).toBeVisible();
     await expect(page.locator('.comment-tag.needs-review')).toHaveText('Needs review');
@@ -148,7 +152,10 @@ test.describe('Triage queues', () => {
       route.fulfill({ status: 204, body: '' });
     });
 
-    await page.locator('#filter-approved').click();
+    // Switch to Others' PRs view and approved subfilter
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await page
@@ -180,7 +187,10 @@ test.describe('Triage queues', () => {
     });
 
     await page.locator('#comment-expand-toggle').check();
-    await page.locator('#filter-approved').click();
+    // Switch to Others' PRs view and approved subfilter
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     const bottomUnsubscribeButton = page.locator(
@@ -201,7 +211,10 @@ test.describe('Triage queues', () => {
   test('approved queue shows Unsubscribe All button when nothing is selected', async ({
     page,
   }) => {
-    await page.locator('#filter-approved').click();
+    // Switch to Others' PRs view and approved subfilter
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     // Button should be visible when nothing is selected
@@ -233,7 +246,10 @@ test.describe('Triage queues', () => {
       route.fulfill({ status: 204, body: '' });
     });
 
-    await page.locator('#filter-approved').click();
+    // Switch to Others' PRs view and approved subfilter
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await page.locator('#unsubscribe-all-btn').click();
@@ -247,23 +263,23 @@ test.describe('Triage queues', () => {
   test('Unsubscribe All button is not visible in non-approved filters', async ({ page }) => {
     const unsubscribeAllBtn = page.locator('#unsubscribe-all-btn');
 
-    // Not visible in All tab
+    // Not visible in Issues view (default)
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
-    // Not visible in Open tab
-    await page.locator('#filter-open').click();
+    // Switch to Others' PRs view
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+
+    // Not visible in Needs Review subfilter (default for Others' PRs)
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
-    // Not visible in Closed tab
-    await page.locator('#filter-closed').click();
+    // Not visible in Closed subfilter
+    await othersPrsSubfilters.locator('[data-subfilter="closed"]').click();
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
-    // Not visible in Needs Review tab
-    await page.locator('#filter-needs-review').click();
-    await expect(unsubscribeAllBtn).not.toBeVisible();
-
-    // Visible in Approved tab
-    await page.locator('#filter-approved').click();
+    // Visible in Approved subfilter
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
     await expect(unsubscribeAllBtn).toBeVisible();
   });
 });
+

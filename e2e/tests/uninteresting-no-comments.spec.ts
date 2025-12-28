@@ -35,7 +35,8 @@ const notificationsResponse = {
   },
 };
 
-test.describe('Uninteresting without new comments', () => {
+// Skip: Uninteresting filter was removed in the view-based filtering refactor
+test.describe.skip('Uninteresting without new comments', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

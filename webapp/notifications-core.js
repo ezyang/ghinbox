@@ -1,6 +1,14 @@
 // Comment-related constants are in notifications-comments.js
-        const TYPE_FILTER_KEY = 'ghnotif_type_filter';
         const LAST_SYNCED_REPO_KEY = 'ghnotif_last_synced_repo';
+        const VIEW_KEY = 'ghnotif_view';
+        const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
+
+        // Default view filters for each view
+        const DEFAULT_VIEW_FILTERS = {
+            'issues': 'all',           // 'all' | 'open' | 'closed'
+            'my-prs': 'all',           // 'all' (minimal for now)
+            'others-prs': 'needs-review'  // 'needs-review' | 'approved' | 'closed'
+        };
 
         // Application state
         const state = {
@@ -8,8 +16,8 @@
             notifications: [],
             loading: false,
             error: null,
-            filter: 'all', // 'all', 'open', 'closed', 'needs-review', 'approved', 'uninteresting'
-            typeFilter: 'all', // 'all', 'issue', 'pull'
+            view: 'issues', // 'issues', 'my-prs', 'others-prs'
+            viewFilters: { ...DEFAULT_VIEW_FILTERS },
             selected: new Set(), // Set of selected notification IDs
             activeNotificationId: null, // Keyboard selection cursor
             lastClickedId: null, // For shift-click range selection
@@ -51,14 +59,9 @@
             emptyState: document.getElementById('empty-state'),
             notificationsList: document.getElementById('notifications-list'),
             notificationCount: document.getElementById('notification-count'),
-            filterTabs: document.querySelectorAll('.filter-tab'),
-            typeFilterButtons: document.querySelectorAll('.type-filter-btn'),
-            countAll: document.getElementById('count-all'),
-            countOpen: document.getElementById('count-open'),
-            countClosed: document.getElementById('count-closed'),
-            countNeedsReview: document.getElementById('count-needs-review'),
-            countApproved: document.getElementById('count-approved'),
-            countUninteresting: document.getElementById('count-uninteresting'),
+            viewTabs: document.querySelectorAll('.view-tab'),
+            subfilterTabs: document.querySelectorAll('.subfilter-tab'),
+            subfilterContainers: document.querySelectorAll('.subfilter-tabs'),
             selectAllRow: document.getElementById('select-all-row'),
             selectAllCheckbox: document.getElementById('select-all-checkbox'),
             selectionCount: document.getElementById('selection-count'),
@@ -100,21 +103,27 @@
             }
             state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
 
-            // Load saved filter from localStorage
-            const savedFilter = localStorage.getItem('ghnotif_filter');
-            if (
-                savedFilter &&
-                ['all', 'open', 'closed', 'needs-review', 'approved', 'uninteresting'].includes(
-                    savedFilter
-                )
-            ) {
-                state.filter = savedFilter;
+            // Load saved view from localStorage
+            const savedView = localStorage.getItem(VIEW_KEY);
+            if (savedView && ['issues', 'my-prs', 'others-prs'].includes(savedView)) {
+                state.view = savedView;
             }
 
-            const savedTypeFilter = localStorage.getItem(TYPE_FILTER_KEY);
-            if (savedTypeFilter && ['all', 'issue', 'pull'].includes(savedTypeFilter)) {
-                state.typeFilter = savedTypeFilter;
+            // Load saved view filters from localStorage
+            const savedViewFilters = localStorage.getItem(VIEW_FILTERS_KEY);
+            if (savedViewFilters) {
+                try {
+                    const parsed = JSON.parse(savedViewFilters);
+                    // Merge with defaults to handle any missing keys
+                    state.viewFilters = { ...DEFAULT_VIEW_FILTERS, ...parsed };
+                } catch (e) {
+                    console.error('Failed to parse saved view filters:', e);
+                }
             }
+
+            // Migration: clean up old filter state keys
+            localStorage.removeItem('ghnotif_filter');
+            localStorage.removeItem('ghnotif_type_filter');
 
             const savedCommentPrefetch = localStorage.getItem(COMMENT_PREFETCH_KEY);
             if (savedCommentPrefetch === 'true') {
@@ -144,18 +153,19 @@
                 }
             });
 
-            // Filter tab click handlers
-            elements.filterTabs.forEach(tab => {
+            // View tab click handlers
+            elements.viewTabs.forEach(tab => {
                 tab.addEventListener('click', () => {
-                    const filter = tab.dataset.filter;
-                    setFilter(filter);
+                    const view = tab.dataset.view;
+                    setView(view);
                 });
             });
 
-            elements.typeFilterButtons.forEach(button => {
-                button.addEventListener('click', () => {
-                    const filter = button.dataset.type;
-                    setTypeFilter(filter);
+            // Subfilter tab click handlers
+            elements.subfilterTabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const subfilter = tab.dataset.subfilter;
+                    setSubfilter(subfilter);
                 });
             });
 
@@ -240,41 +250,79 @@
             render();
         }
 
-        // Set the current filter
-        function setFilter(filter) {
-            if (
-                !['all', 'open', 'closed', 'needs-review', 'approved', 'uninteresting'].includes(
-                    filter
-                )
-            ) {
+        // Set the current view
+        function setView(view) {
+            if (!['issues', 'my-prs', 'others-prs'].includes(view)) {
                 return;
             }
-            state.filter = filter;
-            localStorage.setItem('ghnotif_filter', filter);
-            if (
-                ['uninteresting', 'needs-review', 'approved'].includes(filter) &&
-                !state.commentPrefetchEnabled
-            ) {
+            state.view = view;
+            localStorage.setItem(VIEW_KEY, view);
+            updateSubfilterVisibility();
+
+            // Check if current subfilter requires comment prefetch
+            const subfilter = state.viewFilters[view];
+            if (['needs-review', 'approved'].includes(subfilter) && !state.commentPrefetchEnabled) {
                 showStatus('Enable comment fetching to evaluate triage filters.', 'info');
             }
             render();
         }
 
-        function setTypeFilter(filter) {
-            if (!['all', 'issue', 'pull'].includes(filter)) return;
-            state.typeFilter = filter;
-            localStorage.setItem(TYPE_FILTER_KEY, filter);
+        // Set the subfilter for the current view
+        function setSubfilter(subfilter) {
+            state.viewFilters[state.view] = subfilter;
+            localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(state.viewFilters));
+
+            if (['needs-review', 'approved'].includes(subfilter) && !state.commentPrefetchEnabled) {
+                showStatus('Enable comment fetching to evaluate triage filters.', 'info');
+            }
             render();
         }
 
-        function matchesTypeFilter(notification) {
-            if (state.typeFilter === 'issue') {
+        // Show/hide appropriate subfilter tabs based on current view
+        function updateSubfilterVisibility() {
+            document.querySelectorAll('.subfilter-tabs').forEach(tabs => {
+                const isVisible = tabs.dataset.forView === state.view;
+                tabs.classList.toggle('hidden', !isVisible);
+            });
+        }
+
+        // Check if notification matches the current view
+        function matchesView(notification) {
+            if (state.view === 'issues') {
                 return notification.subject.type === 'Issue';
             }
-            if (state.typeFilter === 'pull') {
-                return notification.subject.type === 'PullRequest';
+            if (state.view === 'my-prs') {
+                return notification.subject.type === 'PullRequest' &&
+                    notification.actors?.[0]?.login === state.currentUserLogin;
+            }
+            if (state.view === 'others-prs') {
+                return notification.subject.type === 'PullRequest' &&
+                    notification.actors?.[0]?.login !== state.currentUserLogin;
             }
             return true;
+        }
+
+        // Apply the state filter for the current view
+        function applyStateFilter(notifications, stateFilter) {
+            if (stateFilter === 'all') {
+                return notifications;
+            }
+            return notifications.filter(notif => {
+                const notifState = notif.subject.state;
+                if (stateFilter === 'open') {
+                    return notifState === 'open' || notifState === 'draft';
+                }
+                if (stateFilter === 'closed') {
+                    return notifState === 'closed' || notifState === 'merged';
+                }
+                if (stateFilter === 'needs-review') {
+                    return safeIsNotificationNeedsReview(notif);
+                }
+                if (stateFilter === 'approved') {
+                    return safeIsNotificationApproved(notif);
+                }
+                return true;
+            });
         }
 
         function safeIsNotificationNeedsReview(notification) {
@@ -289,42 +337,49 @@
                 : false;
         }
 
-        // Get filtered notifications based on current filter
+        // Get filtered notifications based on current view and subfilter
         function getFilteredNotifications() {
-            let filtered = state.notifications;
-            if (state.filter !== 'all') {
-                filtered = filtered.filter(notif => {
-                    const notifState = notif.subject.state;
-                    if (state.filter === 'open') {
-                        return notifState === 'open' || notifState === 'draft';
-                    }
-                    if (state.filter === 'closed') {
-                        return notifState === 'closed' || notifState === 'merged';
-                    }
-                    if (state.filter === 'needs-review') {
-                        return safeIsNotificationNeedsReview(notif);
-                    }
-                    if (state.filter === 'approved') {
-                        return safeIsNotificationApproved(notif);
-                    }
-                    if (state.filter === 'uninteresting') {
-                        return isNotificationUninteresting(notif);
-                    }
-                    return true;
-                });
-            }
-            return filtered.filter(matchesTypeFilter);
+            // Step 1: Filter by view (primary category)
+            let filtered = state.notifications.filter(matchesView);
+
+            // Step 2: Apply view-specific state filter
+            const stateFilter = state.viewFilters[state.view];
+            filtered = applyStateFilter(filtered, stateFilter);
+
+            return filtered;
         }
 
-        // Count notifications by filter category
-        function getFilterCounts() {
+        // Count notifications for each view
+        function getViewCounts() {
+            let issues = 0;
+            let myPrs = 0;
+            let othersPrs = 0;
+
+            state.notifications.forEach(notif => {
+                if (notif.subject.type === 'Issue') {
+                    issues++;
+                } else if (notif.subject.type === 'PullRequest') {
+                    if (notif.actors?.[0]?.login === state.currentUserLogin) {
+                        myPrs++;
+                    } else {
+                        othersPrs++;
+                    }
+                }
+            });
+
+            return { issues, myPrs, othersPrs };
+        }
+
+        // Count notifications by subfilter for the current view
+        function getSubfilterCounts() {
+            const viewNotifications = state.notifications.filter(matchesView);
+            let all = viewNotifications.length;
             let open = 0;
             let closed = 0;
             let needsReview = 0;
             let approved = 0;
-            let uninteresting = 0;
-            const typedNotifications = state.notifications.filter(matchesTypeFilter);
-            typedNotifications.forEach(notif => {
+
+            viewNotifications.forEach(notif => {
                 const notifState = notif.subject.state;
                 if (notifState === 'open' || notifState === 'draft') {
                     open++;
@@ -337,18 +392,9 @@
                 if (safeIsNotificationApproved(notif)) {
                     approved++;
                 }
-                if (isNotificationUninteresting(notif)) {
-                    uninteresting++;
-                }
             });
-            return {
-                all: typedNotifications.length,
-                open,
-                closed,
-                needsReview,
-                approved,
-                uninteresting,
-            };
+
+            return { all, open, closed, needsReview, approved };
         }
 
         function updateCommentCacheStatus() {

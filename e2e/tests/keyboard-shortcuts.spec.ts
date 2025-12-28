@@ -56,7 +56,8 @@ test.describe('Keyboard Shortcuts', () => {
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('.notification-item')).toHaveCount(5);
+    // Default view is Issues, which shows 3 items from the fixture
+    await expect(page.locator('.notification-item')).toHaveCount(3);
   });
 
   test('j/k moves the active selection', async ({ page }) => {
@@ -96,7 +97,12 @@ test.describe('Keyboard Shortcuts', () => {
       route.fulfill({ status: 204 });
     });
 
-    await page.keyboard.press('j');
+    // Switch to Others' PRs view and approved subfilter to see notif-2
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"]');
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+
     await page.keyboard.press('j');
     await page.keyboard.press('m');
 
