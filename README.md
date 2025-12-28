@@ -1,14 +1,15 @@
 # ghinbox
 
-GitHub notification simulation and testing tool with a REST API server for accessing notification data that isn't available through GitHub's official API.
+A better UI for GitHub notifications: bulk triage, comment-aware filtering, and fast syncs, built around `webapp/notifications.html` and backed by a REST API server that exposes data GitHub's official API doesn't provide.
 
 ## Why This Exists
 
-GitHub's REST API cannot distinguish between "Read" and "Done" notification states—both return identical JSON. The web UI also shows additional data (saved state, subject state, actors) not available via API. This project provides:
+GitHub's REST API cannot distinguish between "Read" and "Done" notification states—both return identical JSON. The web UI also shows additional data (saved state, subject state, actors) not available via API. The goal here is to make GitHub notifications actually manageable with a purpose-built UI. This project provides:
 
-1. **HTML Parsing API** - Extracts structured data from GitHub's notifications HTML
-2. **GitHub API Proxy** - Authenticated proxy to GitHub's REST and GraphQL APIs
-3. **Test Flows** - Automation for testing notification behavior
+1. **Primary UI: Bulk Notifications Editor (`notifications.html`)** - Quick/Full Sync, bulk selection, mark-done/unsubscribe, undo, and triage filters powered by HTML-only metadata
+2. **HTML Parsing API** - Extracts structured data from GitHub's notifications HTML for the UI and tests
+3. **GitHub API Proxy** - Authenticated proxy to GitHub's REST and GraphQL APIs for comment/review context and REST actions
+4. **Test Flows** - Automation for testing notification behavior
 
 ## Quick Start
 
@@ -26,8 +27,8 @@ uv run python -m ghinbox.token myaccount --prod
 # Start the API server
 uv run python -m ghinbox.api.server --account myaccount
 
-# Open web app index
-open http://localhost:8000/app/
+# Open the primary notifications UI
+open http://localhost:8000/app/notifications.html
 ```
 
 ## API Server
@@ -243,12 +244,20 @@ Token saved to `auth_state/myaccount.token`.
 
 ## Web UI
 
-Access at `http://localhost:8000/app/` when server is running.
+The bulk notifications editor at `http://localhost:8000/app/notifications.html`
+is the primary workflow. It is built to make large notification backlogs
+tractable with a UI that GitHub itself does not provide.
 
-Bulk notifications editor:
-- `http://localhost:8000/app/notifications.html` for selecting and bulk-updating notifications.
+Highlights from the UI (see `webapp/notifications.js`):
+- Quick Sync vs Full Sync, including incremental merges when the repo matches the last sync.
+- Bulk selection (including shift-click range select), plus inline and bulk Mark Done.
+- Unsubscribe + mark done in one action, with a 30-second undo window.
+- Filters by type and state, plus comment-based triage filters (needs review, approved, uninteresting).
+- Optional comment/review prefetching, unread comment expansion, and hiding uninteresting comments.
+- Local persistence of repo, filters, notifications, and comment cache for faster reloads.
 
-Expanded notifications view:
+Other UI pages:
+- `http://localhost:8000/app/` for the web UI index.
 - `http://localhost:8000/app/expanded.html` for per-thread comment bundles with REST prefetching.
 
 ## Test Flows
