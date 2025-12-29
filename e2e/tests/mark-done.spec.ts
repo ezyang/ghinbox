@@ -38,13 +38,11 @@ const fixtureWithNodeIds = {
 
 test.describe('Mark Done', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock auth endpoint
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
     });
 
     // Mock notifications endpoint

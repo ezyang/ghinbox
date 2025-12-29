@@ -7,14 +7,6 @@ test.describe('Rate limit explain logs', () => {
       indexedDB.deleteDatabase('ghnotif_cache');
     });
 
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
     const resetBase = Math.floor(Date.now() / 1000) + 3600;
 
     await page.route('**/github/rest/rate_limit', (route) => {
@@ -57,11 +49,10 @@ test.describe('Rate limit explain logs', () => {
 
     await expect(page.locator('#rate-limit-details')).toBeVisible();
     await expect(page.locator('#rate-limit-log-status')).toContainText('Logged');
-    // Only 2 calls on init: /user and /rate_limit; graphql rate limit call is skipped to save rate limit
-    await expect(page.locator('#rate-limit-log li')).toHaveCount(2);
+    // Only 1 call on init: /rate_limit; graphql rate limit call is skipped to save rate limit
+    await expect(page.locator('#rate-limit-log li')).toHaveCount(1);
 
     const log = page.locator('#rate-limit-log');
-    await expect(log).toContainText('/github/rest/user');
     await expect(log).toContainText('/github/rest/rate_limit');
   });
 });
@@ -71,14 +62,6 @@ test.describe('Rate limit log reset', () => {
     await page.addInitScript(() => {
       localStorage.clear();
       indexedDB.deleteDatabase('ghnotif_cache');
-    });
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
     });
 
     let resetBase = Math.floor(Date.now() / 1000) + 3600;
@@ -116,12 +99,11 @@ test.describe('Rate limit log reset', () => {
 
     await page.goto('notifications.html');
     await page.locator('#rate-limit-explain-btn').click();
-    await expect(page.locator('#rate-limit-log')).toContainText('/github/rest/user');
+    await expect(page.locator('#rate-limit-log')).not.toContainText('/github/rest/user');
 
     resetBase += 3600;
     await page.evaluate(() => refreshRateLimit());
 
     await expect(page.locator('#rate-limit-log')).toContainText('/github/rest/rate_limit');
-    await expect(page.locator('#rate-limit-log')).not.toContainText('/github/rest/user');
   });
 });

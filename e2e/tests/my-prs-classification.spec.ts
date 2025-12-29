@@ -93,12 +93,11 @@ const fixture = {
 
 test.describe('My PR classification', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
     });
 
     await page.route('**/notifications/html/repo/**', (route) => {

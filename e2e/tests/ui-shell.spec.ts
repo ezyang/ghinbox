@@ -141,16 +141,12 @@ test.describe('Auth Status', () => {
   });
 
   test('shows authenticated state when user is logged in', async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          login: 'testuser',
-          name: 'Test User',
-        }),
-      });
-    });
+    await page.addInitScript((login) => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login, timestamp: Date.now() })
+      );
+    }, 'testuser');
 
     await page.goto('notifications.html');
 
@@ -160,12 +156,11 @@ test.describe('Auth Status', () => {
   });
 
   test('shows error state when not authenticated', async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 401,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: 'Unauthorized' }),
-      });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: null, timestamp: Date.now() })
+      );
     });
 
     await page.goto('notifications.html');

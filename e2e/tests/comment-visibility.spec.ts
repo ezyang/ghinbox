@@ -44,12 +44,11 @@ const notificationsResponse = {
 
 test.describe('Comment visibility', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
     });
 
     await page.route('**/github/rest/rate_limit', (route) => {
@@ -113,9 +112,21 @@ test.describe('Comment visibility', () => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
       localStorage.setItem('ghnotif_comment_expand_prs', 'true');
       localStorage.setItem('ghnotif_comment_hide_uninteresting', 'false');
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
     });
     await seedCommentCache(page, commentCache);
     await page.reload();
+    await page.evaluate(() => {
+      if (typeof state === 'object' && state) {
+        state.currentUserLogin = 'testuser';
+      }
+      if (typeof render === 'function') {
+        render();
+      }
+    });
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
