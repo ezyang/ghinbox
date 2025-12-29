@@ -16,6 +16,7 @@ import uvicorn
 
 from ghinbox.auth import (
     has_valid_auth,
+    verify_auth,
     login_interactive,
     load_username,
     DEFAULT_ACCOUNT,
@@ -168,6 +169,21 @@ def main() -> int:
             if not is_valid:
                 print("Token is invalid or expired.")
                 if account == DEFAULT_ACCOUNT:
+                    # First verify browser auth is valid (needed for token provisioning)
+                    print("Checking browser authentication...")
+                    if not verify_auth(account):
+                        print("Browser auth is also invalid. Re-authenticating...")
+                        result = login_interactive(
+                            account, force=True, save_username_flag=True
+                        )
+                        if isinstance(result, tuple):
+                            success, _ = result
+                        else:
+                            success = result
+                        if not success:
+                            print("ERROR: Browser re-authentication failed")
+                            return 1
+
                     print("Re-provisioning token (browser window will open)...")
                     token = provision_token(
                         account, force=True, headless=False, prod=True
