@@ -97,6 +97,30 @@ async def health():
     fetcher = get_fetcher()
     return {
         "status": "ok",
+        "test_mode": os.environ.get("GHINBOX_TEST_MODE") == "1",
         "live_fetching": fetcher is not None,
         "account": fetcher.account if fetcher else None,
     }
+
+
+@app.get("/health/test")
+async def health_test():
+    """
+    Test-mode-only health check endpoint.
+
+    Returns 200 only when server is in test mode (started with --test flag).
+    Returns 503 when server is in production mode.
+
+    This endpoint is used by Playwright to ensure tests don't accidentally
+    connect to a production server. If a production server is running on
+    the test port, this endpoint will return 503 and Playwright will start
+    a fresh test server instead of reusing the production one.
+    """
+    from fastapi import HTTPException
+
+    if os.environ.get("GHINBOX_TEST_MODE") != "1":
+        raise HTTPException(
+            status_code=503,
+            detail="Server is not in test mode. Tests require --test flag.",
+        )
+    return {"status": "ok", "test_mode": True}

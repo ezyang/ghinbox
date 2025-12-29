@@ -6,7 +6,25 @@ import { defineConfig, devices } from '@playwright/test';
  * The tests run against the FastAPI server which serves:
  * - API endpoints at /notifications/html/*, /github/*
  * - Static webapp at /app/
+ *
+ * IMPORTANT: Test Server Architecture
+ * -----------------------------------
+ * Tests use port 8001 by default (not 8000) to avoid conflicts with production servers.
+ * The test server is started with --test flag which:
+ * 1. Disables live GitHub fetching (no GHSIM_ACCOUNT set)
+ * 2. Enables the /health/test endpoint (returns 200 only in test mode)
+ *
+ * The /health/test endpoint is the key safety mechanism:
+ * - In test mode: returns 200, allowing server reuse
+ * - In production mode: returns 503, forcing Playwright to start a fresh test server
+ *
+ * This prevents tests from accidentally connecting to a production server that
+ * might be running, which would consume real GitHub API quota.
  */
+
+// Test server port - use 8001 to avoid conflicts with production servers on 8000
+const TEST_PORT = process.env.TEST_PORT || '8001';
+
 export default defineConfig({
   testDir: './tests',
 
@@ -30,8 +48,8 @@ export default defineConfig({
 
   // Shared settings for all projects
   use: {
-    // Base URL for the webapp
-    baseURL: 'http://localhost:8000/app/',
+    // Base URL for the webapp (using test port)
+    baseURL: `http://localhost:${TEST_PORT}/app/`,
 
     // Collect trace when retrying the failed test
     trace: 'on-first-retry',
@@ -50,8 +68,10 @@ export default defineConfig({
 
   // Run local dev server before starting the tests
   webServer: {
-    command: 'cd .. && uv run python -m ghinbox.api.server --test --no-reload --port 8000',
-    url: 'http://localhost:8000/health',
+    command: `cd .. && uv run python -m ghinbox.api.server --test --no-reload --port ${TEST_PORT}`,
+    // CRITICAL: Use /health/test endpoint which returns 503 if server is not in test mode.
+    // This prevents reusing a production server that might be running on this port.
+    url: `http://localhost:${TEST_PORT}/health/test`,
     reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },

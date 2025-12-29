@@ -129,6 +129,8 @@ def main() -> int:
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")
         # Don't set GHSIM_ACCOUNT - app will run without fetcher
+        # Set test mode flag so /health/test endpoint works
+        os.environ["GHINBOX_TEST_MODE"] = "1"
     else:
         # Determine which account to use
         account = args.account or DEFAULT_ACCOUNT
