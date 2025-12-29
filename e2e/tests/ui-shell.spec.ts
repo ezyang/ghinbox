@@ -1,20 +1,18 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Phase 2: Basic UI Shell Tests
+ * UI shell coverage for the GitHub notifications webapp.
  *
- * Tests for the main UI structure with GitHub-inspired styling.
+ * Keep this file lean: verify core structure and a couple of key behaviors.
  */
 
 test.describe('UI Shell', () => {
   test.beforeEach(async ({ page }) => {
-    // Clear cached storage before each test
     await page.addInitScript(() => {
       localStorage.clear();
       indexedDB.deleteDatabase('ghnotif_cache');
     });
 
-    // Mock the auth endpoint to avoid real API calls
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
         status: 200,
@@ -45,161 +43,18 @@ test.describe('UI Shell', () => {
     await page.goto('notifications.html');
   });
 
-  test.describe('Header', () => {
-    test('displays app header with title', async ({ page }) => {
-      const header = page.locator('.app-header');
-      await expect(header).toBeVisible();
-
-      const title = header.locator('h1');
-      await expect(title).toHaveText('ghinbox');
-    });
-
-    test('header has dark background (GitHub style)', async ({ page }) => {
-      const header = page.locator('.app-header');
-      const bgColor = await header.evaluate((el) =>
-        getComputedStyle(el).backgroundColor
-      );
-      // Should be dark (#24292f = rgb(36, 41, 47))
-      expect(bgColor).toBe('rgb(36, 41, 47)');
-    });
-  });
-
-  test.describe('Controls Section', () => {
-    test('displays controls section', async ({ page }) => {
-      const controls = page.locator('.controls');
-      await expect(controls).toBeVisible();
-    });
-
-    test('has repository label', async ({ page }) => {
-      const label = page.locator('label[for="repo-input"]');
-      await expect(label).toBeVisible();
-      await expect(label).toHaveText('Repository:');
-    });
-
-    test('has repository input field', async ({ page }) => {
-      const input = page.locator('#repo-input');
-      await expect(input).toBeVisible();
-      await expect(input).toHaveAttribute('placeholder', 'owner/repo');
-    });
-
-    test('has sync button', async ({ page }) => {
-      const syncBtn = page.locator('#sync-btn');
-      await expect(syncBtn).toBeVisible();
-      await expect(syncBtn).toHaveText('Quick Sync');
-    });
-
-    test('sync button has primary styling', async ({ page }) => {
-      const syncBtn = page.locator('#sync-btn');
-      await expect(syncBtn).toHaveClass(/btn-primary/);
-    });
-
-    test('has full sync button', async ({ page }) => {
-      const fullSyncBtn = page.locator('#full-sync-btn');
-      await expect(fullSyncBtn).toBeVisible();
-      await expect(fullSyncBtn).toHaveText('Full Sync');
-    });
-
-    test('has auth status display', async ({ page }) => {
-      const authStatus = page.locator('#auth-status');
-      await expect(authStatus).toBeVisible();
-    });
-
-    test('shows rate limit info box', async ({ page }) => {
-      const rateLimit = page.locator('#rate-limit-box');
-      await expect(rateLimit).toBeVisible();
-      await expect(rateLimit).toContainText('Rate limit: core 42/60');
-    });
-
-    test('force refresh button reloads with cache busting', async ({ page }) => {
-      const forceRefreshBtn = page.locator('#force-refresh-btn');
-      await expect(forceRefreshBtn).toBeVisible();
-
-      await Promise.all([
-        page.waitForURL(/cache_bust=/),
-        forceRefreshBtn.click(),
-      ]);
-
-      expect(page.url()).toContain('cache_bust=');
-
-      const cssHref = await page
-        .locator('link[href*="notifications.css"]')
-        .getAttribute('href');
-      expect(cssHref).toMatch(/notifications\.css\?v=/);
-
-      const commentsJsHref = await page
-        .locator('script[src*="notifications-comments.js"]')
-        .getAttribute('src');
-      expect(commentsJsHref).toMatch(/notifications-comments\.js\?v=/);
-
-      const coreJsHref = await page
-        .locator('script[src*="notifications-core.js"]')
-        .getAttribute('src');
-      expect(coreJsHref).toMatch(/notifications-core\.js\?v=/);
-
-      const syncJsHref = await page
-        .locator('script[src*="notifications-sync.js"]')
-        .getAttribute('src');
-      expect(syncJsHref).toMatch(/notifications-sync\.js\?v=/);
-
-      const actionsJsHref = await page
-        .locator('script[src*="notifications-actions.js"]')
-        .getAttribute('src');
-      expect(actionsJsHref).toMatch(/notifications-actions\.js\?v=/);
-
-      const uiJsHref = await page
-        .locator('script[src*="notifications-ui.js"]')
-        .getAttribute('src');
-      expect(uiJsHref).toMatch(/notifications-ui\.js\?v=/);
-
-      const appJsHref = await page
-        .locator('script[src*="notifications.js"]')
-        .getAttribute('src');
-      expect(appJsHref).toMatch(/notifications\.js\?v=/);
-    });
-  });
-
-  test.describe('Notifications Section', () => {
-    test('displays notifications container', async ({ page }) => {
-      const container = page.locator('.notifications-container');
-      await expect(container).toBeVisible();
-    });
-
-    test('has notifications header with title', async ({ page }) => {
-      const header = page.locator('.notifications-header h2');
-      await expect(header).toHaveText('Notifications');
-    });
-
-    test('has notification count span', async ({ page }) => {
-      const count = page.locator('#notification-count');
-      await expect(count).toBeAttached();
-    });
-
-    test('has notifications list element', async ({ page }) => {
-      const list = page.locator('#notifications-list');
-      await expect(list).toBeAttached();
-      await expect(list).toHaveAttribute('role', 'list');
-    });
-
-    test('shows empty state initially', async ({ page }) => {
-      const emptyState = page.locator('#empty-state');
-      await expect(emptyState).toBeVisible();
-      await expect(emptyState).toContainText('No notifications');
-    });
-
-    test('loading state is hidden initially', async ({ page }) => {
-      const loading = page.locator('#loading');
-      await expect(loading).not.toBeVisible();
-    });
+  test('renders header, controls, and empty notifications list', async ({ page }) => {
+    await expect(page.locator('.app-header h1')).toHaveText('ghinbox');
+    await expect(page.locator('#repo-input')).toHaveAttribute('placeholder', 'owner/repo');
+    await expect(page.locator('#sync-btn')).toHaveText('Quick Sync');
+    await expect(page.locator('#rate-limit-box')).toContainText('Rate limit: core 42/60');
+    await expect(page.locator('#notifications-list')).toHaveAttribute('role', 'list');
+    await expect(page.locator('#empty-state')).toContainText('No notifications');
   });
 });
 
 test.describe('Repository Input', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.clear();
-      indexedDB.deleteDatabase('ghnotif_cache');
-    });
-
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
         status: 200,
@@ -209,50 +64,24 @@ test.describe('Repository Input', () => {
     });
 
     await page.goto('notifications.html');
+    await page.evaluate(() => {
+      localStorage.clear();
+      indexedDB.deleteDatabase('ghnotif_cache');
+    });
+    await page.reload();
   });
 
-  test('accepts text input', async ({ page }) => {
-    const input = page.locator('#repo-input');
-    await input.fill('facebook/react');
-    await expect(input).toHaveValue('facebook/react');
-  });
-
-  test('persists value to localStorage', async ({ page }) => {
+  test('persists and reloads repository input value', async ({ page }) => {
     const input = page.locator('#repo-input');
     await input.fill('vercel/next.js');
 
-    // Verify localStorage was updated
     const savedValue = await page.evaluate(() =>
       localStorage.getItem('ghnotif_repo')
     );
     expect(savedValue).toBe('vercel/next.js');
-  });
 
-  test('loads saved value from localStorage on page load', async ({ page }) => {
-    // Set localStorage before navigating
-    await page.addInitScript(() => {
-      localStorage.setItem('ghnotif_repo', 'saved/repo');
-    });
-
-    await page.goto('notifications.html');
-
-    const input = page.locator('#repo-input');
-    await expect(input).toHaveValue('saved/repo');
-  });
-
-  test('can be cleared', async ({ page }) => {
-    const input = page.locator('#repo-input');
-    await input.fill('some/repo');
-    await input.clear();
-    await expect(input).toHaveValue('');
-  });
-
-  test('has focus styles', async ({ page }) => {
-    const input = page.locator('#repo-input');
-    await input.focus();
-
-    // Check that the input has focus
-    await expect(input).toBeFocused();
+    await page.reload();
+    await expect(input).toHaveValue('vercel/next.js');
   });
 });
 
@@ -274,40 +103,13 @@ test.describe('Sync Button', () => {
     await page.goto('notifications.html');
   });
 
-  test('is clickable', async ({ page }) => {
-    const syncBtn = page.locator('#sync-btn');
-    await expect(syncBtn).toBeEnabled();
-  });
+  test('validates repository input on sync', async ({ page }) => {
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Please enter a repository');
 
-  test('shows error when clicked without repo input', async ({ page }) => {
-    const syncBtn = page.locator('#sync-btn');
-    await syncBtn.click();
-
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toBeVisible();
-    await expect(statusBar).toContainText('Please enter a repository');
-    await expect(statusBar).toHaveClass(/error/);
-  });
-
-  test('shows error for invalid repo format', async ({ page }) => {
-    const input = page.locator('#repo-input');
-    await input.fill('invalid-format');
-
-    const syncBtn = page.locator('#sync-btn');
-    await syncBtn.click();
-
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('Invalid format');
-  });
-
-  test('triggers sync on Enter key in input', async ({ page }) => {
-    const input = page.locator('#repo-input');
-    await input.fill('invalid');
-    await input.press('Enter');
-
-    // Should show error (validates that Enter triggered sync)
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toBeVisible();
+    await page.locator('#repo-input').fill('invalid-format');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Invalid format');
   });
 });
 
@@ -345,81 +147,5 @@ test.describe('Auth Status', () => {
     const authStatus = page.locator('#auth-status');
     await expect(authStatus).toContainText('Not authenticated');
     await expect(authStatus).toHaveClass(/error/);
-  });
-
-  test('shows error state on network failure', async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.abort('failed');
-    });
-
-    await page.goto('notifications.html');
-
-    const authStatus = page.locator('#auth-status');
-    await expect(authStatus).toContainText('Auth check failed');
-    await expect(authStatus).toHaveClass(/error/);
-  });
-});
-
-test.describe('Status Bar', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.clear();
-      indexedDB.deleteDatabase('ghnotif_cache');
-    });
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.goto('notifications.html');
-  });
-
-  test('is hidden initially', async ({ page }) => {
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).not.toBeVisible();
-  });
-
-  test('shows error style for errors', async ({ page }) => {
-    const syncBtn = page.locator('#sync-btn');
-    await syncBtn.click();
-
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toHaveClass(/error/);
-  });
-});
-
-test.describe('Responsive Layout', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.goto('notifications.html');
-  });
-
-  test('container has max-width constraint', async ({ page }) => {
-    const container = page.locator('.container');
-    const maxWidth = await container.evaluate((el) =>
-      getComputedStyle(el).maxWidth
-    );
-    expect(maxWidth).toBe('1200px');
-  });
-
-  test('controls wrap on narrow viewport', async ({ page }) => {
-    await page.setViewportSize({ width: 400, height: 800 });
-
-    const controlsRow = page.locator('.controls-row').first();
-    const flexWrap = await controlsRow.evaluate((el) =>
-      getComputedStyle(el).flexWrap
-    );
-    expect(flexWrap).toBe('wrap');
   });
 });

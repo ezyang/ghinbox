@@ -79,17 +79,15 @@ test.describe('Filtering', () => {
     test('displays Issues subfilter tabs when Issues view is active', async ({ page }) => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await expect(issuesSubfilters).toBeVisible();
-      await expect(issuesSubfilters.locator('[data-subfilter="all"]')).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="closed"]')).toBeVisible();
     });
 
     test('hides other subfilter tabs when Issues view is active', async ({ page }) => {
-      const myPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="my-prs"]');
       const othersPrsSubfilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
       );
-      await expect(myPrsSubfilters).toHaveClass(/hidden/);
+      await expect(page.locator('.subfilter-tabs[data-for-view="my-prs"]')).toHaveCount(0);
       await expect(othersPrsSubfilters).toHaveClass(/hidden/);
     });
 
@@ -104,12 +102,10 @@ test.describe('Filtering', () => {
       );
       await expect(othersPrsStatus).not.toHaveClass(/hidden/);
       await expect(othersPrsAuthor).not.toHaveClass(/hidden/);
-      await expect(othersPrsStatus.locator('[data-subfilter="all"]')).toBeVisible();
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"]')).toBeVisible();
       await expect(othersPrsStatus.locator('[data-subfilter="approved"]')).toBeVisible();
       await expect(othersPrsStatus.locator('[data-subfilter="draft"]')).toBeVisible();
       await expect(othersPrsStatus.locator('[data-subfilter="closed"]')).toBeVisible();
-      await expect(othersPrsAuthor.locator('[data-subfilter="all"]')).toBeVisible();
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"]')).toBeVisible();
       await expect(othersPrsAuthor.locator('[data-subfilter="external"]')).toBeVisible();
     });
@@ -232,7 +228,6 @@ test.describe('Filtering', () => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
 
       // 3 issues total: 1 open, 2 closed
-      await expect(issuesSubfilters.locator('[data-subfilter="all"] .count')).toHaveText('3');
       await expect(issuesSubfilters.locator('[data-subfilter="open"] .count')).toHaveText('1');
       await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('2');
     });
@@ -256,12 +251,10 @@ test.describe('Filtering', () => {
       );
 
       // 2 PRs: 1 open, 1 merged (closed)
-      await expect(othersPrsStatus.locator('[data-subfilter="all"] .count')).toHaveText('2');
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
       await expect(othersPrsStatus.locator('[data-subfilter="approved"] .count')).toHaveText('0');
       await expect(othersPrsStatus.locator('[data-subfilter="draft"] .count')).toHaveText('0');
       await expect(othersPrsStatus.locator('[data-subfilter="closed"] .count')).toHaveText('1');
-      await expect(othersPrsAuthor.locator('[data-subfilter="all"] .count')).toHaveText('2');
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="external"] .count')).toHaveText('0');
     });
@@ -351,7 +344,6 @@ test.describe('Filtering', () => {
 
       // Check subfilter tab states
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toHaveClass(/active/);
-      await expect(issuesSubfilters.locator('[data-subfilter="all"]')).not.toHaveClass(/active/);
 
       // Check only open issue is shown
       const items = page.locator('.notification-item');
@@ -370,14 +362,24 @@ test.describe('Filtering', () => {
       await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
     });
 
-    test('clicking All subfilter shows all issues', async ({ page }) => {
+    test('clicking an active subfilter shows all issues', async ({ page }) => {
       // First switch to open
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
-      // Then switch back to all
-      await issuesSubfilters.locator('[data-subfilter="all"]').click();
+      // Then click again to clear
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
+    });
+
+    test('clicking the active subfilter clears the filter', async ({ page }) => {
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(1);
+
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(3);
       await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
     });

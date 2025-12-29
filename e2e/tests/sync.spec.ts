@@ -32,9 +32,7 @@ test.describe('Sync Functionality', () => {
     // Navigate first, then clear cached storage (so it doesn't clear on reload)
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    // Ensure we're on the default "All" subfilter for Issues view
-    const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
-    await issuesSubfilters.locator('[data-subfilter="all"]').click();
+    // Ensure we're on the default (no active subfilter) for Issues view
     const prefetchToggle = page.locator('#comment-prefetch-toggle');
     if (await prefetchToggle.isChecked()) {
       await prefetchToggle.uncheck();

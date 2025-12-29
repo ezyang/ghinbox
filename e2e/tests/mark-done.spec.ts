@@ -384,17 +384,17 @@ test.describe('Mark Done', () => {
         route.fulfill({ status: 204 });
       });
 
-      const countAll = page.locator(
-        '.subfilter-tabs[data-for-view="issues"] [data-subfilter="all"] .count'
+      const countClosed = page.locator(
+        '.subfilter-tabs[data-for-view="issues"] [data-subfilter="closed"] .count'
       );
-      await expect(countAll).toHaveText('3');
+      await expect(countClosed).toHaveText('2');
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
-      await expect(countAll).toHaveText('1');
+      await expect(countClosed).toHaveText('1');
     });
 
     test('IndexedDB is updated after marking done', async ({ page }) => {

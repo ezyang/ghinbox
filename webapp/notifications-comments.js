@@ -588,6 +588,7 @@ function isBotAuthor(login) {
         'homu',
         'mergify',
         'pytorchbot',
+        'pytorchmergebot',
         'htmlpurifierbot',
         'github-actions',
         'dependabot',

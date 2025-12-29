@@ -283,8 +283,8 @@ test.describe('Selection', () => {
       // Count should be 1 (only 1 open issue)
       await expect(page.locator('#selection-count')).toHaveText('1 selected');
 
-      // Switch to All subfilter
-      await issuesSubfilters.locator('[data-subfilter="all"]').click();
+      // Clear the filter
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
 
       // Only 1 should be selected (the open one)
       const selectedItems = page.locator('.notification-item.selected');
@@ -299,8 +299,8 @@ test.describe('Selection', () => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
-      // Switch back to All
-      await issuesSubfilters.locator('[data-subfilter="all"]').click();
+      // Clear the filter
+      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       // Item should still be selected
       await expect(page.locator('[data-id="notif-1"]')).toHaveClass(/selected/);
@@ -315,8 +315,8 @@ test.describe('Selection', () => {
       // Select all should be checked
       await expect(page.locator('#select-all-checkbox')).toBeChecked();
 
-      // Switch to All subfilter - select all should be indeterminate
-      await issuesSubfilters.locator('[data-subfilter="all"]').click();
+      // Clear the filter - select all should be indeterminate
+      await issuesSubfilters.locator('[data-subfilter="open"]').click();
       const isIndeterminate = await page
         .locator('#select-all-checkbox')
         .evaluate((el: HTMLInputElement) => el.indeterminate);
