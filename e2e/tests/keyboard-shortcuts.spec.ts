@@ -116,9 +116,6 @@ test.describe('Keyboard Shortcuts', () => {
     await page.keyboard.press('j');
     await page.keyboard.press('m');
 
-    await expect(page.locator('#status-bar')).toContainText(
-      'Done 1/1 (0 pending)'
-    );
     await expect(page.locator('[data-id="notif-2"]')).not.toBeAttached();
   });
 

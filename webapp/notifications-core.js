@@ -3,6 +3,7 @@
         const VIEW_KEY = 'ghnotif_view';
         const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
         const AUTH_TOKEN_KEY = 'ghnotif_authenticity_token';
+        const ORDER_KEY = 'ghnotif_order';
 
         // Default view filters for each view
         const DEFAULT_VIEW_FILTERS = {
@@ -22,6 +23,7 @@
             error: null,
             view: 'issues', // 'issues', 'my-prs', 'others-prs'
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
+            orderBy: 'recent',
             selected: new Set(), // Set of selected notification IDs
             activeNotificationId: null, // Keyboard selection cursor
             lastClickedId: null, // For shift-click range selection
@@ -55,6 +57,7 @@
             syncBtn: document.getElementById('sync-btn'),
             fullSyncBtn: document.getElementById('full-sync-btn'),
             authStatus: document.getElementById('auth-status'),
+            orderSelect: document.getElementById('order-select'),
             statusBar: document.getElementById('status-bar'),
             commentPrefetchToggle: document.getElementById('comment-prefetch-toggle'),
             commentExpandToggle: document.getElementById('comment-expand-toggle'),
@@ -174,6 +177,14 @@
                 state.view = savedView;
             }
 
+            const savedOrder = localStorage.getItem(ORDER_KEY);
+            if (savedOrder && ['recent', 'size'].includes(savedOrder)) {
+                state.orderBy = savedOrder;
+            }
+            if (elements.orderSelect) {
+                elements.orderSelect.value = state.orderBy;
+            }
+
             // Load saved view filters from localStorage
             const savedViewFilters = localStorage.getItem(VIEW_FILTERS_KEY);
             if (savedViewFilters) {
@@ -216,6 +227,17 @@
                     handleSync({ mode: 'incremental' });
                 }
             });
+            if (elements.orderSelect) {
+                elements.orderSelect.addEventListener('change', (event) => {
+                    const nextOrder = event.target.value;
+                    if (!['recent', 'size'].includes(nextOrder)) {
+                        return;
+                    }
+                    state.orderBy = nextOrder;
+                    localStorage.setItem(ORDER_KEY, nextOrder);
+                    render();
+                });
+            }
 
             // View tab click handlers
             elements.viewTabs.forEach(tab => {
@@ -376,7 +398,19 @@
                 return false;
             }
             const reason = String(notification.reason || '').toLowerCase();
-            return reason === 'author';
+            if (reason === 'author') {
+                return true;
+            }
+            const currentLogin = String(state.currentUserLogin || '').toLowerCase();
+            if (!currentLogin) {
+                return false;
+            }
+            const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
+            const cachedAuthor = String(cached?.authorLogin || '').toLowerCase();
+            if (!cachedAuthor) {
+                return false;
+            }
+            return cachedAuthor === currentLogin;
         }
 
         // Check if notification matches the current view
@@ -483,6 +517,14 @@
             }
         }
 
+        function getNotificationSize(notification) {
+            if (typeof getDiffstatInfo !== 'function') {
+                return null;
+            }
+            const info = getDiffstatInfo(notification);
+            return info ? info.total : null;
+        }
+
         // Get filtered notifications based on current view and subfilter
         function getFilteredNotifications() {
             // Step 1: Filter by view (primary category)
@@ -494,6 +536,32 @@
 
             if (state.view === 'others-prs') {
                 filtered = applyAuthorFilter(filtered, viewFilters.author || 'all');
+            }
+
+            if (state.orderBy === 'size' && state.view !== 'issues') {
+                const withIndex = filtered.map((notif, index) => ({
+                    notif,
+                    index,
+                    size: getNotificationSize(notif),
+                }));
+                withIndex.sort((a, b) => {
+                    const aSize = a.size;
+                    const bSize = b.size;
+                    if (aSize === null && bSize === null) {
+                        return a.index - b.index;
+                    }
+                    if (aSize === null) {
+                        return 1;
+                    }
+                    if (bSize === null) {
+                        return -1;
+                    }
+                    if (aSize === bSize) {
+                        return a.index - b.index;
+                    }
+                    return aSize - bSize;
+                });
+                return withIndex.map(entry => entry.notif);
             }
 
             return filtered;

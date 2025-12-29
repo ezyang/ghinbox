@@ -5,11 +5,16 @@ import { clearAppStorage } from './storage-utils';
 test.describe('Open all button', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      (window as typeof window & { openedUrls?: string[] }).openedUrls = [];
-      window.open = ((url?: string | URL | null) => {
+      type OpenedWindow = { url: string; name: string };
+      (window as typeof window & { openedWindows?: OpenedWindow[] }).openedWindows = [];
+      window.open = ((url?: string | URL | null, name?: string | URL | null) => {
         const target = url ? url.toString() : '';
-        (window as typeof window & { openedUrls: string[] }).openedUrls.push(target);
-        return null;
+        const windowName = name ? name.toString() : '';
+        (window as typeof window & { openedWindows: OpenedWindow[] }).openedWindows.push({
+          url: target,
+          name: windowName,
+        });
+        return {} as Window;
       }) as typeof window.open;
     });
 
@@ -43,13 +48,38 @@ test.describe('Open all button', () => {
 
     await openUnreadBtn.click();
 
-    const openedUrls = await page.evaluate(
-      () => (window as typeof window & { openedUrls?: string[] }).openedUrls ?? []
+    const openedWindows = await page.evaluate(
+      () =>
+        (window as typeof window & { openedWindows?: { url: string; name: string }[] })
+          .openedWindows ?? []
     );
-    expect(openedUrls).toEqual([
+    expect(openedWindows.map((entry) => entry.url)).toEqual([
       'https://github.com/test/repo/issues/42',
       'https://github.com/test/repo/issues/41',
       'https://github.com/test/repo/issues/39',
     ]);
+    expect(new Set(openedWindows.map((entry) => entry.name)).size).toBe(openedWindows.length);
+  });
+
+  test('shows a hint when pop-ups are blocked', async ({ page }) => {
+    await page.evaluate(() => {
+      type OpenedWindow = { url: string; name: string };
+      (window as typeof window & { openedWindows?: OpenedWindow[] }).openedWindows = [];
+      window.open = ((url?: string | URL | null, name?: string | URL | null) => {
+        const target = url ? url.toString() : '';
+        const windowName = name ? name.toString() : '';
+        (window as typeof window & { openedWindows: OpenedWindow[] }).openedWindows.push({
+          url: target,
+          name: windowName,
+        });
+        return null;
+      }) as typeof window.open;
+    });
+
+    await page.locator('#open-unread-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText(
+      'Allow pop-ups to open all notifications.'
+    );
   });
 });

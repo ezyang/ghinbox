@@ -774,6 +774,17 @@
             return `<span class="state-badge ${cssClass}" data-state="${state}">${label}</span>`;
         }
 
+        function getDiffstatHue(total, range) {
+            if (!range || range.min === null || range.max === null) {
+                return null;
+            }
+            if (range.min === range.max) {
+                return 60;
+            }
+            const scale = (total - range.min) / (range.max - range.min);
+            return Math.round(120 * (1 - scale));
+        }
+
         // Render the UI
         function render() {
             // Show/hide loading state
@@ -911,6 +922,21 @@
             elements.notificationsList.innerHTML = '';
 
             if (displayNotifications.length > 0) {
+                const diffstatInfoById = new Map();
+                const diffstatTotals = [];
+                displayNotifications.forEach(notif => {
+                    const info = getDiffstatInfo(notif);
+                    if (info) {
+                        diffstatInfoById.set(notif.id, info);
+                        diffstatTotals.push(info.total);
+                    }
+                });
+                const diffstatRange = diffstatTotals.length
+                    ? {
+                        min: Math.min(...diffstatTotals),
+                        max: Math.max(...diffstatTotals),
+                    }
+                    : { min: null, max: null };
                 displayNotifications.forEach(notif => {
                     const li = document.createElement('li');
                     const isSelected = state.selected.has(notif.id);
@@ -941,6 +967,13 @@
                             : null;
                     const commentBadge = commentStatus
                         ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
+                        : '';
+                    const diffstatInfo = diffstatInfoById.get(notif.id);
+                    const diffstatHue = diffstatInfo
+                        ? getDiffstatHue(diffstatInfo.total, diffstatRange)
+                        : null;
+                    const diffstatHtml = diffstatInfo
+                        ? `<span class="diffstat-tag" style="--diffstat-hue: ${diffstatHue}" title="${escapeHtml(diffstatInfo.title)}">+${diffstatInfo.additions}/-${diffstatInfo.deletions}</span>`
                         : '';
                     const commentItems = getCommentItems(notif);
                     const commentList = commentItems
@@ -1030,6 +1063,7 @@
                                     ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
                                     ${stateBadge}
                                     <span class="notification-reason">${reason}</span>
+                                    ${diffstatHtml}
                                     ${commentBadge}
                                 </div>
                             </div>

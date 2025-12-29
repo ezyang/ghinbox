@@ -278,71 +278,82 @@
                 </button>
             </nav>
 
-            <!-- Subfilter Tabs for Issues -->
-            <nav class="subfilter-tabs" role="group" aria-label="Filter issues" data-for-view="issues" data-subfilter-group="state">
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="open"
-                    aria-pressed="false"
-                >
-                    Open <span class="count">0</span>
-                </button>
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="closed"
-                    aria-pressed="false"
-                >
-                    Closed <span class="count">0</span>
-                </button>
-            </nav>
+            <div class="subfilter-row">
+                <div class="subfilter-stack">
+                    <!-- Subfilter Tabs for Issues -->
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter issues" data-for-view="issues" data-subfilter-group="state">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="open"
+                            aria-pressed="false"
+                        >
+                            Open <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="closed"
+                            aria-pressed="false"
+                        >
+                            Closed <span class="count">0</span>
+                        </button>
+                    </nav>
 
-            <!-- Subfilter Tabs for Others' PRs -->
-            <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by status" data-for-view="others-prs" data-subfilter-group="state">
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="needs-review"
-                    aria-pressed="false"
-                >
-                    Needs review <span class="count">0</span>
-                </button>
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="approved"
-                    aria-pressed="false"
-                >
-                    Approved <span class="count">0</span>
-                </button>
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="draft"
-                    aria-pressed="false"
-                >
-                    Draft <span class="count">0</span>
-                </button>
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="closed"
-                    aria-pressed="false"
-                >
-                    Closed <span class="count">0</span>
-                </button>
-            </nav>
-            <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by author" data-for-view="others-prs" data-subfilter-group="author">
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="committer"
-                    aria-pressed="false"
-                >
-                    Committers <span class="count">0</span>
-                </button>
-                <button
-                    class="subfilter-tab"
-                    data-subfilter="external"
-                    aria-pressed="false"
-                >
-                    External <span class="count">0</span>
-                </button>
-            </nav>
+                    <!-- Subfilter Tabs for Others' PRs -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by status" data-for-view="others-prs" data-subfilter-group="state">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="needs-review"
+                            aria-pressed="false"
+                        >
+                            Needs review <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="approved"
+                            aria-pressed="false"
+                        >
+                            Approved <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="draft"
+                            aria-pressed="false"
+                        >
+                            Draft <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="closed"
+                            aria-pressed="false"
+                        >
+                            Closed <span class="count">0</span>
+                        </button>
+                    </nav>
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by author" data-for-view="others-prs" data-subfilter-group="author">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="committer"
+                            aria-pressed="false"
+                        >
+                            Committers <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="external"
+                            aria-pressed="false"
+                        >
+                            External <span class="count">0</span>
+                        </button>
+                    </nav>
+                </div>
+                <div class="order-control">
+                    <label for="order-select">Order:</label>
+                    <select id="order-select" aria-label="Order notifications">
+                        <option value="recent">Newest first</option>
+                        <option value="size">PR size (small to big)</option>
+                    </select>
+                </div>
+            </div>
 
             <div id="select-all-row" class="select-all-row" style="display: none;">
                 <input
@@ -353,9 +364,6 @@
                 >
                 <label for="select-all-checkbox" class="select-all-label">Select all</label>
                 <span id="selection-count" class="selection-count"></span>
-                <button id="mark-done-btn" class="btn btn-danger" style="display: none;">
-                    Mark selected as Done
-                </button>
                 <button
                     id="open-unread-btn"
                     class="btn open-unread-btn"
@@ -367,6 +375,9 @@
                         <path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path>
                     </svg>
                     <span>Open all</span>
+                </button>
+                <button id="mark-done-btn" class="btn btn-danger" style="display: none;">
+                    Mark selected as done
                 </button>
                 <button id="unsubscribe-all-btn" class="btn btn-danger" style="display: none;">
                     Unsubscribe from all
@@ -477,6 +488,153 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <script>
+        (function () {
+            const VIEW_KEY = 'ghnotif_view';
+            const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
+            const REPO_KEY = 'ghnotif_repo';
+            const DEFAULT_VIEW_FILTERS = {
+                'issues': { state: 'all' },
+                'my-prs': { state: 'all' },
+                'others-prs': { state: 'all', author: 'all' },
+            };
+            const VALID_VIEWS = new Set(['issues', 'my-prs', 'others-prs']);
+            const VALID_STATE_BY_VIEW = {
+                'issues': new Set(['all', 'open', 'closed']),
+                'my-prs': new Set(['all']),
+                'others-prs': new Set(['all', 'needs-review', 'approved', 'draft', 'closed']),
+            };
+            const VALID_AUTHOR = new Set(['all', 'committer', 'external']);
+
+            function cloneDefaults() {
+                return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
+            }
+
+            function normalizeFilters(raw) {
+                const normalized = cloneDefaults();
+                if (!raw || typeof raw !== 'object') {
+                    return normalized;
+                }
+                ['issues', 'my-prs', 'others-prs'].forEach((view) => {
+                    const value = raw[view];
+                    if (typeof value === 'string') {
+                        normalized[view].state = value;
+                        return;
+                    }
+                    if (value && typeof value === 'object') {
+                        normalized[view] = {
+                            ...normalized[view],
+                            ...value,
+                        };
+                    }
+                });
+                return normalized;
+            }
+
+            function readStoredFilters() {
+                const raw = localStorage.getItem(VIEW_FILTERS_KEY);
+                if (!raw) {
+                    return cloneDefaults();
+                }
+                try {
+                    return normalizeFilters(JSON.parse(raw));
+                } catch (error) {
+                    return cloneDefaults();
+                }
+            }
+
+            function getStoredView() {
+                const view = localStorage.getItem(VIEW_KEY);
+                return VALID_VIEWS.has(view) ? view : 'issues';
+            }
+
+            function updateQueryFromStorage() {
+                const params = new URLSearchParams(window.location.search);
+                const view = getStoredView();
+                const repo = (localStorage.getItem(REPO_KEY) || '').trim();
+                const filters = readStoredFilters();
+                const viewFilters = filters[view] || DEFAULT_VIEW_FILTERS[view];
+
+                params.set('view', view);
+                if (repo) {
+                    params.set('repo', repo);
+                } else {
+                    params.delete('repo');
+                }
+
+                const stateFilter = viewFilters.state || 'all';
+                const authorFilter = viewFilters.author || 'all';
+                if (view === 'issues' && stateFilter !== 'all') {
+                    params.set('state', stateFilter);
+                } else if (view === 'others-prs') {
+                    if (stateFilter !== 'all') {
+                        params.set('state', stateFilter);
+                    } else {
+                        params.delete('state');
+                    }
+                    if (authorFilter !== 'all') {
+                        params.set('author', authorFilter);
+                    } else {
+                        params.delete('author');
+                    }
+                } else {
+                    params.delete('state');
+                    params.delete('author');
+                }
+
+                const next = params.toString();
+                const url = next ? `${window.location.pathname}?${next}` : window.location.pathname;
+                window.history.replaceState(null, '', url);
+            }
+
+            function applyQueryToStorage() {
+                const params = new URLSearchParams(window.location.search);
+                const view = params.get('view');
+                const repo = params.get('repo');
+                let applied = false;
+
+                if (repo !== null) {
+                    localStorage.setItem(REPO_KEY, repo);
+                    applied = true;
+                }
+
+                if (view && VALID_VIEWS.has(view)) {
+                    localStorage.setItem(VIEW_KEY, view);
+                    const filters = cloneDefaults();
+                    const stateFilter = params.get('state');
+                    const authorFilter = params.get('author');
+                    if (stateFilter && VALID_STATE_BY_VIEW[view]?.has(stateFilter)) {
+                        filters[view].state = stateFilter;
+                    }
+                    if (view === 'others-prs' && authorFilter && VALID_AUTHOR.has(authorFilter)) {
+                        filters[view].author = authorFilter;
+                    }
+                    localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(filters));
+                    applied = true;
+                }
+
+                return applied;
+            }
+
+            function scheduleQueryUpdate() {
+                window.setTimeout(updateQueryFromStorage, 0);
+            }
+
+            applyQueryToStorage();
+
+            document.addEventListener('click', (event) => {
+                if (event.target.closest('.view-tab') || event.target.closest('.subfilter-tab')) {
+                    scheduleQueryUpdate();
+                }
+            });
+
+            const repoInput = document.getElementById('repo-input');
+            if (repoInput) {
+                repoInput.addEventListener('input', scheduleQueryUpdate);
+            }
+
+        })();
+    </script>
     <script>
         (function () {
             const params = new URLSearchParams(window.location.search);

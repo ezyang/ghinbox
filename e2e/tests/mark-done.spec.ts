@@ -60,9 +60,10 @@ test.describe('Mark Done', () => {
   });
 
   test.describe('Mark Done Button', () => {
-    test('Mark Done button is hidden when no items selected in All tab', async ({ page }) => {
+    test('Mark Done button is visible when no items selected in All tab', async ({ page }) => {
       const markDoneBtn = page.locator('#mark-done-btn');
-      await expect(markDoneBtn).not.toBeVisible();
+      await expect(markDoneBtn).toBeVisible();
+      await expect(markDoneBtn).toHaveText('Mark all as done');
     });
 
     test('Mark all button appears in Closed subfilter when nothing is selected', async ({ page }) => {
@@ -72,7 +73,7 @@ test.describe('Mark Done', () => {
 
       const markDoneBtn = page.locator('#mark-done-btn');
       await expect(markDoneBtn).toBeVisible();
-      await expect(markDoneBtn).toHaveText('Mark all as Done');
+      await expect(markDoneBtn).toHaveText('Mark all as done');
     });
 
     test('Mark all button switches to Mark selected in Closed subfilter', async ({ page }) => {
@@ -81,10 +82,10 @@ test.describe('Mark Done', () => {
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       const markDoneBtn = page.locator('#mark-done-btn');
-      await expect(markDoneBtn).toHaveText('Mark all as Done');
+      await expect(markDoneBtn).toHaveText('Mark all as done');
 
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
-      await expect(markDoneBtn).toHaveText('Mark selected as Done');
+      await expect(markDoneBtn).toHaveText('Mark selected as done');
     });
 
     test('Mark Done button appears when items are selected', async ({ page }) => {
@@ -99,7 +100,8 @@ test.describe('Mark Done', () => {
       await expect(page.locator('#mark-done-btn')).toBeVisible();
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
-      await expect(page.locator('#mark-done-btn')).not.toBeVisible();
+      await expect(page.locator('#mark-done-btn')).toBeVisible();
+      await expect(page.locator('#mark-done-btn')).toHaveText('Mark all as done');
     });
 
     test('Mark Done button has danger styling', async ({ page }) => {

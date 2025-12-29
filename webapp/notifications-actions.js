@@ -86,23 +86,20 @@
             if (state.selected.size > 0) {
                 return {
                     ids: Array.from(state.selected),
-                    label: 'Mark selected as Done',
+                    label: 'Mark selected as done',
                     show: true,
                 };
             }
-            const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-            const stateFilter = viewFilters.state || 'all';
-            const isClosed = stateFilter === 'closed';
-            if (isClosed && filteredNotifications.length > 0) {
+            if (filteredNotifications.length > 0) {
                 return {
                     ids: filteredNotifications.map((notif) => notif.id),
-                    label: 'Mark all as Done',
+                    label: 'Mark all as done',
                     show: true,
                 };
             }
             return {
                 ids: [],
-                label: 'Mark selected as Done',
+                label: 'Mark selected as done',
                 show: false,
             };
         }
@@ -325,11 +322,30 @@
                 if (!confirmed) return;
             }
 
-            urls.forEach((url) => {
-                window.open(url, '_blank', 'noopener');
+            const openAllStamp = Date.now();
+            let openedCount = 0;
+            let blockedCount = 0;
+            urls.forEach((url, index) => {
+                const windowName = `ghinbox-open-${openAllStamp}-${index}`;
+                const openedWindow = window.open(url, windowName, 'noopener');
+                if (openedWindow) {
+                    openedCount += 1;
+                } else {
+                    blockedCount += 1;
+                }
             });
+            if (blockedCount > 0) {
+                const openedLabel = openedCount
+                    ? `Opened ${openedCount} notification${openedCount !== 1 ? 's' : ''}, but `
+                    : '';
+                showStatus(
+                    `${openedLabel}${blockedCount} ${blockedCount !== 1 ? 'tabs were' : 'tab was'} blocked. Allow pop-ups to open all notifications.`,
+                    'info'
+                );
+                return;
+            }
             showStatus(
-                `Opened ${urls.length} notification${urls.length !== 1 ? 's' : ''}`,
+                `Opened ${openedCount} notification${openedCount !== 1 ? 's' : ''}`,
                 'success'
             );
         }

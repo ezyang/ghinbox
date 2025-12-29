@@ -116,7 +116,7 @@ test.describe.skip('Uninteresting without new comments', () => {
 
     const markDoneBtn = page.locator('#mark-done-btn');
     await expect(markDoneBtn).toBeVisible();
-    await expect(markDoneBtn).toHaveText('Mark all as Done');
+    await expect(markDoneBtn).toHaveText('Mark all as done');
 
     await markDoneBtn.click();
 

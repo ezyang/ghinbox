@@ -84,6 +84,40 @@ function isAuthorAssociationFresh(cached) {
     return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
 }
 
+function isAuthorLoginFresh(cached) {
+    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorLogin')) {
+        return false;
+    }
+    const fetchedAt = cached.authorLoginFetchedAt || cached.fetchedAt;
+    if (!fetchedAt) {
+        return false;
+    }
+    const fetchedAtMs = Date.parse(fetchedAt);
+    if (Number.isNaN(fetchedAtMs)) {
+        return false;
+    }
+    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+}
+
+function isDiffstatFresh(cached) {
+    if (
+        !cached ||
+        !Object.prototype.hasOwnProperty.call(cached, 'additions') ||
+        !Object.prototype.hasOwnProperty.call(cached, 'deletions')
+    ) {
+        return false;
+    }
+    const fetchedAt = cached.diffstatFetchedAt || cached.fetchedAt;
+    if (!fetchedAt) {
+        return false;
+    }
+    const fetchedAtMs = Date.parse(fetchedAt);
+    if (Number.isNaN(fetchedAtMs)) {
+        return false;
+    }
+    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+}
+
 function scheduleCommentPrefetch(notifications) {
     if (!state.commentPrefetchEnabled) {
         return;
@@ -214,7 +248,7 @@ function buildReviewDecisionQuery(issueNumbers) {
     const fields = issueNumbers
         .map(
             (issueNumber) =>
-                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation }`
+                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation additions deletions changedFiles author { login } }`
         )
         .join('\n');
     return `
@@ -231,7 +265,7 @@ function buildReviewDecisionQuery(issueNumbers) {
     `;
 }
 
-function setReviewDecisionCache(notification, reviewDecision, authorAssociation) {
+function setReviewDecisionCache(notification, reviewDecision, authorAssociation, authorLogin) {
     const threadId = getNotificationKey(notification);
     const existing = state.commentCache.threads[threadId] || {};
     const nowIso = new Date().toISOString();
@@ -242,6 +276,9 @@ function setReviewDecisionCache(notification, reviewDecision, authorAssociation)
         reviewDecisionFetchedAt: nowIso,
         authorAssociation,
         authorAssociationFetchedAt: nowIso,
+        authorLogin,
+        authorLoginFetchedAt: nowIso,
+        diffstatFetchedAt: nowIso,
     };
 }
 
@@ -268,6 +305,10 @@ async function prefetchReviewDecisions(repo, notifications) {
                 decisions.set(issueNumber, {
                     reviewDecision: entry?.reviewDecision ?? null,
                     authorAssociation: entry?.authorAssociation ?? null,
+                    additions: entry?.additions ?? null,
+                    deletions: entry?.deletions ?? null,
+                    changedFiles: entry?.changedFiles ?? null,
+                    authorLogin: entry?.author?.login ?? null,
                 });
             });
             notifications.forEach((notif) => {
@@ -279,8 +320,16 @@ async function prefetchReviewDecisions(repo, notifications) {
                 setReviewDecisionCache(
                     notif,
                     entry.reviewDecision,
-                    entry.authorAssociation
+                    entry.authorAssociation,
+                    entry.authorLogin
                 );
+                const threadId = getNotificationKey(notif);
+                state.commentCache.threads[threadId] = {
+                    ...state.commentCache.threads[threadId],
+                    additions: entry.additions,
+                    deletions: entry.deletions,
+                    changedFiles: entry.changedFiles,
+                };
             });
         }
         setGraphqlRateLimitError(null);
@@ -302,7 +351,12 @@ function scheduleReviewDecisionPrefetch(notifications) {
     }
     const pending = prNotifications.filter((notif) => {
         const cached = state.commentCache.threads[getNotificationKey(notif)];
-        return !isReviewDecisionFresh(cached) || !isAuthorAssociationFresh(cached);
+        return (
+            !isReviewDecisionFresh(cached) ||
+            !isAuthorAssociationFresh(cached) ||
+            !isAuthorLoginFresh(cached) ||
+            !isDiffstatFresh(cached)
+        );
     });
     if (!pending.length) {
         return;
@@ -321,6 +375,12 @@ async function prefetchNotificationComments(notification) {
     const cached = state.commentCache.threads[threadId];
     const existingReviewDecision = cached?.reviewDecision;
     const existingReviewDecisionFetchedAt = cached?.reviewDecisionFetchedAt;
+    const existingDiffstat = {
+        additions: cached?.additions,
+        deletions: cached?.deletions,
+        changedFiles: cached?.changedFiles,
+        diffstatFetchedAt: cached?.diffstatFetchedAt,
+    };
     const shouldLoadAllComments = Boolean(
         notification.last_read_at_missing || !notification.last_read_at
     );
@@ -337,6 +397,12 @@ async function prefetchNotificationComments(notification) {
 
     const issueNumber = getIssueNumber(notification);
     if (!issueNumber) {
+        const existingDiffstat = {
+            additions: cached?.additions,
+            deletions: cached?.deletions,
+            changedFiles: cached?.changedFiles,
+            diffstatFetchedAt: cached?.diffstatFetchedAt,
+        };
         state.commentCache.threads[threadId] = {
             notificationUpdatedAt: notification.updated_at,
             comments: [],
@@ -344,6 +410,7 @@ async function prefetchNotificationComments(notification) {
             fetchedAt: new Date().toISOString(),
             reviewDecision: existingReviewDecision,
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
+            ...existingDiffstat,
         };
         return;
     }
@@ -379,6 +446,7 @@ async function prefetchNotificationComments(notification) {
             fetchedAt: new Date().toISOString(),
             reviewDecision: existingReviewDecision,
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
+            ...existingDiffstat,
         };
     } catch (error) {
         state.commentCache.threads[threadId] = {
@@ -389,6 +457,7 @@ async function prefetchNotificationComments(notification) {
             fetchedAt: new Date().toISOString(),
             reviewDecision: existingReviewDecision,
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
+            ...existingDiffstat,
         };
     }
 }
@@ -418,6 +487,38 @@ function getCommentStatus(notification) {
         return { label: `Uninteresting (${count})`, className: 'uninteresting' };
     }
     return { label: `Interesting (${count})`, className: 'interesting' };
+}
+
+function getDiffstatInfo(notification) {
+    if (!state.commentPrefetchEnabled) {
+        return null;
+    }
+    if (notification.subject?.type !== 'PullRequest') {
+        return null;
+    }
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    if (!cached || cached.error || !isDiffstatFresh(cached)) {
+        return null;
+    }
+    const additions = cached.additions;
+    const deletions = cached.deletions;
+    if (typeof additions !== 'number' || typeof deletions !== 'number') {
+        return null;
+    }
+    const total = additions + deletions;
+    const changedFiles =
+        typeof cached.changedFiles === 'number' ? cached.changedFiles : null;
+    let title = `Changes: ${total} (+${additions}/-${deletions})`;
+    if (changedFiles !== null) {
+        title += `, files: ${changedFiles}`;
+    }
+    return {
+        additions,
+        deletions,
+        changedFiles,
+        total,
+        title,
+    };
 }
 
 function getCommentItems(notification) {

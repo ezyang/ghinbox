@@ -247,6 +247,40 @@ test.describe('Triage queues', () => {
     await expect(unsubscribeAllBtn).toBeVisible();
   });
 
+  test('approved queue action buttons are ordered and consistently named', async ({
+    page,
+  }) => {
+    // Switch to Others' PRs view and approved subfilter
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator(
+      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
+    );
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
+
+    await expect(page.locator('#open-unread-btn')).toBeVisible();
+    await expect(page.locator('#mark-done-btn')).toBeVisible();
+    await expect(page.locator('#unsubscribe-all-btn')).toBeVisible();
+
+    const actionLabels = await page
+      .locator('#select-all-row button')
+      .evaluateAll((buttons) =>
+        buttons
+          .filter((button) => {
+            const style = window.getComputedStyle(button);
+            return style.display !== 'none' && style.visibility !== 'hidden' && button.offsetParent !== null;
+          })
+          .map((button) => (button.textContent ?? '').trim())
+          .filter(Boolean)
+      );
+
+    expect(actionLabels).toEqual([
+      'Open all',
+      'Mark all as done',
+      'Unsubscribe from all',
+    ]);
+  });
+
   test('Unsubscribe All button unsubscribes all approved notifications', async ({ page }) => {
     let unsubscribeCalled = false;
     let markDoneCalled = false;

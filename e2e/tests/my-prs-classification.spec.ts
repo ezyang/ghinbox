@@ -131,4 +131,113 @@ test.describe('My PR classification', () => {
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="notif-pr-comment"]')).toBeVisible();
   });
+
+  test('uses PR author login when reason is not author', async ({ page }) => {
+    const graphqlFixture = {
+      ...fixture,
+      notifications: [
+        {
+          id: 'notif-pr-approved',
+          unread: true,
+          reason: 'approved',
+          updated_at: '2024-12-27T09:00:00Z',
+          subject: {
+            title: 'PR: follow-up fix',
+            url: 'https://github.com/test/repo/pull/14',
+            type: 'PullRequest',
+            number: 14,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [
+            {
+              login: 'reviewer',
+              avatar_url: 'https://avatars.githubusercontent.com/u/4?v=4',
+            },
+          ],
+          ui: {
+            saved: false,
+            done: false,
+          },
+        },
+        {
+          id: 'notif-pr-external',
+          unread: true,
+          reason: 'comment',
+          updated_at: '2024-12-27T08:00:00Z',
+          subject: {
+            title: 'PR: external change',
+            url: 'https://github.com/test/repo/pull/15',
+            type: 'PullRequest',
+            number: 15,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [
+            {
+              login: 'alice',
+              avatar_url: 'https://avatars.githubusercontent.com/u/5?v=4',
+            },
+          ],
+          ui: {
+            saved: false,
+            done: false,
+          },
+        },
+      ],
+    };
+
+    await page.route('**/notifications/html/repo/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(graphqlFixture),
+      });
+    });
+
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: {
+              limit: 5000,
+              remaining: 4999,
+              resetAt: new Date().toISOString(),
+            },
+            repository: {
+              pr14: {
+                reviewDecision: 'APPROVED',
+                authorAssociation: 'MEMBER',
+                author: { login: 'testuser' },
+              },
+              pr15: {
+                reviewDecision: null,
+                authorAssociation: 'CONTRIBUTOR',
+                author: { login: 'alice' },
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    const input = page.locator('#repo-input');
+    await input.fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
+
+    await page.locator('#view-others-prs').click();
+    const graphqlResponse = page.waitForResponse('**/github/graphql');
+    await page.locator('[data-for-view="others-prs"][data-subfilter-group="author"] [data-subfilter="committer"]').click();
+    await graphqlResponse;
+
+    await expect(page.locator('#view-my-prs .count')).toHaveText('1');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+
+    await page.locator('#view-my-prs').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="notif-pr-approved"]')).toBeVisible();
+  });
 });
