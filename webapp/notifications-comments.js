@@ -174,13 +174,47 @@ function shouldPrefetchNotificationComments(notification) {
     if (!isCommentCacheFresh(cached)) {
         return true;
     }
-    const shouldLoadAllComments = Boolean(
-        notification.last_read_at_missing || !notification.last_read_at
-    );
-    if (shouldLoadAllComments) {
-        return !cached.allComments;
+    // Check if filter parameters match
+    const anchor = notification.subject?.anchor || null;
+    const lastReadAt = notification.last_read_at || null;
+    const hasFilter = Boolean(anchor || lastReadAt);
+
+    if (hasFilter) {
+        // Re-fetch if anchor or lastReadAt changed
+        // Normalize undefined to null for comparison
+        const cachedAnchor = cached.anchor || null;
+        const cachedLastReadAt = cached.lastReadAt || null;
+        if (cachedAnchor !== anchor || cachedLastReadAt !== lastReadAt) {
+            return true;
+        }
+    } else if (!cached.allComments) {
+        // No filter but we don't have all comments
+        return true;
     }
-    return cached.lastReadAt !== (notification.last_read_at || null);
+    return false;
+}
+
+// Extract the comment ID from an anchor like "issuecomment-12345" or "discussion_r12345"
+function extractCommentIdFromAnchor(anchor) {
+    if (!anchor) {
+        return null;
+    }
+    // Handle "issuecomment-12345" format
+    const issueMatch = anchor.match(/^issuecomment-(\d+)$/);
+    if (issueMatch) {
+        return parseInt(issueMatch[1], 10);
+    }
+    // Handle "discussion_r12345" format (discussion comments)
+    const discussionMatch = anchor.match(/^discussion_r(\d+)$/);
+    if (discussionMatch) {
+        return parseInt(discussionMatch[1], 10);
+    }
+    // Handle "pullrequestreview-12345" format
+    const reviewMatch = anchor.match(/^pullrequestreview-(\d+)$/);
+    if (reviewMatch) {
+        return parseInt(reviewMatch[1], 10);
+    }
+    return null;
 }
 
 function toIssueComment(issue) {
@@ -418,28 +452,33 @@ async function prefetchNotificationComments(notification) {
         changedFiles: cached?.changedFiles,
         diffstatFetchedAt: cached?.diffstatFetchedAt,
     };
-    const shouldLoadAllComments = Boolean(
-        notification.last_read_at_missing || !notification.last_read_at
-    );
+
+    // Determine if we have a useful filter: prefer anchor, fallback to last_read_at
+    const anchor = notification.subject?.anchor || null;
+    const lastReadAt = notification.last_read_at || null;
+    const hasFilter = Boolean(anchor || lastReadAt);
+
+    // Check if cache is still valid
     if (
         cached &&
         cached.notificationUpdatedAt === notification.updated_at &&
-        isCommentCacheFresh(cached) &&
-        ((shouldLoadAllComments && cached.allComments) ||
-            (!shouldLoadAllComments &&
-                cached.lastReadAt === (notification.last_read_at || null)))
+        isCommentCacheFresh(cached)
     ) {
-        return;
+        // If we have a filter, check if anchor/lastReadAt match
+        // Normalize undefined to null for comparison
+        if (hasFilter) {
+            const cachedAnchor = cached.anchor || null;
+            const cachedLastReadAt = cached.lastReadAt || null;
+            if (cachedAnchor === anchor && cachedLastReadAt === lastReadAt) {
+                return;
+            }
+        } else if (cached.allComments) {
+            return;
+        }
     }
 
     const issueNumber = getIssueNumber(notification);
     if (!issueNumber) {
-        const existingDiffstat = {
-            additions: cached?.additions,
-            deletions: cached?.deletions,
-            changedFiles: cached?.changedFiles,
-            diffstatFetchedAt: cached?.diffstatFetchedAt,
-        };
         state.commentCache.threads[threadId] = {
             notificationUpdatedAt: notification.updated_at,
             comments: [],
@@ -457,25 +496,31 @@ async function prefetchNotificationComments(notification) {
         if (!repo) {
             throw new Error('Missing repository input.');
         }
-        let lastReadAt = null;
-        let allComments = false;
+
         let comments = [];
-        if (shouldLoadAllComments) {
+        let allComments = false;
+
+        // If we have an anchor, always fetch all and filter client-side
+        // If we have last_read_at (but no anchor), use it as a server-side filter
+        // If neither, fetch all comments
+        if (anchor) {
+            // Anchor-based: fetch all, filter client-side
             allComments = true;
             comments = await fetchAllIssueComments(repo, issueNumber);
+        } else if (lastReadAt) {
+            // Fallback: use last_read_at as server-side filter
+            let commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
+            commentUrl += `?since=${encodeURIComponent(lastReadAt)}`;
+            comments = await fetchJson(commentUrl);
         } else {
-            lastReadAt = notification.last_read_at || cached?.lastReadAt || null;
-            if (!lastReadAt) {
-                allComments = true;
-                comments = await fetchAllIssueComments(repo, issueNumber);
-            } else {
-                let commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
-                commentUrl += `?since=${encodeURIComponent(lastReadAt)}`;
-                comments = await fetchJson(commentUrl);
-            }
+            // No filter available - fetch all
+            allComments = true;
+            comments = await fetchAllIssueComments(repo, issueNumber);
         }
+
         state.commentCache.threads[threadId] = {
             notificationUpdatedAt: notification.updated_at,
+            anchor,
             lastReadAt,
             unread: notification.unread,
             comments,
@@ -489,7 +534,7 @@ async function prefetchNotificationComments(notification) {
         state.commentCache.threads[threadId] = {
             notificationUpdatedAt: notification.updated_at,
             comments: [],
-            allComments: shouldLoadAllComments,
+            allComments: !hasFilter,
             error: error.message || String(error),
             fetchedAt: new Date().toISOString(),
             reviewDecision: existingReviewDecision,
@@ -507,7 +552,12 @@ function getCommentStatus(notification) {
     if (cached.error) {
         return { label: 'Comments: error', className: 'error' };
     }
-    const count = cached.comments ? cached.comments.length : 0;
+    // Use anchor-filtered count for display (only if we have all comments)
+    // If comments were already filtered server-side (via last_read_at), use as-is
+    const anchor = cached.anchor || notification.subject?.anchor || null;
+    const comments = cached.comments || [];
+    const unreadComments = cached.allComments ? filterCommentsByAnchor(comments, anchor) : comments;
+    const count = unreadComments.length;
     if (isNotificationApproved(notification)) {
         return { label: 'Approved', className: 'approved' };
     }
@@ -552,6 +602,29 @@ function getDiffstatInfo(notification) {
     };
 }
 
+// Filter comments to only show those at or after the anchor (first unread)
+function filterCommentsByAnchor(comments, anchor) {
+    if (!anchor || !comments || comments.length === 0) {
+        return comments;
+    }
+    const anchorCommentId = extractCommentIdFromAnchor(anchor);
+    if (!anchorCommentId) {
+        // Anchor format not recognized, return all comments
+        return comments;
+    }
+    // Find the index of the anchor comment and return from there
+    const anchorIndex = comments.findIndex((comment) => {
+        const commentId = typeof comment.id === 'number' ? comment.id : parseInt(comment.id, 10);
+        return commentId === anchorCommentId;
+    });
+    if (anchorIndex === -1) {
+        // Anchor comment not found - this could happen if the anchor points to
+        // a review comment (not an issue comment). Return all comments.
+        return comments;
+    }
+    return comments.slice(anchorIndex);
+}
+
 function getCommentItems(notification) {
     const isIssue = notification.subject?.type === 'Issue';
     const isPR = notification.subject?.type === 'PullRequest';
@@ -566,9 +639,15 @@ function getCommentItems(notification) {
     if (cached.error) {
         return `<li class="comment-item">Comments error: ${escapeHtml(cached.error)}</li>`;
     }
-    const comments = filterCommentsAfterOwnComment(cached.comments || []);
+    // Filter by anchor first (only if we have all comments), then by own comment
+    // If comments were already filtered server-side (via last_read_at), use as-is
+    const anchor = cached.anchor || notification.subject?.anchor || null;
+    const rawComments = cached.comments || [];
+    const unreadComments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    const comments = filterCommentsAfterOwnComment(unreadComments);
+    const hasFilter = Boolean(anchor || cached.lastReadAt);
     if (comments.length === 0) {
-        const label = cached.allComments ? 'No comments found.' : 'No unread comments found.';
+        const label = hasFilter ? 'No unread comments found.' : 'No comments found.';
         return `<li class="comment-item">${label}</li>`;
     }
     const visibleComments = state.commentHideUninteresting
@@ -616,7 +695,11 @@ function isNotificationUninteresting(notification) {
     if (!cached || cached.error) {
         return false;
     }
-    const comments = cached.comments || [];
+    // Use anchor-filtered comments (only if we have all comments)
+    // If comments were already filtered server-side (via last_read_at), use as-is
+    const anchor = cached.anchor || notification.subject?.anchor || null;
+    const rawComments = cached.comments || [];
+    const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
     if (notification.subject?.type === 'PullRequest') {
         if (isNotificationApproved(notification)) {
             return false;

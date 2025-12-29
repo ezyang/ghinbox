@@ -23,6 +23,22 @@
             max-width: 1200px;
         }
 
+        :root {
+            --floating-notice-top: 72px;
+        }
+
+        .floating-notices {
+            position: fixed;
+            top: calc(var(--floating-notice-top) + env(safe-area-inset-top, 0px));
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(100% - 32px, 1200px);
+            display: grid;
+            gap: 8px;
+            z-index: 20;
+            pointer-events: none;
+        }
+
         .comment-item {
             font-size: 14px;
             line-height: 1.5;
@@ -198,12 +214,15 @@
             display: block;
             visibility: hidden;
             opacity: 0;
-            transition: opacity 0.2s ease;
+            margin: 0;
+            transition: opacity 0.2s ease, visibility 0s linear 1.6s;
+            transition-delay: 1.4s;
         }
 
         .progress-container.visible {
             visibility: visible;
             opacity: 1;
+            transition-delay: 0s;
         }
 
         .progress-text {
@@ -322,6 +341,16 @@
         </div>
     </header>
 
+    <div id="floating-notices" class="floating-notices">
+        <div id="status-bar" class="status-bar"></div>
+        <div id="progress-container" class="progress-container">
+            <div class="progress-bar-bg">
+                <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+            <div id="progress-text" class="progress-text"></div>
+        </div>
+    </div>
+
     <main class="container">
         <!-- Controls Section -->
         <section class="controls">
@@ -366,7 +395,6 @@
                     </button>
                 </div>
             </div>
-            <div id="status-bar" class="status-bar"></div>
             <div id="rate-limit-box" class="rate-limit-box">
                 <div class="rate-limit-row">
                     <span id="rate-limit-summary">Rate limit: unknown</span>
@@ -525,13 +553,6 @@
                 <button id="unsubscribe-all-btn" class="btn btn-danger" style="display: none;">
                     Unsubscribe from all
                 </button>
-            </div>
-
-            <div id="progress-container" class="progress-container">
-                <div class="progress-bar-bg">
-                    <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
-                </div>
-                <div id="progress-text" class="progress-text"></div>
             </div>
 
             <div id="loading" class="loading">

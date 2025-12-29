@@ -330,49 +330,62 @@ class AnchorTrackingFlow(BaseFlow):
         anchors: list[tuple[str, dict[str, Any]]],
         comment_ids: list[int | None],
     ) -> None:
-        """Analyze the progression of anchors."""
+        """Analyze the progression of anchors and validate expected behavior."""
         print("\nANCHOR PROGRESSION:")
         print("-" * 60)
 
         for label, data in anchors:
             anchor = data.get("anchor", "?")
             unread = data.get("unread", "?")
+            found_in = data.get("found_in_view", "-")
             print(f"  {label}:")
             print(f"    Anchor: {anchor}")
             print(f"    Unread: {unread}")
+            print(f"    View: {found_in}")
 
         print("\nCOMMENT IDs (for reference):")
         print("-" * 60)
         for i, cid in enumerate(comment_ids, 1):
             print(f"  Comment {i}: issuecomment-{cid}")
 
-        print("\nKEY OBSERVATIONS:")
-        print("-" * 60)
+        # Validation
+        print("\n" + "=" * 60)
+        print("VALIDATION RESULTS")
+        print("=" * 60)
 
-        # Check if anchors reference comment IDs
-        anchor_values = [a[1].get("anchor", "") for a in anchors]
+        # Find the final anchor (step 6 - after second comment)
+        final_data = anchors[-1][1]
+        final_anchor = final_data.get("anchor", "")
+        comment1_id = comment_ids[0]
+        comment2_id = comment_ids[1] if len(comment_ids) > 1 else None
 
-        # Check for patterns
-        if all(a == "(no anchor)" or not a for a in anchor_values):
-            print("  - No anchors found in any notification links")
-            print("  - Anchors may only appear for PRs or after activity?")
+        expected_anchor = f"issuecomment-{comment1_id}"
+
+        if final_anchor == expected_anchor:
+            print("\n✓ PASS: Anchor correctly points to first unread comment")
+            print(f"  Expected: {expected_anchor}")
+            print(f"  Got:      {final_anchor}")
+            print("\n  This confirms GitHub tracks read state at comment level.")
+            print("  The anchor can be used to filter 'new' comments.")
+        elif comment2_id and final_anchor == f"issuecomment-{comment2_id}":
+            print("\n✗ FAIL: Anchor points to most recent comment, not first unread")
+            print(f"  Expected: {expected_anchor}")
+            print(f"  Got:      {final_anchor}")
+        elif final_anchor in ("(no anchor)", "(no notification found)"):
+            print("\n⚠ INCONCLUSIVE: No anchor found in final state")
+            print(f"  Expected: {expected_anchor}")
+            print(f"  Got:      {final_anchor}")
+            print("\n  This may indicate a timing issue or behavior change.")
         else:
-            print("  - Anchors found in notification links")
+            print("\n? UNEXPECTED: Anchor doesn't match any known comment")
+            print(f"  Expected: {expected_anchor}")
+            print(f"  Got:      {final_anchor}")
 
-            # Check if anchor changed after reading
-            before_read = anchors[2][1].get("anchor")  # After comment 2
-            after_read = anchors[3][1].get("anchor")  # After reading
-
-            if before_read != after_read:
-                print(f"  - Anchor CHANGED after reading: {before_read} → {after_read}")
-            else:
-                print(f"  - Anchor did NOT change after reading: {before_read}")
-
-            # Check if new comment after read updates anchor
-            after_comment3 = anchors[4][1].get("anchor")
-            if after_read != after_comment3:
-                print(
-                    f"  - Anchor updated after new comment: {after_read} → {after_comment3}"
-                )
-            else:
-                print(f"  - Anchor same after new comment: {after_comment3}")
+        # Check unread status
+        final_unread = final_data.get("unread")
+        if final_unread is True:
+            print("\n✓ Notification correctly marked as unread after new activity")
+        elif final_unread is False:
+            print("\n⚠ Notification still marked as read (unexpected)")
+        else:
+            print("\n⚠ Could not determine unread status")

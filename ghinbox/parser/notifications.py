@@ -162,7 +162,7 @@ def _extract_updated_at(item: Tag) -> datetime:
 
 
 def _extract_subject(item: Tag) -> Subject:
-    """Extract subject information (title, url, type, number, state)."""
+    """Extract subject information (title, url, type, number, state, anchor)."""
     # Find the main notification link
     link = item.select_one("a.notification-list-item-link")
 
@@ -172,6 +172,7 @@ def _extract_subject(item: Tag) -> Subject:
     number: int | None = None
     state: str | None = None
     state_reason: str | None = None
+    anchor: str | None = None
 
     if link:
         href = link.get("href", "")
@@ -181,6 +182,11 @@ def _extract_subject(item: Tag) -> Subject:
 
             # Extract number from URL path
             number = _extract_number_from_url(parsed.path)
+
+            # Extract anchor (fragment) - indicates first unread comment
+            # e.g., "issuecomment-12345" or "discussion_r12345"
+            if parsed.fragment:
+                anchor = parsed.fragment
 
         # Get title from markdown-title element
         title_elem = link.select_one("p.markdown-title")
@@ -204,6 +210,7 @@ def _extract_subject(item: Tag) -> Subject:
         number=number,
         state=state,  # type: ignore[arg-type]
         state_reason=state_reason,  # type: ignore[arg-type]
+        anchor=anchor,
     )
 
 

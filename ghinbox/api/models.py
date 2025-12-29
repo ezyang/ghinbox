@@ -27,6 +27,10 @@ class Subject(BaseModel):
     number: int | None = None
     state: Literal["open", "closed", "merged", "draft"] | None = None
     state_reason: Literal["completed", "not_planned", "resolved"] | None = None
+    # The URL anchor indicating the first unread comment (e.g., "issuecomment-12345")
+    # This is extracted from the notification link and indicates where "new" content starts.
+    # None means no anchor was present (user hasn't read any comments yet).
+    anchor: str | None = None
 
 
 class UIState(BaseModel):
