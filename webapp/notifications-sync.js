@@ -777,7 +777,52 @@
         }
 
         // Show status message
-        function showStatus(message, type) {
-            elements.statusBar.textContent = message;
-            elements.statusBar.className = `status-bar visible ${type}`;
+        function showStatus(message, type, options) {
+            const settings = options || {};
+            const flash = Boolean(settings.flash);
+            const flashDurationMs = Number.isFinite(settings.durationMs)
+                ? settings.durationMs
+                : 1500;
+
+            if (flash && state.statusState && !state.statusState.isFlash) {
+                return;
+            }
+
+            if (state.statusTimer) {
+                clearTimeout(state.statusTimer);
+                state.statusTimer = null;
+            }
+
+            function applyStatus(nextMessage, nextType, isFlash, flashId) {
+                elements.statusBar.textContent = nextMessage;
+                elements.statusBar.className = `status-bar visible ${nextType}`;
+                state.statusState = {
+                    message: nextMessage,
+                    type: nextType,
+                    isFlash,
+                    flashId,
+                };
+            }
+
+            const flashId = flash ? (state.statusFlashId += 1) : null;
+            applyStatus(message, type, flash, flashId);
+
+            if (!flash) {
+                state.lastPersistentStatus = { message, type };
+                return;
+            }
+
+            state.statusTimer = setTimeout(() => {
+                if (!state.statusState || state.statusState.flashId !== flashId) {
+                    return;
+                }
+                const last = state.lastPersistentStatus;
+                if (last) {
+                    applyStatus(last.message, last.type, false, null);
+                    return;
+                }
+                elements.statusBar.textContent = '';
+                elements.statusBar.className = 'status-bar';
+                state.statusState = null;
+            }, flashDurationMs);
         }

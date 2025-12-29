@@ -29,6 +29,10 @@
             notifications: [],
             loading: false,
             error: null,
+            statusState: null,
+            statusTimer: null,
+            statusFlashId: 0,
+            lastPersistentStatus: null,
             view: 'issues', // 'issues', 'my-prs', 'others-prs'
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
@@ -252,7 +256,7 @@
                 ? new Date(state.rateLimitLogResetAt * 1000).toLocaleTimeString()
                 : 'unknown';
             elements.rateLimitLogStatus.textContent =
-                `Logged ${count} request${count === 1 ? '' : 's'} since core reset @ ${resetAt}.`;
+                `Logged ${count} request${count === 1 ? '' : 's'} until core resets @ ${resetAt}.`;
         }
 
         function renderRateLimitLogs() {
