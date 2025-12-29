@@ -8,8 +8,12 @@ import {
 } from './idb-utils';
 
 export async function clearAppStorage(page: Page) {
+  if (page.url() === 'about:blank') {
+    return;
+  }
   await clearCacheStores(page);
   await page.evaluate(() => localStorage.clear());
+  await page.reload();
 }
 
 export async function seedNotificationsCache(page: Page, notifications: unknown) {

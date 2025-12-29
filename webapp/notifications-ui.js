@@ -835,7 +835,11 @@
                     if (countSpan) {
                         const countMap =
                             group === 'author' ? subfilterCounts.author : subfilterCounts.state;
-                        countSpan.textContent = countMap[subfilter] ?? 0;
+                        const countKey =
+                            group === 'state' && subfilter === 'needs-review'
+                                ? 'needsReview'
+                                : subfilter;
+                        countSpan.textContent = countMap[countKey] ?? 0;
                     }
                 }
             });

@@ -89,12 +89,16 @@ function scheduleCommentPrefetch(notifications) {
         return;
     }
     scheduleReviewDecisionPrefetch(notifications);
+    const pending = notifications.filter(shouldPrefetchNotificationComments);
+    if (!pending.length) {
+        return;
+    }
     showStatus(
-        `Prefetch: queued ${notifications.length} notifications (concurrency ${COMMENT_CONCURRENCY})`,
+        `Prefetch: queued ${pending.length} notifications (concurrency ${COMMENT_CONCURRENCY})`,
         'info',
         { flash: true }
     );
-    notifications.forEach((notif) => {
+    pending.forEach((notif) => {
         state.commentQueue.push(() => prefetchNotificationComments(notif));
     });
     runCommentQueue();
@@ -123,6 +127,26 @@ async function runCommentQueue() {
     }
     await refreshRateLimit();
     state.commentQueueRunning = false;
+}
+
+function shouldPrefetchNotificationComments(notification) {
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    if (!cached) {
+        return true;
+    }
+    if (cached.notificationUpdatedAt !== notification.updated_at) {
+        return true;
+    }
+    if (!isCommentCacheFresh(cached)) {
+        return true;
+    }
+    const shouldLoadAllComments = Boolean(
+        notification.last_read_at_missing || !notification.last_read_at
+    );
+    if (shouldLoadAllComments) {
+        return !cached.allComments;
+    }
+    return cached.lastReadAt !== (notification.last_read_at || null);
 }
 
 function toIssueComment(issue) {

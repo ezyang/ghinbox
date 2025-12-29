@@ -350,6 +350,9 @@
                 };
             }
             state.viewFilters[state.view][group] = subfilter;
+            if (group === 'author' && state.viewFilters[state.view].state !== 'all') {
+                state.viewFilters[state.view].state = 'all';
+            }
             localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(state.viewFilters));
 
             if (group === 'state' && subfilter === 'approved' && !state.commentPrefetchEnabled) {
@@ -434,9 +437,17 @@
         }
 
         function safeIsNotificationNeedsReview(notification) {
-            return typeof isNotificationNeedsReview === 'function'
-                ? isNotificationNeedsReview(notification)
-                : false;
+            if (notification.subject?.type !== 'PullRequest') {
+                return false;
+            }
+            const notifState = notification.subject?.state;
+            if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
+                return false;
+            }
+            if (safeIsNotificationApproved(notification)) {
+                return false;
+            }
+            return true;
         }
 
         function safeIsNotificationApproved(notification) {

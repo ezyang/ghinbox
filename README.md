@@ -10,13 +10,19 @@ The three main design philosophies of ghinbox are as follows:
 
 3. **Core contributor PRs privileged over external contributor PRs.**  GitHub notifications doesn't distinguish between PRs that come from core contributors versus external contributors; anyone can CC you and dump a PR in your inbox.  This design makes it easy for the masses to hijack maintainer attention.  Instead, external contributions should be relegated to their own section, where a maintainer can engage with them on their own terms, subject to whatever attention they want to allocate.
 
+These philosophies transfer into the following feature set:
 
+* GitHub source of truth (unlike Octobox); you can blow away ghinbox's local state without care, any actions you take translate directly into concepts GitHub knows, like marking a notification as Done.
 
-GitHub's official notifications UI is hobbled by the need to scale with the huge number of users in GitHub.  This means GitHub is unwilling to do things like prefetch comments or do complicated filtering, since this would add a lot of load to their servers, even when it would be really good for power users.  ghinbox's value proposition is that it will do all of fanout fetches for your and display it in a consolidated UI, but only do the fetch when you explicitly ask for it (so you are not repeatedly hammering GitHub's servers in the course of normally processing issues.)
+* Fetch all unread comments for each notification and display them inline on one page.
 
+* Ability to filter out uninteresting comments (e.g., bot interactions, automated messages, etc.)
 
+* Ability to take out notifications which were only induced by uninteresting actions.
 
-## Why This Exists
+* A Phabricator-style PR review dashboard, which emphasizes clarity on whether or not a PR in your inbox needs action taken on it or not.
+
+## Technical details
 
 GitHub's REST API cannot distinguish between "Read" and "Done" notification states—both return identical JSON. The web UI also shows additional data (saved state, subject state, actors) not available via API. The goal here is to make GitHub notifications actually manageable with a purpose-built UI. This project provides:
 
