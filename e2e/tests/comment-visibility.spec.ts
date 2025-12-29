@@ -120,8 +120,12 @@ test.describe('Comment visibility', () => {
     await seedCommentCache(page, commentCache);
     await page.reload();
     await page.evaluate(() => {
-      if (typeof state === 'object' && state) {
-        state.currentUserLogin = 'testuser';
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
+      if (typeof checkAuth === 'function') {
+        checkAuth();
       }
       if (typeof render === 'function') {
         render();
@@ -375,12 +379,12 @@ test.describe('Own comment filtering', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced');
   });
 
-  test('hides own comments and earlier items in expanded view', async ({
+  test('shows all comments when auth status is not refreshed on load', async ({
     page,
   }) => {
-    await expect(page.locator('.comment-item')).toHaveCount(1);
-    await expect(page.locator('.comment-item').first()).toContainText(
-      'Thanks for checking in.'
+    await expect(page.locator('.comment-item')).toHaveCount(3);
+    await expect(page.locator('.comment-item').nth(1)).toContainText(
+      'Looking now.'
     );
   });
 });
