@@ -88,9 +88,6 @@ test.describe.skip('Uninteresting without new comments', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
-    });
     await seedCommentCache(page, commentCache);
     await page.reload();
 

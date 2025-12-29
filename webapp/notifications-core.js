@@ -6,6 +6,7 @@
         const ORDER_KEY = 'ghnotif_order';
         const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
         const VALID_ORDERS = new Set(['recent', 'size']);
+        const RATE_LIMIT_LOG_MAX = 300;
 
         // Default view filters for each view
         const DEFAULT_VIEW_FILTERS = {
@@ -49,6 +50,12 @@
             rateLimitError: null,
             graphqlRateLimit: null,
             graphqlRateLimitError: null,
+            rateLimitLog: [],
+            rateLimitLogResetAt: null,
+            rateLimitLogNextId: 1,
+            rateLimitLogRefreshStart: null,
+            actionContext: null,
+            actionCounter: 0,
             currentUserLogin: null,
             commentBodyExpanded: new Set(),
             lastSyncedRepo: null,
@@ -74,6 +81,11 @@
             commentCacheStatus: document.getElementById('comment-cache-status'),
             clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
             rateLimitBox: document.getElementById('rate-limit-box'),
+            rateLimitSummary: document.getElementById('rate-limit-summary'),
+            rateLimitExplainBtn: document.getElementById('rate-limit-explain-btn'),
+            rateLimitDetails: document.getElementById('rate-limit-details'),
+            rateLimitLogStatus: document.getElementById('rate-limit-log-status'),
+            rateLimitLog: document.getElementById('rate-limit-log'),
             loading: document.getElementById('loading'),
             emptyState: document.getElementById('empty-state'),
             notificationsList: document.getElementById('notifications-list'),
@@ -143,6 +155,251 @@
             localStorage.removeItem(AUTH_TOKEN_KEY);
         }
 
+        function getActionLabel() {
+            return state.actionContext?.label || 'Background';
+        }
+
+        function withActionContext(label, fn) {
+            const previous = state.actionContext;
+            const nextId = state.actionCounter + 1;
+            state.actionCounter = nextId;
+            state.actionContext = {
+                id: nextId,
+                label,
+                startedAt: new Date().toISOString(),
+            };
+            let result;
+            try {
+                result = fn();
+            } catch (error) {
+                state.actionContext = previous;
+                throw error;
+            }
+            if (result && typeof result.then === 'function') {
+                return result.finally(() => {
+                    state.actionContext = previous;
+                });
+            }
+            state.actionContext = previous;
+            return result;
+        }
+
+        function shouldLogRateLimitRequest(url) {
+            if (!url) {
+                return false;
+            }
+            return (
+                url.startsWith('/github/') ||
+                url.startsWith('/notifications/html')
+            );
+        }
+
+        function extractGraphqlSummary(body) {
+            if (typeof body !== 'string') {
+                return null;
+            }
+            let payload;
+            try {
+                payload = JSON.parse(body);
+            } catch (error) {
+                return null;
+            }
+            const query = typeof payload?.query === 'string' ? payload.query : '';
+            const variables = payload?.variables && typeof payload.variables === 'object'
+                ? Object.keys(payload.variables)
+                : [];
+            const compact = query.replace(/\s+/g, ' ').trim();
+            if (!compact) {
+                return null;
+            }
+            const opMatch = compact.match(/\b(query|mutation)\s+([A-Za-z0-9_]+)/);
+            const operation = opMatch
+                ? `${opMatch[1]} ${opMatch[2]}`
+                : compact.startsWith('query')
+                    ? 'query'
+                    : compact.startsWith('mutation')
+                        ? 'mutation'
+                        : null;
+            const rootMatch = compact.match(/\{\s*([A-Za-z0-9_]+)/);
+            const rootField = rootMatch ? rootMatch[1] : null;
+            const parts = [];
+            if (operation) {
+                parts.push(operation);
+            }
+            if (rootField) {
+                parts.push(`root=${rootField}`);
+            }
+            if (variables.length) {
+                parts.push(`vars=${variables.join(',')}`);
+            }
+            if (!parts.length) {
+                parts.push(compact.slice(0, 80));
+            }
+            return parts.join(' ');
+        }
+
+        function updateRateLimitLogStatus() {
+            if (!elements.rateLimitLogStatus) {
+                return;
+            }
+            const count = state.rateLimitLog.length;
+            if (count === 0) {
+                elements.rateLimitLogStatus.textContent =
+                    'No rate limit requests logged yet.';
+                return;
+            }
+            const resetAt = state.rateLimitLogResetAt
+                ? new Date(state.rateLimitLogResetAt * 1000).toLocaleTimeString()
+                : 'unknown';
+            elements.rateLimitLogStatus.textContent =
+                `Logged ${count} request${count === 1 ? '' : 's'} since core reset @ ${resetAt}.`;
+        }
+
+        function renderRateLimitLogs() {
+            if (!elements.rateLimitLog) {
+                return;
+            }
+            elements.rateLimitLog.textContent = '';
+            updateRateLimitLogStatus();
+            const entries = state.rateLimitLog.slice().reverse();
+            entries.forEach((entry) => {
+                const item = document.createElement('li');
+                item.className = 'rate-limit-log-item';
+
+                const title = document.createElement('strong');
+                title.textContent = `${entry.timeLabel} | ${entry.action}`;
+                item.appendChild(title);
+
+                const requestLine = document.createElement('div');
+                requestLine.textContent = `${entry.method} ${entry.url} (${entry.kind})`;
+                item.appendChild(requestLine);
+
+                const metaLine = document.createElement('div');
+                const metaParts = [];
+                if (entry.status) {
+                    metaParts.push(`status ${entry.status}`);
+                }
+                if (Number.isFinite(entry.durationMs)) {
+                    metaParts.push(`${entry.durationMs}ms`);
+                }
+                if (entry.detail) {
+                    metaParts.push(entry.detail);
+                }
+                metaLine.textContent = metaParts.join(' | ');
+                item.appendChild(metaLine);
+
+                elements.rateLimitLog.appendChild(item);
+            });
+        }
+
+        function clearRateLimitLogs({ preserveLatest = false, preserveSince = null } = {}) {
+            let preserved = [];
+            if (Number.isFinite(preserveSince)) {
+                preserved = state.rateLimitLog.filter(
+                    (entry) => entry.timestamp >= preserveSince
+                );
+            } else if (preserveLatest) {
+                const latest = state.rateLimitLog[state.rateLimitLog.length - 1];
+                preserved = latest ? [latest] : [];
+            }
+            state.rateLimitLog = preserved;
+            updateRateLimitLogStatus();
+            if (elements.rateLimitDetails && !elements.rateLimitDetails.hidden) {
+                renderRateLimitLogs();
+            }
+        }
+
+        function recordRateLimitLog(entry) {
+            state.rateLimitLog.push(entry);
+            if (state.rateLimitLog.length > RATE_LIMIT_LOG_MAX) {
+                state.rateLimitLog.splice(0, state.rateLimitLog.length - RATE_LIMIT_LOG_MAX);
+            }
+            updateRateLimitLogStatus();
+            if (elements.rateLimitDetails && !elements.rateLimitDetails.hidden) {
+                renderRateLimitLogs();
+            }
+        }
+
+        function instrumentFetchForRateLimit() {
+            if (!window.fetch || window.fetch.__ghinboxRateLimitWrapped) {
+                return;
+            }
+            const originalFetch = window.fetch.bind(window);
+            const wrappedFetch = async (input, init = {}) => {
+                const url = typeof input === 'string' ? input : input?.url || '';
+                const method =
+                    init.method ||
+                    (typeof input === 'object' && input?.method) ||
+                    'GET';
+                if (!shouldLogRateLimitRequest(url)) {
+                    return originalFetch(input, init);
+                }
+                const startedAt = Date.now();
+                let response;
+                try {
+                    response = await originalFetch(input, init);
+                } catch (error) {
+                    const detail = error?.message ? String(error.message) : 'fetch failed';
+                    recordRateLimitLog({
+                        id: state.rateLimitLogNextId++,
+                        timeLabel: new Date(startedAt).toLocaleTimeString(),
+                        timestamp: startedAt,
+                        action: getActionLabel(),
+                        method: String(method || 'GET').toUpperCase(),
+                        url,
+                        kind: url.includes('/github/graphql')
+                            ? 'GraphQL'
+                            : url.startsWith('/notifications/html')
+                                ? 'App'
+                                : 'REST',
+                        status: 'error',
+                        durationMs: Date.now() - startedAt,
+                        detail,
+                    });
+                    throw error;
+                }
+                const durationMs = Date.now() - startedAt;
+                const isGraphql = url.includes('/github/graphql');
+                const kind = isGraphql
+                    ? 'GraphQL'
+                    : url.startsWith('/notifications/html')
+                        ? 'App'
+                        : 'REST';
+                const body = init?.body;
+                const graphqlSummary = isGraphql ? extractGraphqlSummary(body) : null;
+                recordRateLimitLog({
+                    id: state.rateLimitLogNextId++,
+                    timeLabel: new Date(startedAt).toLocaleTimeString(),
+                    timestamp: startedAt,
+                    action: getActionLabel(),
+                    method: String(method || 'GET').toUpperCase(),
+                    url,
+                    kind,
+                    status: response.status,
+                    durationMs,
+                    detail: graphqlSummary,
+                });
+                return response;
+            };
+            wrappedFetch.__ghinboxRateLimitWrapped = true;
+            window.fetch = wrappedFetch;
+        }
+
+        function toggleRateLimitDetails() {
+            if (!elements.rateLimitDetails || !elements.rateLimitExplainBtn) {
+                return;
+            }
+            const nextHidden = !elements.rateLimitDetails.hidden;
+            elements.rateLimitDetails.hidden = nextHidden;
+            elements.rateLimitExplainBtn.setAttribute(
+                'aria-expanded',
+                String(!nextHidden)
+            );
+            if (!nextHidden) {
+                renderRateLimitLogs();
+            }
+        }
+
         // loadCommentCache, saveCommentCache, isCommentCacheFresh are in notifications-comments.js
 
         // Initialize app
@@ -174,6 +431,8 @@
 
         // Initialize app
         async function init() {
+            instrumentFetchForRateLimit();
+
             // Load saved repo from localStorage
             const savedRepo = localStorage.getItem('ghnotif_repo');
             if (savedRepo) {
@@ -257,12 +516,16 @@
             elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
 
             // Set up event listeners
-            elements.syncBtn.addEventListener('click', () => handleSync({ mode: 'incremental' }));
-            elements.fullSyncBtn.addEventListener('click', () => handleSync({ mode: 'full' }));
+            elements.syncBtn.addEventListener('click', () => {
+                withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
+            });
+            elements.fullSyncBtn.addEventListener('click', () => {
+                withActionContext('Full Sync', () => handleSync({ mode: 'full' }));
+            });
             elements.repoInput.addEventListener('input', handleRepoInput);
             elements.repoInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
-                    handleSync({ mode: 'incremental' });
+                    withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
                 }
             });
             if (elements.orderSelect) {
@@ -306,19 +569,31 @@
             elements.commentHideUninterestingToggle.addEventListener('change', (event) => {
                 setCommentHideUninteresting(event.target.checked);
             });
-            elements.clearCommentCacheBtn.addEventListener('click', handleClearCommentCache);
+            elements.clearCommentCacheBtn.addEventListener('click', () => {
+                withActionContext('Clear comment cache', handleClearCommentCache);
+            });
 
             // Select all checkbox handler
             elements.selectAllCheckbox.addEventListener('change', handleSelectAll);
 
             // Mark Done button handler
-            elements.markDoneBtn.addEventListener('click', handleMarkDone);
+            elements.markDoneBtn.addEventListener('click', () => {
+                withActionContext('Mark done (bulk)', handleMarkDone);
+            });
 
             // Open All button handler
-            elements.openUnreadBtn.addEventListener('click', handleOpenAllFiltered);
+            elements.openUnreadBtn.addEventListener('click', () => {
+                withActionContext('Open unread', handleOpenAllFiltered);
+            });
 
             // Unsubscribe All button handler
-            elements.unsubscribeAllBtn.addEventListener('click', handleUnsubscribeAll);
+            elements.unsubscribeAllBtn.addEventListener('click', () => {
+                withActionContext('Unsubscribe all', handleUnsubscribeAll);
+            });
+
+            if (elements.rateLimitExplainBtn) {
+                elements.rateLimitExplainBtn.addEventListener('click', toggleRateLimitDetails);
+            }
 
             // Keyboard shortcuts
             document.addEventListener('keydown', handleKeyDown);

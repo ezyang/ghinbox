@@ -56,13 +56,44 @@ test.describe('Mark Done', () => {
       });
     });
 
+    // Mock GraphQL endpoint for prefetch
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { repository: {} } }),
+      });
+    });
+
+    // Mock REST comment endpoints for prefetch
+    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    // Mock REST issues endpoint for prefetch
+    await page.route('**/github/rest/repos/**/issues/**', (route) => {
+      if (route.request().url().includes('/comments')) {
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
+      });
+    });
+
     await page.goto('notifications.html');
     await clearAppStorage(page);
 
     // Sync to load notifications
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+    // Wait for notifications to load
+    await expect(page.locator('.notification-item')).toHaveCount(3);
   });
 
   test.describe('Mark Done Button', () => {
@@ -952,12 +983,43 @@ test.describe('Mark Done with Node IDs', () => {
       });
     });
 
+    // Mock GraphQL endpoint for prefetch
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { repository: {} } }),
+      });
+    });
+
+    // Mock REST comment endpoints for prefetch
+    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    // Mock REST issues endpoint for prefetch
+    await page.route('**/github/rest/repos/**/issues/**', (route) => {
+      if (route.request().url().includes('/comments')) {
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
+      });
+    });
+
     await page.goto('notifications.html');
     await clearAppStorage(page);
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+    // Wait for notifications to load
+    await expect(page.locator('.notification-item')).toHaveCount(3);
   });
 
   test('extracts thread_id from node ID and uses REST API', async ({ page }) => {

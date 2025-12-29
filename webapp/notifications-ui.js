@@ -155,7 +155,9 @@
             if (action === 'done') {
                 const doneButton = item.querySelector('.notification-done-btn');
                 if (doneButton) {
-                    await handleInlineMarkDone(state.activeNotificationId, doneButton);
+                    await withActionContext('Mark done (inline)', () =>
+                        handleInlineMarkDone(state.activeNotificationId, doneButton)
+                    );
                 }
                 return;
             }
@@ -165,7 +167,9 @@
                     showStatus('Unsubscribe is not available for this notification.', 'info');
                     return;
                 }
-                await handleInlineUnsubscribe(state.activeNotificationId, unsubscribeButton);
+                await withActionContext('Unsubscribe (inline)', () =>
+                    handleInlineUnsubscribe(state.activeNotificationId, unsubscribeButton)
+                );
             }
         }
 
@@ -1119,7 +1123,9 @@
                     doneButtons.forEach((doneBtn) => {
                         doneBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            handleInlineMarkDone(notif.id, doneBtn);
+                            withActionContext('Mark done (inline)', () =>
+                                handleInlineMarkDone(notif.id, doneBtn)
+                            );
                         });
                     });
 
@@ -1127,7 +1133,9 @@
                     unsubscribeButtons.forEach((unsubscribeBtn) => {
                         unsubscribeBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            handleInlineUnsubscribe(notif.id, unsubscribeBtn);
+                            withActionContext('Unsubscribe (inline)', () =>
+                                handleInlineUnsubscribe(notif.id, unsubscribeBtn)
+                            );
                         });
                     });
 

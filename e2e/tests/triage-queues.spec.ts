@@ -424,10 +424,6 @@ test.describe('Triage queues GraphQL review decisions', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
-    });
-    await page.reload();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect

@@ -133,6 +133,59 @@
             display: none;
         }
 
+        .rate-limit-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .rate-limit-explain-btn {
+            border: 1px solid var(--color-border-muted);
+            background: var(--color-bg-default);
+            color: var(--color-fg-muted);
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .rate-limit-explain-btn:hover {
+            color: var(--color-fg-default);
+            border-color: var(--color-border-default);
+        }
+
+        .rate-limit-details {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--color-border-muted);
+        }
+
+        .rate-limit-log-status {
+            font-size: 11px;
+            color: var(--color-fg-muted);
+        }
+
+        .rate-limit-log {
+            list-style: none;
+            margin: 8px 0 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--color-fg-muted);
+        }
+
+        .rate-limit-log-item {
+            display: grid;
+            gap: 2px;
+        }
+
+        .rate-limit-log-item strong {
+            font-weight: 600;
+            color: var(--color-fg-default);
+        }
+
         .notification-item:has(.comment-list) .notification-header,
         .notification-item:has(.comment-list) .notification-checkbox,
         .notification-item:has(.comment-list) .notification-icon,
@@ -291,7 +344,20 @@
                 </div>
             </div>
             <div id="status-bar" class="status-bar"></div>
-            <div id="rate-limit-box" class="rate-limit-box">Rate limit: unknown</div>
+            <div id="rate-limit-box" class="rate-limit-box">
+                <div class="rate-limit-row">
+                    <span id="rate-limit-summary">Rate limit: unknown</span>
+                    <button id="rate-limit-explain-btn" class="rate-limit-explain-btn" type="button" aria-expanded="false">
+                        Explain
+                    </button>
+                </div>
+                <div id="rate-limit-details" class="rate-limit-details" hidden>
+                    <div id="rate-limit-log-status" class="rate-limit-log-status">
+                        No rate limit requests logged yet.
+                    </div>
+                    <ul id="rate-limit-log" class="rate-limit-log"></ul>
+                </div>
+            </div>
         </section>
 
         <!-- Notifications Section -->

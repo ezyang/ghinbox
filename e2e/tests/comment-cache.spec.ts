@@ -34,9 +34,6 @@ test.describe('Comment cache', () => {
   test('clear cache button removes stored comments', async ({ page }) => {
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
-    });
     await seedCommentCache(page, {
       version: 1,
       threads: {

@@ -318,7 +318,6 @@ test.describe('Sync Functionality', () => {
     await page.evaluate(() => {
       localStorage.setItem('ghnotif_repo', 'test/repo');
       localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
     });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
@@ -523,7 +522,6 @@ test.describe('Sync Functionality', () => {
     await page.evaluate(() => {
       localStorage.setItem('ghnotif_repo', 'test/repo');
       localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-      localStorage.setItem('ghnotif_comment_prefetch_enabled', 'true');
     });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();

@@ -29,12 +29,17 @@
         }
 
         function updateRateLimitBox() {
-            elements.rateLimitBox.textContent = formatRateLimit(
+            const text = formatRateLimit(
                 state.rateLimit,
                 state.rateLimitError,
                 state.graphqlRateLimit,
                 state.graphqlRateLimitError
             );
+            if (elements.rateLimitSummary) {
+                elements.rateLimitSummary.textContent = text;
+            } else {
+                elements.rateLimitBox.textContent = text;
+            }
         }
 
         async function refreshRestRateLimit() {
@@ -46,6 +51,15 @@
                 const data = await response.json();
                 state.rateLimit = data;
                 state.rateLimitError = null;
+                const nextReset = data?.resources?.core?.reset || null;
+                if (
+                    state.rateLimitLogResetAt &&
+                    nextReset &&
+                    nextReset !== state.rateLimitLogResetAt
+                ) {
+                    clearRateLimitLogs({ preserveSince: state.rateLimitLogRefreshStart });
+                }
+                state.rateLimitLogResetAt = nextReset;
             } catch (error) {
                 state.rateLimitError = error.message || String(error);
             }
@@ -75,8 +89,11 @@
         }
 
         async function refreshRateLimit() {
+            state.rateLimitLogRefreshStart = Date.now();
             await Promise.all([refreshRestRateLimit(), refreshGraphqlRateLimit()]);
             updateRateLimitBox();
+            updateRateLimitLogStatus();
+            state.rateLimitLogRefreshStart = null;
         }
 
         function updateGraphqlRateLimit(rateLimit) {

@@ -29,6 +29,36 @@ test.describe('Filtering', () => {
       });
     });
 
+    // Mock GraphQL endpoint for prefetch
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: { repository: {} } }),
+      });
+    });
+
+    // Mock REST comment endpoints for prefetch
+    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    // Mock REST issues endpoint for prefetch
+    await page.route('**/github/rest/repos/**/issues/**', (route) => {
+      if (route.request().url().includes('/comments')) {
+        return; // Let the comments route handle this
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
+      });
+    });
+
     await page.goto('notifications.html');
     await clearAppStorage(page);
   });
@@ -146,7 +176,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+      // Wait for notifications to load (Issues view shows 3 items from mixed fixture)
+      await expect(page.locator('.notification-item')).toHaveCount(3);
     });
 
     test('clicking Issues tab shows only issues', async ({ page }) => {
@@ -207,7 +238,8 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // 3 issues, 0 my PRs (testuser has no PRs), 2 others PRs
       await expect(page.locator('#view-issues .count')).toHaveText('3');
@@ -221,7 +253,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
     });
 
     test('shows subfilter counts for Issues view', async ({ page }) => {
@@ -300,7 +333,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
       await page.locator('#view-others-prs').click();
 
       const othersPrsStatus = page.locator(
@@ -335,7 +369,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
     });
 
     test('clicking Open subfilter filters to open issues', async ({ page }) => {
@@ -473,7 +508,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // Switch to My PRs (testuser has no PRs)
       await page.locator('#view-my-prs').click();
@@ -487,7 +523,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // Issues and Others PRs should have results
       await expect(page.locator('#empty-state')).not.toBeVisible();
@@ -538,7 +575,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced 6 notifications');
+      // Wait for notifications to load (Issues view shows 3 items)
+      await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // Switch to Others PRs
       await page.locator('#view-others-prs').click();
@@ -569,7 +607,8 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('#status-bar')).toContainText('Synced');
+      // Wait for notifications to load
+      await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // Switch to Others PRs
       await page.locator('#view-others-prs').click();
