@@ -7,15 +7,6 @@
                 return null;
             }
             const removedSet = new Set(removedIds);
-            const snapThreshold = 120;
-            const shouldSnapToTop = removedIds.some(id => {
-                const removedElement = getNotificationElement(id);
-                if (!removedElement) {
-                    return false;
-                }
-                const rect = removedElement.getBoundingClientRect();
-                return rect.bottom > 0 && rect.top < snapThreshold;
-            });
             let lastRemovedIndex = -1;
             notifications.forEach((notif, index) => {
                 if (removedSet.has(notif.id)) {
@@ -32,7 +23,7 @@
             }
             return {
                 id: anchorId,
-                top: shouldSnapToTop ? 0 : anchorElement.getBoundingClientRect().top,
+                top: anchorElement.getBoundingClientRect().top,
             };
         }
 
@@ -900,6 +891,7 @@
             // Show/hide empty state with dynamic message
             const showEmpty =
                 !state.loading &&
+                !state.markingInProgress &&
                 filteredNotifications.length === 0;
             elements.emptyState.style.display = showEmpty ? 'block' : 'none';
             if (showEmpty) {

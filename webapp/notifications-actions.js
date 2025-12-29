@@ -554,6 +554,20 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
+        function stabilizeScrollAnchor(anchor, durationMs = 1000) {
+            if (!anchor) {
+                return;
+            }
+            const endTime = Date.now() + durationMs;
+            const step = () => {
+                restoreScrollAnchor(anchor);
+                if (Date.now() < endTime) {
+                    requestAnimationFrame(step);
+                }
+            };
+            requestAnimationFrame(step);
+        }
+
         // Check if ID is a GitHub node ID (starts with prefix like NT_, PR_, etc.)
         function isNodeId(id) {
             return typeof id === 'string' && /^[A-Z]+_/.test(id);
@@ -582,12 +596,12 @@
             return null;
         }
 
-        const AUTH_CACHE_KEY = 'ghnotif_auth_cache';
-        const AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
+        const MARK_DONE_AUTH_CACHE_KEY = 'ghnotif_auth_cache';
+        const MARK_DONE_AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
 
         function getCachedAuthLogin() {
             try {
-                const raw = localStorage.getItem(AUTH_CACHE_KEY);
+                const raw = localStorage.getItem(MARK_DONE_AUTH_CACHE_KEY);
                 if (!raw) {
                     return null;
                 }
@@ -595,7 +609,7 @@
                 if (!cached || !cached.login || !cached.timestamp) {
                     return null;
                 }
-                if (Date.now() - cached.timestamp > AUTH_CACHE_TTL_MS) {
+                if (Date.now() - cached.timestamp > MARK_DONE_AUTH_CACHE_TTL_MS) {
                     return null;
                 }
                 return cached.login;
@@ -966,12 +980,11 @@
                 ? pushToUndoStack('done', [notificationToRemove])
                 : null;
             render();
-            requestAnimationFrame(() => {
-                restoreScrollAnchor(scrollAnchor);
-            });
+            stabilizeScrollAnchor(scrollAnchor);
 
             try {
                 queueDoneSnapshot(1);
+                stabilizeScrollAnchor(scrollAnchor);
                 const result = await markNotificationDone(notifId);
 
                 if (result.rateLimited) {
@@ -1008,6 +1021,7 @@
                 }
 
                 resolveDoneSnapshot(true);
+                stabilizeScrollAnchor(scrollAnchor);
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to mark notification: ${errorDetail}`, 'error');
@@ -1026,6 +1040,7 @@
             }
 
             await refreshRateLimit();
+            stabilizeScrollAnchor(scrollAnchor);
         }
 
         async function handleInlineUnsubscribe(notifId, button) {

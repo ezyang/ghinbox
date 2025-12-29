@@ -623,6 +623,54 @@ test.describe('Mark Done', () => {
       await expect(progressContainer).toHaveClass(/visible/);
     });
 
+    test('progress bar does not shift the notifications list', async ({ page }) => {
+      let releaseGate: (() => void) | null = null;
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+
+      await page.route('**/github/rest/notifications/threads/**', async (route) => {
+        if (route.request().method() === 'GET') {
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
+          });
+          return;
+        }
+        await gate;
+        route.fulfill({ status: 204 });
+      });
+
+      await page.locator('#select-all-checkbox').click();
+
+      const notificationsList = page.locator('#notifications-list');
+      await expect(notificationsList).toBeVisible();
+      const beforeBox = await notificationsList.boundingBox();
+      if (!beforeBox) {
+        throw new Error('Expected notifications list bounding box');
+      }
+
+      await page.locator('#mark-done-btn').click();
+
+      const progressContainer = page.locator('#progress-container');
+      await expect(progressContainer).toHaveClass(/visible/);
+
+      const afterBox = await notificationsList.boundingBox();
+      if (!afterBox) {
+        throw new Error('Expected notifications list bounding box after progress');
+      }
+
+      expect(Math.abs(afterBox.y - beforeBox.y)).toBeLessThan(1);
+
+      if (!releaseGate) {
+        throw new Error('Expected releaseGate to be assigned');
+      }
+      releaseGate();
+
+      await expect(page.locator('#status-bar')).toContainText('Done');
+    });
+
     test('progress text shows current progress', async ({ page }) => {
       let callCount = 0;
 

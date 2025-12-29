@@ -194,6 +194,25 @@
             background-color: var(--color-bg-subtle);
         }
 
+        .progress-container {
+            display: block;
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .progress-container.visible {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .progress-text {
+            min-height: 16px;
+            height: 16px;
+            line-height: 16px;
+            white-space: nowrap;
+        }
+
         @media (max-width: 640px) {
             .subfilter-row {
                 align-items: flex-start;
