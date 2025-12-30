@@ -84,6 +84,28 @@ test.describe('Filtering', () => {
     await clearAppStorage(page);
   });
 
+  test('sync prefetches comments even when comments are collapsed', async ({ page }) => {
+    let graphqlCount = 0;
+    let commentCount = 0;
+    page.on('request', (request) => {
+      const url = request.url();
+      if (url.includes('/github/graphql')) {
+        graphqlCount += 1;
+      }
+      if (url.includes('/github/rest/repos/') && url.includes('/issues/') && url.includes('/comments')) {
+        commentCount += 1;
+      }
+    });
+
+    const input = page.locator('#repo-input');
+    await input.fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('.notification-item')).toHaveCount(3);
+
+    await expect.poll(() => graphqlCount, { timeout: 5000 }).toBeGreaterThan(0);
+    await expect.poll(() => commentCount, { timeout: 5000 }).toBeGreaterThan(0);
+  });
+
   test.describe('View Tabs', () => {
     test('displays all view tabs', async ({ page }) => {
       const issuesTab = page.locator('#view-issues');
