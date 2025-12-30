@@ -1029,7 +1029,17 @@
             window.showStatus = function (message, type, options) {
                 clearAutoDismiss();
                 originalShowStatus(message, type, options);
+                const settings = options || {};
+                const isFlash = Boolean(settings.flash);
+                const flashDurationMs = Number.isFinite(settings.durationMs)
+                    ? settings.durationMs
+                    : 1500;
                 if (typeof message !== 'string') {
+                    return;
+                }
+                if (isFlash) {
+                    statusBar.classList.add('auto-dismiss');
+                    statusBar.style.setProperty('--status-dismiss-duration', `${flashDurationMs}ms`);
                     return;
                 }
                 const isDoneComplete = type === 'success' &&
