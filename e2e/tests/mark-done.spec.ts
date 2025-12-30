@@ -465,22 +465,6 @@ test.describe('Mark Done', () => {
       });
 
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
-
-        if (route.request().method() === 'GET') {
-
-          route.fulfill({
-
-            status: 200,
-
-            contentType: 'application/json',
-
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-
-          });
-
-          return;
-
-        }
         callCount++;
         if (callCount === 1) {
           await firstGate;
@@ -510,15 +494,7 @@ test.describe('Mark Done', () => {
     });
 
     test('done status can be dismissed and auto-dismisses after completion', async ({ page }) => {
-      await page.route('**/github/rest/notifications/threads/**', async (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-          });
-          return;
-        }
+      await page.route('**/github/rest/notifications/threads/**', (route) => {
         route.fulfill({ status: 204 });
       });
 
@@ -551,14 +527,6 @@ test.describe('Mark Done', () => {
     test('progress bar appears during Mark Done operation', async ({ page }) => {
       // Mock with delay to see progress
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-          });
-          return;
-        }
         await new Promise((r) => setTimeout(r, 200));
         route.fulfill({ status: 204 });
       });
@@ -578,22 +546,6 @@ test.describe('Mark Done', () => {
       let callCount = 0;
 
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
-
-        if (route.request().method() === 'GET') {
-
-          route.fulfill({
-
-            status: 200,
-
-            contentType: 'application/json',
-
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-
-          });
-
-          return;
-
-        }
         callCount++;
         await new Promise((r) => setTimeout(r, 100));
         route.fulfill({ status: 204 });
@@ -616,14 +568,6 @@ test.describe('Mark Done', () => {
 
     test('progress bar hides after completion', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-          });
-          return;
-        }
         route.fulfill({ status: 204 });
       });
 

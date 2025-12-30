@@ -418,7 +418,7 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     }
     if (force) {
         showStatus(`Review metadata prefetch: fetching ${pending.length} PRs`, 'info', {
-            flash: true,
+            autoDismiss: true,
         });
         prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
             .then(() => {
@@ -430,11 +430,9 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
             });
         return;
     }
-    showStatus(
-        `Review metadata prefetch: queued ${pending.length} PRs`,
-        'info',
-        { flash: true }
-    );
+    showStatus(`Review metadata prefetch: queued ${pending.length} PRs`, 'info', {
+        autoDismiss: true,
+    });
     state.commentQueue.push(() =>
         prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
     );
