@@ -216,8 +216,19 @@ test.describe('Mark Done', () => {
 
       // When syncNotificationBeforeDone is called, it:
       // 1. Calls reloadNotificationFromServer -> makes HTML pull (already mocked in beforeEach)
-      // 2. Calls hasNewCommentsRelativeToCache -> fetches comments (already mocked in beforeEach to return [])
+      // 2. Calls hasNewCommentsRelativeToCache -> fetches comments
       // 3. If allowed, calls markNotificationDone -> DELETE to threads endpoint
+
+      // Ensure comments endpoint returns empty array (no new comments)
+      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
+      await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([]),
+        });
+      });
+
       await page.route('**/github/rest/notifications/threads/**', (route) => {
         apiCalls.push(route.request().url());
         route.fulfill({ status: 204 });
