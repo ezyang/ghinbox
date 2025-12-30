@@ -663,90 +663,49 @@
         }
 
         async function syncNotificationBeforeDone(notifId, notification) {
-            const threadId = isNodeId(notifId) ? extractThreadIdFromNodeId(notifId) : notifId;
-            if (!threadId) {
-                return {
-                    status: 'error',
-                    error: `Failed to extract thread_id from node ID: ${notifId}`,
-                };
-            }
-
             try {
-                const url = `/github/rest/notifications/threads/${threadId}`;
-                const response = await fetch(url);
+                // First, do HTML pull to check if notification is already Done on GitHub
+                const reloadResult = await reloadNotificationFromServer(notification);
 
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After');
-                    return {
-                        status: 'error',
-                        error: `Rate limited${retryAfter ? `, retry after ${retryAfter}s` : ''}`,
-                    };
-                }
-
-                if (!response.ok) {
-                    const responseText = await response.text();
-                    return {
-                        status: 'error',
-                        error: `Sync failed: ${response.status} ${response.statusText} ${responseText}`,
-                    };
-                }
-
-                const data = await response.json();
-                const remoteUpdatedAt = data?.updated_at || null;
-                const localUpdatedAt = notification?.updated_at || null;
-                const remoteParsed = remoteUpdatedAt ? Date.parse(remoteUpdatedAt) : NaN;
-                const localParsed = localUpdatedAt ? Date.parse(localUpdatedAt) : NaN;
-                const hasNewerUpdate =
-                    Number.isFinite(remoteParsed) &&
-                    Number.isFinite(localParsed) &&
-                    remoteParsed > localParsed;
-
-                if (!hasNewerUpdate) {
+                // If notification is missing from HTML response, it's already Done on GitHub
+                if (reloadResult?.status === 'missing') {
                     return { status: 'ok' };
                 }
 
-                const updatedNotification = notification
-                    ? {
-                        ...notification,
-                        updated_at: remoteUpdatedAt || notification.updated_at,
-                        last_read_at: data?.last_read_at ?? notification.last_read_at,
-                        unread: data?.unread ?? notification.unread,
-                    }
-                    : null;
+                // If there was an error reloading, report it
+                if (reloadResult?.status === 'error') {
+                    return {
+                        status: 'error',
+                        error: reloadResult.error || 'Failed to reload notification.',
+                    };
+                }
 
-                const commentCheck = await hasNewCommentsSince(notification, localUpdatedAt);
+                // Notification is still present - check for new comments by comparing IDs
+                const refreshedNotification = reloadResult?.notification || notification;
+                const commentCheck = await hasNewCommentsRelativeToCache(notification);
+
                 if (!commentCheck || commentCheck.status !== 'ok') {
                     return {
                         status: 'error',
-                        error: commentCheck?.error || 'Unable to verify new comments for this notification.',
+                        error: commentCheck?.error || 'Unable to verify new comments.',
                     };
                 }
 
                 if (!commentCheck.hasNew || commentCheck.allowDone) {
-                    if (updatedNotification) {
-                        const index = state.notifications.findIndex(n => n.id === updatedNotification.id);
+                    // No new interesting comments - allow Done
+                    if (refreshedNotification) {
+                        const index = state.notifications.findIndex(n => n.id === refreshedNotification.id);
                         if (index !== -1) {
-                            state.notifications[index] = updatedNotification;
+                            state.notifications[index] = refreshedNotification;
                             persistNotifications();
                         }
                     }
-                    return { status: 'ok', updatedNotification };
+                    return { status: 'ok', updatedNotification: refreshedNotification };
                 }
 
-                let refreshedNotification = updatedNotification;
-                const reloadResult = await reloadNotificationFromServer(updatedNotification || notification);
-                if (reloadResult?.notification) {
-                    refreshedNotification = {
-                        ...reloadResult.notification,
-                        updated_at: updatedNotification?.updated_at ?? reloadResult.notification.updated_at,
-                        last_read_at: updatedNotification?.last_read_at ?? reloadResult.notification.last_read_at,
-                        unread: updatedNotification?.unread ?? reloadResult.notification.unread,
-                    };
-                }
+                // There are new interesting comments - block Done and show them
                 if (refreshedNotification) {
-                    const index = state.notifications.findIndex(
-                        n => n.id === refreshedNotification.id
-                    );
+                    const index = state.notifications.findIndex(n => n.id === refreshedNotification.id);
                     if (index !== -1) {
                         state.notifications[index] = refreshedNotification;
                         persistNotifications();
@@ -770,13 +729,7 @@
             }
         }
 
-        async function hasNewCommentsSince(notification, since) {
-            if (!since) {
-                return {
-                    status: 'error',
-                    error: 'Missing timestamp for comment check.',
-                };
-            }
+        async function hasNewCommentsRelativeToCache(notification) {
             const repo = parseRepoInput(state.repo || '');
             const issueNumber = getIssueNumber(notification);
             if (!repo || !issueNumber) {
@@ -785,21 +738,42 @@
                     error: 'Missing repository or issue number.',
                 };
             }
+
             try {
-                let commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
-                commentUrl += `?since=${encodeURIComponent(since)}`;
-                const comments = await fetchJson(commentUrl);
-                if (!Array.isArray(comments)) {
+                // Fetch all comments for the issue
+                const commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
+                const allComments = await fetchJson(commentUrl);
+                if (!Array.isArray(allComments)) {
                     return {
                         status: 'error',
                         error: 'Unexpected comment response.',
                     };
                 }
-                if (comments.length === 0) {
+
+                // Get cached comment IDs
+                const cached = state.commentCache.threads[getNotificationKey(notification)];
+                const cachedCommentIds = new Set();
+                if (cached?.comments && Array.isArray(cached.comments)) {
+                    cached.comments.forEach(comment => {
+                        if (comment.id != null) {
+                            cachedCommentIds.add(Number(comment.id));
+                        }
+                    });
+                }
+
+                // Find truly new comments (IDs we haven't seen)
+                const newComments = allComments.filter(comment => {
+                    const commentId = comment.id != null ? Number(comment.id) : null;
+                    return commentId && !cachedCommentIds.has(commentId);
+                });
+
+                if (newComments.length === 0) {
                     return { status: 'ok', hasNew: false, allowDone: true };
                 }
+
+                // Check if all new comments are from current user or uninteresting
                 const currentUser = String(ensureCurrentUserLogin() || '').toLowerCase();
-                const allowDone = comments.every((comment) => {
+                const allowDone = newComments.every((comment) => {
                     const author = String(comment?.user?.login || '').toLowerCase();
                     const isOwn = Boolean(currentUser) && author === currentUser;
                     const isUninteresting =
@@ -808,6 +782,7 @@
                             : false;
                     return isOwn || isUninteresting;
                 });
+
                 return { status: 'ok', hasNew: true, allowDone };
             } catch (error) {
                 console.error('[MarkDone] Comment sync failed:', error);
