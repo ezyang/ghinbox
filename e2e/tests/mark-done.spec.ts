@@ -2,11 +2,8 @@ import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage, readNotificationsCache } from './storage-utils';
 
-const THREAD_SYNC_PAYLOAD = {
-  updated_at: '2000-01-01T00:00:00Z',
-  last_read_at: null,
-  unread: true,
-};
+// Note: syncNotificationBeforeDone now uses HTML pull + ID-based comment comparison
+// instead of REST thread timestamp comparison
 
 // Helper to encode a thread_id into a node ID format
 // Real GitHub node IDs are base64 encoded and contain "thread_id:user_id"
