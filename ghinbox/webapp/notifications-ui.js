@@ -1,3 +1,7 @@
+        function isMobileViewport() {
+            return window.innerWidth <= 640;
+        }
+
         function getSelectableNotifications() {
             return getFilteredNotifications();
         }
@@ -174,13 +178,17 @@
             const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
             if (!hasModifier && !e.shiftKey) {
                 if (e.key === 'j') {
-                    moveActiveNotification(1);
-                    e.preventDefault();
+                    if (!isMobileViewport()) {
+                        moveActiveNotification(1);
+                        e.preventDefault();
+                    }
                     return;
                 }
                 if (e.key === 'k') {
-                    moveActiveNotification(-1);
-                    e.preventDefault();
+                    if (!isMobileViewport()) {
+                        moveActiveNotification(-1);
+                        e.preventDefault();
+                    }
                     return;
                 }
                 if (e.key === 'g') {
@@ -1249,7 +1257,9 @@
                     });
 
                     li.addEventListener('click', () => {
-                        setActiveNotification(notif.id);
+                        if (!isMobileViewport()) {
+                            setActiveNotification(notif.id);
+                        }
                     });
 
                     elements.notificationsList.appendChild(li);

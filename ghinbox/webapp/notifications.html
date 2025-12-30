@@ -331,7 +331,8 @@
 
             .notification-icon {
                 order: 1;
-                margin-top: 0;
+                margin-top: 2px;
+                flex-shrink: 0;
             }
 
             .notification-content {
@@ -343,8 +344,8 @@
             }
 
             .notification-title {
-                order: 2;
-                flex: 0 1 auto;
+                order: 1;
+                flex: 1 1 calc(100% - 32px);
                 min-width: 0;
             }
 
@@ -354,10 +355,20 @@
             }
 
             .notification-meta {
-                order: 4;
-                flex: 1 1 60%;
+                order: 2;
+                flex: 1 1 auto;
                 min-width: 0;
                 gap: 6px;
+            }
+
+            /* Disable keyboard selection highlighting on mobile */
+            .notification-item.keyboard-selected {
+                background-color: transparent;
+                box-shadow: none;
+            }
+
+            .notification-item.keyboard-selected::before {
+                content: none;
             }
 
             /* Hide unnecessary meta on mobile - keep only diffstat */
