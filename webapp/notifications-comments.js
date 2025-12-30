@@ -446,6 +446,10 @@ async function prefetchNotificationComments(notification) {
     const cached = state.commentCache.threads[threadId];
     const existingReviewDecision = cached?.reviewDecision;
     const existingReviewDecisionFetchedAt = cached?.reviewDecisionFetchedAt;
+    const existingAuthorLogin = cached?.authorLogin;
+    const existingAuthorLoginFetchedAt = cached?.authorLoginFetchedAt;
+    const existingAuthorAssociation = cached?.authorAssociation;
+    const existingAuthorAssociationFetchedAt = cached?.authorAssociationFetchedAt;
     const existingDiffstat = {
         additions: cached?.additions,
         deletions: cached?.deletions,
@@ -518,7 +522,7 @@ async function prefetchNotificationComments(notification) {
             comments = await fetchAllIssueComments(repo, issueNumber);
         }
 
-        state.commentCache.threads[threadId] = {
+        const next = {
             notificationUpdatedAt: notification.updated_at,
             anchor,
             lastReadAt,
@@ -530,8 +534,17 @@ async function prefetchNotificationComments(notification) {
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
             ...existingDiffstat,
         };
+        if (existingAuthorLogin !== null && existingAuthorLogin !== undefined) {
+            next.authorLogin = existingAuthorLogin;
+            next.authorLoginFetchedAt = existingAuthorLoginFetchedAt;
+        }
+        if (existingAuthorAssociation !== null && existingAuthorAssociation !== undefined) {
+            next.authorAssociation = existingAuthorAssociation;
+            next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
+        }
+        state.commentCache.threads[threadId] = next;
     } catch (error) {
-        state.commentCache.threads[threadId] = {
+        const next = {
             notificationUpdatedAt: notification.updated_at,
             comments: [],
             allComments: !hasFilter,
@@ -541,6 +554,15 @@ async function prefetchNotificationComments(notification) {
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
             ...existingDiffstat,
         };
+        if (existingAuthorLogin !== null && existingAuthorLogin !== undefined) {
+            next.authorLogin = existingAuthorLogin;
+            next.authorLoginFetchedAt = existingAuthorLoginFetchedAt;
+        }
+        if (existingAuthorAssociation !== null && existingAuthorAssociation !== undefined) {
+            next.authorAssociation = existingAuthorAssociation;
+            next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
+        }
+        state.commentCache.threads[threadId] = next;
     }
 }
 
