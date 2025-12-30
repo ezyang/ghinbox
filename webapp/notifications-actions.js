@@ -895,7 +895,7 @@
         async function handleInlineMarkDone(notifId, button) {
             if (state.markingInProgress) return;
 
-            showStatus('Checking for new comments...', 'info', { autoDismiss: true });
+            showStatus('Checking for new comments...', 'info', { flash: true });
             button.disabled = true;
 
             // Find and save the notification for undo before removing
