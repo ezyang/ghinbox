@@ -12,7 +12,7 @@
   - Python tests: `uv run pytest` (only run if you modified Python)
   - There is no root `npm run test:e2e` script; use the `e2e/` package scripts.
 - Fixtures:
-  - Try not to invent fixtures from scratch; instead, we want to create production flows which we can extract fixtures from (this makes it easier to update the fixtures in the future.)
+  - Try not to invent fixtures from scratch; instead, we want to create production flows which we can extract fixtures from (this makes it easier to update the fixtures in the future.)  Use ezyang0 and htmlpurifierbot when running prod flows.
   - Update HTML fixtures from responses (non-interactive): `uv run python -m ghinbox.fixtures update --force`
   - Regenerate E2E JSON fixtures: `uv run python -m ghinbox.fixtures generate-e2e --force`
 - Always run tests after making changes.
