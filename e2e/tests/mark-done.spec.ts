@@ -393,6 +393,8 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('New comments');
+      await expect(page.locator('#status-bar')).toHaveClass(/auto-dismiss/);
+      await expect(page.locator('#status-bar')).toBeHidden({ timeout: 4000 });
       await expect(
         page.locator('[data-id="notif-1"] .notification-title')
       ).toContainText('Fix critical bug in authentication (updated)');
@@ -563,6 +565,42 @@ test.describe('Mark Done', () => {
       releaseSecond();
 
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
+    });
+
+    test('done status can be dismissed and auto-dismisses after completion', async ({ page }) => {
+      await page.route('**/github/rest/notifications/threads/**', async (route) => {
+        if (route.request().method() === 'GET') {
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
+          });
+          return;
+        }
+        route.fulfill({ status: 204 });
+      });
+
+      const statusBar = page.locator('#status-bar');
+
+      const notificationCheckboxes = page.locator('.notification-item .notification-checkbox');
+
+      await notificationCheckboxes.first().click();
+      await page.locator('#mark-done-btn').click();
+
+      await expect(statusBar).toContainText('Done');
+      await expect(statusBar).toContainText('(0 pending)');
+      await expect(statusBar).toHaveClass(/auto-dismiss/);
+      await statusBar.click();
+      await expect(statusBar).toBeHidden();
+
+      await expect(page.locator('.notification-item')).toHaveCount(2);
+      await notificationCheckboxes.first().click();
+      await page.locator('#mark-done-btn').click();
+
+      await expect(statusBar).toContainText('Done');
+      await expect(statusBar).toContainText('(0 pending)');
+      await expect(statusBar).toHaveClass(/auto-dismiss/);
+      await expect(statusBar).toBeHidden({ timeout: 5000 });
     });
 
     test('progress bar appears during Mark Done operation', async ({ page }) => {

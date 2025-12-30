@@ -2,46 +2,6 @@
             return getFilteredNotifications();
         }
 
-        function captureScrollAnchor(removedIds, notifications) {
-            if (!removedIds || removedIds.length === 0) {
-                return null;
-            }
-            const removedSet = new Set(removedIds);
-            let lastRemovedIndex = -1;
-            notifications.forEach((notif, index) => {
-                if (removedSet.has(notif.id)) {
-                    lastRemovedIndex = index;
-                }
-            });
-            if (lastRemovedIndex === -1 || lastRemovedIndex + 1 >= notifications.length) {
-                return null;
-            }
-            const anchorId = notifications[lastRemovedIndex + 1].id;
-            const anchorElement = getNotificationElement(anchorId);
-            if (!anchorElement) {
-                return null;
-            }
-            return {
-                id: anchorId,
-                top: anchorElement.getBoundingClientRect().top,
-            };
-        }
-
-        function restoreScrollAnchor(anchor) {
-            if (!anchor) {
-                return;
-            }
-            const anchorElement = getNotificationElement(anchor.id);
-            if (!anchorElement) {
-                return;
-            }
-            const newTop = anchorElement.getBoundingClientRect().top;
-            const delta = newTop - anchor.top;
-            if (delta !== 0) {
-                window.scrollBy(0, delta);
-            }
-        }
-
         function getNotificationElement(notifId) {
             return elements.notificationsList.querySelector(
                 `[data-id="${CSS.escape(String(notifId))}"]`

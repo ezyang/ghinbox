@@ -173,42 +173,6 @@ test.describe('Keyboard Shortcuts', () => {
     await expect(page.locator('#repo-input')).toHaveValue('test/repo');
   });
 
-  test('marking notification as done moves selection to next notification without scrolling', async ({
-    page,
-  }) => {
-    await page.route('**/github/rest/notifications/threads/**', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      route.fulfill({ status: 204 });
-    });
-
-    // Press j to select the first notification
-    await page.keyboard.press('j');
-    await expect(page.locator('[data-id="notif-1"]')).toHaveClass(/keyboard-selected/);
-
-    // Get the scroll position before marking as done
-    const scrollBefore = await page.evaluate(() => window.scrollY);
-
-    // Mark as done - this should move selection to next notification
-    await page.keyboard.press('e');
-
-    // Wait for the notification to be removed
-    await expect(page.locator('[data-id="notif-1"]')).not.toBeAttached();
-
-    // The selection should now be on the next notification (notif-3), not back to the first
-    await expect(page.locator('[data-id="notif-3"]')).toHaveClass(/keyboard-selected/);
-
-    // Scroll position should not have changed significantly (viewport stays stable)
-    const scrollAfter = await page.evaluate(() => window.scrollY);
-    expect(Math.abs(scrollAfter - scrollBefore)).toBeLessThan(10);
-  });
-
   test('marking middle notification as done moves selection to next, not first', async ({
     page,
   }) => {

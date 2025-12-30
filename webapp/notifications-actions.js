@@ -240,8 +240,6 @@
             state.markProgress = { current: 0, total: allowedIds.length };
 
             const allowedIdSet = new Set(allowedIds);
-            const filteredBeforeRemoval = getFilteredNotifications();
-            const scrollAnchor = captureScrollAnchor(allowedIds, filteredBeforeRemoval);
             const notificationsToRestoreOnFailure = allowedIds
                 .map(id => notificationsToRestoreById.get(id))
                 .filter(Boolean);
@@ -257,9 +255,6 @@
             // Update localStorage
             persistNotifications();
             render();
-            requestAnimationFrame(() => {
-                restoreScrollAnchor(scrollAnchor);
-            });
 
             const failedResults = []; // Store {id, error} for detailed reporting
             const queuedDoneIds = new Set();
@@ -370,9 +365,6 @@
 
             await refreshRateLimit();
             render();
-            requestAnimationFrame(() => {
-                restoreScrollAnchor(scrollAnchor);
-            });
         }
 
         function handleOpenAllFiltered() {
@@ -503,8 +495,6 @@
                 }
             }
 
-            const filteredBeforeRemoval = getFilteredNotifications();
-            const scrollAnchor = captureScrollAnchor(successfulIds, filteredBeforeRemoval);
             const successfulIdSet = new Set(successfulIds);
             const notificationsToRestore = successfulIds
                 .map(id => notificationLookup.get(id))
@@ -544,28 +534,11 @@
 
             await refreshRateLimit();
             render();
-            requestAnimationFrame(() => {
-                restoreScrollAnchor(scrollAnchor);
-            });
         }
 
         // Sleep helper for delays
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        function stabilizeScrollAnchor(anchor, durationMs = 1000) {
-            if (!anchor) {
-                return;
-            }
-            const endTime = Date.now() + durationMs;
-            const step = () => {
-                restoreScrollAnchor(anchor);
-                if (Date.now() < endTime) {
-                    requestAnimationFrame(step);
-                }
-            };
-            requestAnimationFrame(step);
         }
 
         // Check if ID is a GitHub node ID (starts with prefix like NT_, PR_, etc.)
@@ -939,7 +912,6 @@
             if (state.markingInProgress) return;
 
             button.disabled = true;
-            let scrollAnchor = null;
 
             // Find and save the notification for undo before removing
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
@@ -969,7 +941,6 @@
             }
 
             const filteredBeforeRemoval = getFilteredNotifications();
-            scrollAnchor = captureScrollAnchor([notifId], filteredBeforeRemoval);
             advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
             state.notifications = state.notifications.filter(
                 n => n.id !== notifId
@@ -980,11 +951,9 @@
                 ? pushToUndoStack('done', [notificationToRemove])
                 : null;
             render();
-            stabilizeScrollAnchor(scrollAnchor);
 
             try {
                 queueDoneSnapshot(1);
-                stabilizeScrollAnchor(scrollAnchor);
                 const result = await markNotificationDone(notifId);
 
                 if (result.rateLimited) {
@@ -1021,7 +990,6 @@
                 }
 
                 resolveDoneSnapshot(true);
-                stabilizeScrollAnchor(scrollAnchor);
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to mark notification: ${errorDetail}`, 'error');
@@ -1040,14 +1008,12 @@
             }
 
             await refreshRateLimit();
-            stabilizeScrollAnchor(scrollAnchor);
         }
 
         async function handleInlineUnsubscribe(notifId, button) {
             if (state.markingInProgress) return;
 
             button.disabled = true;
-            let scrollAnchor = null;
 
             // Find and save the notification for undo before removing
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
@@ -1086,7 +1052,6 @@
                 }
 
                 const filteredBeforeRemoval = getFilteredNotifications();
-                scrollAnchor = captureScrollAnchor([notifId], filteredBeforeRemoval);
                 advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
                 state.notifications = state.notifications.filter(
                     n => n.id !== notifId
@@ -1107,9 +1072,6 @@
 
             await refreshRateLimit();
             render();
-            requestAnimationFrame(() => {
-                restoreScrollAnchor(scrollAnchor);
-            });
         }
 
         function clearUndoState() {

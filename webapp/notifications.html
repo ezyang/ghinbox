@@ -25,6 +25,7 @@
 
         :root {
             --floating-notice-top: 72px;
+            --floating-notice-clearance: 56px;
         }
 
         .floating-notices {
@@ -37,6 +38,41 @@
             gap: 8px;
             z-index: 20;
             pointer-events: none;
+        }
+
+        .status-bar {
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        .status-bar.auto-dismiss {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .status-bar.auto-dismiss::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 2px;
+            width: 100%;
+            background-color: currentColor;
+            opacity: 0.5;
+            animation: status-countdown var(--status-dismiss-duration, 3000ms) linear forwards;
+        }
+
+        @keyframes status-countdown {
+            from {
+                width: 100%;
+            }
+            to {
+                width: 0%;
+            }
+        }
+
+        .container {
+            padding-top: calc(24px + var(--floating-notice-clearance));
         }
 
         .comment-item {
@@ -948,6 +984,70 @@
                 <\/script>`
             );
             document.write(`<script src="notifications.js${bust}"><\/script>`);
+        })();
+    </script>
+    <script>
+        (function () {
+            const statusBar = document.getElementById('status-bar');
+            if (!statusBar || typeof window.showStatus !== 'function') {
+                return;
+            }
+            let autoDismissTimer = null;
+            const autoDismissMs = 2000;
+
+            function clearAutoDismiss() {
+                if (autoDismissTimer) {
+                    clearTimeout(autoDismissTimer);
+                    autoDismissTimer = null;
+                }
+                statusBar.classList.remove('auto-dismiss');
+                statusBar.style.removeProperty('--status-dismiss-duration');
+            }
+
+            function clearStatusBar() {
+                clearAutoDismiss();
+                if (state?.statusTimer) {
+                    clearTimeout(state.statusTimer);
+                    state.statusTimer = null;
+                }
+                if (state) {
+                    state.statusState = null;
+                    state.lastPersistentStatus = null;
+                }
+                statusBar.textContent = '';
+                statusBar.className = 'status-bar';
+            }
+
+            statusBar.addEventListener('click', () => {
+                if (!statusBar.classList.contains('visible')) {
+                    return;
+                }
+                clearStatusBar();
+            });
+
+            const originalShowStatus = window.showStatus;
+            window.showStatus = function (message, type, options) {
+                clearAutoDismiss();
+                originalShowStatus(message, type, options);
+                if (typeof message !== 'string') {
+                    return;
+                }
+                const isDoneComplete = type === 'success' &&
+                    /^Done \d+\/\d+/.test(message) &&
+                    /\(0 pending\)/.test(message);
+                const isReloadNotice = type === 'info' &&
+                    message === 'New comments found. Reloaded notification.';
+                if (!isDoneComplete && !isReloadNotice) {
+                    return;
+                }
+                statusBar.classList.add('auto-dismiss');
+                statusBar.style.setProperty('--status-dismiss-duration', `${autoDismissMs}ms`);
+                autoDismissTimer = window.setTimeout(() => {
+                    if (statusBar.textContent === message) {
+                        clearStatusBar();
+                    }
+                }, autoDismissMs);
+            };
         })();
     </script>
     <script>

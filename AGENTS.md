@@ -23,6 +23,6 @@
   - Update HTML fixtures from responses (non-interactive): `uv run python -m ghinbox.fixtures update --force`
   - Regenerate E2E JSON fixtures: `uv run python -m ghinbox.fixtures generate-e2e --force`
 - Always run tests after making changes.
-- Always add E2E tests for new features.
+- Always add E2E tests for new features.  If I ask you to fix a bug, first make an E2E test that exhibits the bug and fails, and then fix it.
 - There may be multiple coding agents running at the same time; don't worry
   too much about unexpected changes, we are running SCM checkpoints regularly.
