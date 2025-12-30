@@ -119,6 +119,8 @@ function isDiffstatFresh(cached) {
 }
 
 function scheduleCommentPrefetch(notifications) {
+    // Invariant: comment/review metadata prefetch happens immediately after sync.
+    // UI filter changes should not trigger new prefetch work.
     scheduleReviewDecisionPrefetch(notifications);
     const pending = notifications.filter(shouldPrefetchNotificationComments);
     if (!pending.length) {

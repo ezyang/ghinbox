@@ -214,6 +214,10 @@ test.describe('Mark Done', () => {
     test('inline button marks a single notification as done', async ({ page }) => {
       const apiCalls: string[] = [];
 
+      // When syncNotificationBeforeDone is called, it:
+      // 1. Calls reloadNotificationFromServer -> makes HTML pull (already mocked in beforeEach)
+      // 2. Calls hasNewCommentsRelativeToCache -> fetches comments (already mocked in beforeEach to return [])
+      // 3. If allowed, calls markNotificationDone -> DELETE to threads endpoint
       await page.route('**/github/rest/notifications/threads/**', (route) => {
         apiCalls.push(route.request().url());
         route.fulfill({ status: 204 });

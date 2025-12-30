@@ -2,6 +2,26 @@ import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage, seedNotificationsCache } from './storage-utils';
 
+async function waitForStatusClear(page) {
+  const statusBar = page.locator('#status-bar');
+  await expect(statusBar).toHaveText('', { timeout: 10000 });
+}
+
+async function expectNoStatusFlash(page, text, durationMs = 1200, intervalMs = 50) {
+  const statusBar = page.locator('#status-bar');
+  const end = Date.now() + durationMs;
+  let seen = false;
+  while (Date.now() < end) {
+    const content = (await statusBar.textContent()) || '';
+    if (content.includes(text)) {
+      seen = true;
+      break;
+    }
+    await page.waitForTimeout(intervalMs);
+  }
+  expect(seen).toBe(false);
+}
+
 /**
  * Filtering Tests
  *
@@ -335,6 +355,7 @@ test.describe('Filtering', () => {
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
       await expect(page.locator('.notification-item')).toHaveCount(3);
+      await waitForStatusClear(page);
       await page.locator('#view-others-prs').click();
 
       const othersPrsStatus = page.locator(
@@ -343,9 +364,7 @@ test.describe('Filtering', () => {
       const othersPrsAuthor = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
       );
-      const committerResponse = page.waitForResponse('**/github/graphql');
       await othersPrsAuthor.locator('[data-subfilter="committer"]').click();
-      await committerResponse;
       await expect(page.locator('.notification-item')).toHaveCount(1);
       await expect(page.locator('[data-id="notif-2"]')).toBeVisible();
       await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
@@ -363,21 +382,19 @@ test.describe('Filtering', () => {
       await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
     });
 
-    test('review metadata prefetch status uses auto-dismiss styling', async ({ page }) => {
+    test('switching filters does not trigger review metadata prefetch', async ({ page }) => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       await expect(page.locator('.notification-item')).toHaveCount(3);
+      await waitForStatusClear(page);
 
       await page.locator('#view-others-prs').click();
       const authorFilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
       );
       await authorFilters.locator('[data-subfilter="committer"]').click();
-
-      const statusBar = page.locator('#status-bar');
-      await expect(statusBar).toContainText('Review metadata prefetch: fetching');
-      await expect(statusBar).toHaveClass(/auto-dismiss/);
+      await expectNoStatusFlash(page, 'Review metadata prefetch');
     });
   });
 
