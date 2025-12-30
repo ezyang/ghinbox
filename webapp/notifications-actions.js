@@ -710,8 +710,7 @@
                         state.notifications[index] = refreshedNotification;
                         persistNotifications();
                     }
-                    if (state.commentPrefetchEnabled &&
-                        typeof prefetchNotificationComments === 'function') {
+                    if (typeof prefetchNotificationComments === 'function') {
                         await prefetchNotificationComments(refreshedNotification);
                         if (typeof saveCommentCache === 'function') {
                             saveCommentCache();
