@@ -1,6 +1,6 @@
 [project]
 name = "ghinbox"
-version = "0.1.0"
+version = "0.2.0"
 description = "GitHub notification simulation and testing tool for bulk notification management"
 readme = "README.md"
 requires-python = ">=3.12"
