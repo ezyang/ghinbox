@@ -149,10 +149,12 @@ test.describe('Keyboard Shortcuts', () => {
     await page.keyboard.press('j');
     await page.keyboard.press('e');
 
-    await expect(page.locator('#status-bar')).toContainText('Checking for new comments');
+    const statusBar = page.locator('#status-bar');
+    await expect(statusBar).toContainText('Checking for new comments');
+    await expect(statusBar).not.toHaveClass(/auto-dismiss/);
     releaseReload();
 
-    await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+    await expect(statusBar).toContainText('Done 1/1 (0 pending)');
     await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
   });
 
