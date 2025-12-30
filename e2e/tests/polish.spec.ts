@@ -35,6 +35,15 @@ test.describe('Polish', () => {
       });
     });
 
+    // Mock comments endpoint for syncNotificationBeforeDone
+    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
     await page.goto('notifications.html');
     await clearAppStorage(page);
   });
