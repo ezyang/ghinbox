@@ -772,22 +772,6 @@ test.describe('Mark Done', () => {
       let callCount = 0;
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-
-        if (route.request().method() === 'GET') {
-
-          route.fulfill({
-
-            status: 200,
-
-            contentType: 'application/json',
-
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-
-          });
-
-          return;
-
-        }
         callCount++;
         if (callCount === 1) {
           // First call: rate limited
