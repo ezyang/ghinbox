@@ -48,6 +48,7 @@
         .status-bar.auto-dismiss {
             position: relative;
             overflow: hidden;
+            animation: status-fade var(--status-dismiss-duration, 3000ms) ease-in forwards;
         }
 
         .status-bar.auto-dismiss::after {
@@ -68,6 +69,16 @@
             }
             to {
                 width: 0%;
+            }
+        }
+
+        @keyframes status-fade {
+            0%,
+            80% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
             }
         }
 
