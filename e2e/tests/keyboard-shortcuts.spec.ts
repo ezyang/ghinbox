@@ -121,6 +121,19 @@ test.describe('Keyboard Shortcuts', () => {
   });
 
   test('e marks the active notification as done', async ({ page }) => {
+    let releaseReload;
+    const reloadGate = new Promise<void>((resolve) => {
+      releaseReload = resolve;
+    });
+    await page.route('**/notifications/html/repo/**', async (route) => {
+      await reloadGate;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mixedFixture),
+      });
+    });
+
     await page.route('**/github/rest/notifications/threads/**', (route) => {
       if (route.request().method() === 'GET') {
         route.fulfill({
@@ -135,6 +148,9 @@ test.describe('Keyboard Shortcuts', () => {
 
     await page.keyboard.press('j');
     await page.keyboard.press('e');
+
+    await expect(page.locator('#status-bar')).toContainText('Checking for new comments');
+    releaseReload();
 
     await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
     await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
