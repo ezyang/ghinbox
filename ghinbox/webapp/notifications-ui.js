@@ -1004,6 +1004,11 @@
             updateSubfilterVisibility();
             updateCommentCacheStatus();
 
+            // Update data-subfilter for mobile CSS
+            if (elements.notificationsContainer) {
+                elements.notificationsContainer.dataset.subfilter = currentStateFilter;
+            }
+
             // Update notification count header
             if (filteredNotifications.length > 0) {
                 elements.notificationCount.textContent = `${filteredNotifications.length} notifications`;
@@ -1203,7 +1208,7 @@
                                 <div class="notification-meta">
                                     ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
                                     ${stateBadge}
-                                    <span class="notification-reason">${reason}</span>
+                                    <span class="notification-reason" data-reason="${escapeHtml(notif.reason)}">${reason}</span>
                                     ${diffstatHtml}
                                     ${commentBadge}
                                 </div>

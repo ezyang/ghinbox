@@ -109,7 +109,6 @@ test.describe('Mobile layout', () => {
     const title = item.locator('.notification-title');
     const meta = item.locator('.notification-meta');
     const actions = item.locator('.notification-actions-inline');
-    const actors = item.locator('.notification-actors');
     const commentList = item.locator('.comment-list');
 
     const [
@@ -117,14 +116,12 @@ test.describe('Mobile layout', () => {
       titleBox,
       metaBox,
       actionsBox,
-      actorsBox,
       commentListBox,
     ] = await Promise.all([
       icon.boundingBox(),
       title.boundingBox(),
       meta.boundingBox(),
       actions.boundingBox(),
-      actors.boundingBox(),
       commentList.boundingBox(),
     ]);
 
@@ -132,23 +129,24 @@ test.describe('Mobile layout', () => {
     expect(titleBox).not.toBeNull();
     expect(metaBox).not.toBeNull();
     expect(actionsBox).not.toBeNull();
-    expect(actorsBox).not.toBeNull();
     expect(commentListBox).not.toBeNull();
 
     const safeIconBox = iconBox!;
     const safeTitleBox = titleBox!;
     const safeMetaBox = metaBox!;
     const safeActionsBox = actionsBox!;
-    const safeActorsBox = actorsBox!;
     const safeCommentListBox = commentListBox!;
     const titleBottom = safeTitleBox.y + safeTitleBox.height - 1;
 
+    // Icon and title should be on the same row
     expect(safeTitleBox.x).toBeGreaterThan(safeIconBox.x);
     expect(safeTitleBox.x - safeIconBox.x).toBeLessThanOrEqual(40);
+    // Meta and actions should be below the title
     expect(safeMetaBox.y).toBeGreaterThanOrEqual(titleBottom);
     expect(safeActionsBox.y).toBeGreaterThanOrEqual(titleBottom);
-    expect(safeActorsBox.y).toBeGreaterThanOrEqual(titleBottom);
+    // Comments should be below the actions
     expect(safeCommentListBox.y).toBeGreaterThanOrEqual(safeActionsBox.y);
+    // Actors are hidden on mobile (display: none)
   });
 
   test('avoids horizontal scroll and uses full comment width', async ({ page }) => {

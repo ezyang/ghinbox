@@ -345,7 +345,7 @@
 
             .notification-title {
                 order: 1;
-                flex: 1 1 calc(100% - 32px);
+                flex: 1 1 auto;
                 min-width: 0;
             }
 
@@ -356,9 +356,27 @@
 
             .notification-meta {
                 order: 2;
-                flex: 1 1 auto;
+                flex: 0 0 auto;
                 min-width: 0;
                 gap: 6px;
+            }
+
+            /* Hide PR number and state badge on mobile */
+            .notification-meta .notification-number,
+            .notification-meta .state-badge {
+                display: none;
+            }
+
+            /* Move diffstat and reason tags to title row */
+            .notification-meta .diffstat-tag,
+            .notification-meta .notification-reason {
+                order: 1;
+            }
+
+            /* Hide reason tags when already filtered to that state */
+            .notifications-container[data-subfilter="needs-review"] .notification-reason[data-reason="review_requested"],
+            .notifications-container[data-subfilter="approved"] .notification-reason[data-reason="approved"] {
+                display: none;
             }
 
             /* Disable keyboard selection highlighting on mobile */
@@ -369,13 +387,6 @@
 
             .notification-item.keyboard-selected::before {
                 content: none;
-            }
-
-            /* Hide unnecessary meta on mobile - keep only diffstat */
-            .notification-meta .notification-number,
-            .notification-meta .state-badge,
-            .notification-meta .notification-reason {
-                display: none;
             }
 
             .comment-list {
@@ -401,7 +412,7 @@
             }
 
             .notification-actions-inline {
-                order: 4;
+                order: 2;
                 margin-top: 0;
                 justify-content: flex-start;
                 flex-wrap: wrap;
@@ -409,12 +420,13 @@
             }
 
             .notification-time {
+                order: 2;
                 white-space: normal;
             }
 
+            /* Hide actor avatars on mobile */
             .notification-actors {
-                order: 4;
-                margin-top: 0;
+                display: none;
             }
 
             .notification-checkbox {
