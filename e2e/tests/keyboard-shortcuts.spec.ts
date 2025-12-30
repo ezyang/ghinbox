@@ -52,6 +52,15 @@ test.describe('Keyboard Shortcuts', () => {
       });
     });
 
+    // Mock comments endpoint for syncNotificationBeforeDone
+    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
     const commentCache = {
       version: 1,
       threads: {
