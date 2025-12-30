@@ -750,8 +750,8 @@
                     };
                 }
 
-                // Get cached comment IDs
-                const cached = state.commentCache.threads[getNotificationKey(notification)];
+                // Get cached comment IDs (use optional chaining to handle undefined state)
+                const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
                 const cachedCommentIds = new Set();
                 if (cached?.comments && Array.isArray(cached.comments)) {
                     cached.comments.forEach(comment => {
