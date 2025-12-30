@@ -321,7 +321,7 @@ function setReviewDecisionCache(
         authorLoginFetchedAt: nowIso,
         diffstatFetchedAt: nowIso,
     };
-    if (includeAuthorAssociation) {
+    if (includeAuthorAssociation && authorAssociation !== null && authorAssociation !== undefined) {
         next.authorAssociation = authorAssociation;
         next.authorAssociationFetchedAt = nowIso;
     }

@@ -231,15 +231,15 @@ test.describe('My PR classification', () => {
       });
     });
 
+    const graphqlResponse = page.waitForResponse('**/github/graphql');
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();
+    await graphqlResponse;
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
 
     await page.locator('#view-others-prs').click();
-    const graphqlResponse = page.waitForResponse('**/github/graphql');
     await page.locator('[data-for-view="others-prs"][data-subfilter-group="author"] [data-subfilter="committer"]').click();
-    await graphqlResponse;
 
     await expect(page.locator('#view-my-prs .count')).toHaveText('1');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
