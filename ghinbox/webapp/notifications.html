@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ghinbox</title>
+    <script>
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const cacheBust = params.get('cache_bust') || localStorage.getItem('ghnotif_cache_bust');
+            if (cacheBust) {
+                localStorage.setItem('ghnotif_cache_bust', cacheBust);
+            }
+            const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
+            document.write(
+                '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.css">'
+            );
+            document.write(`<link rel="stylesheet" href="notifications.css${bust}">`);
+        })();
+    </script>
+    <style>
+        .container {
+            max-width: 1200px;
+        }
+
+        :root {
+            --floating-notice-top: 72px;
+            --floating-notice-clearance: 56px;
+        }
+
+        .floating-notices {
+            position: fixed;
+            top: calc(var(--floating-notice-top) + env(safe-area-inset-top, 0px));
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(100% - 32px, 1200px);
+            display: grid;
+            gap: 8px;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .status-bar {
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        .status-bar.auto-dismiss {
+            position: relative;
+            overflow: hidden;
+            animation: status-fade var(--status-dismiss-duration, 3000ms) ease-in forwards;
+        }
+
+        .status-bar.status-pinned {
+            opacity: 1;
+            animation: none;
+        }
+
+        .status-bar.auto-dismiss::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 2px;
+            width: 100%;
+            background-color: currentColor;
+            opacity: 0.5;
+            animation: status-countdown var(--status-dismiss-duration, 3000ms) linear forwards;
+        }
+
+        @keyframes status-countdown {
+            from {
+                width: 100%;
+            }
+            to {
+                width: 0%;
+            }
+        }
+
+        @keyframes status-fade {
+            0%,
+            80% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+            }
+        }
+
+        .container {
+            padding-top: calc(24px + var(--floating-notice-clearance));
+        }
+
+        .comment-item {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .comment-item .comment-meta {
+            font-size: 12px;
+        }
+
+        .comment-body,
+        .comment-body.markdown-body {
+            font-size: 14px;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+
+        .comment-body.markdown-body img {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .comment-body details.collapsed-versions {
+            margin: 8px 0;
+        }
+
+        .comment-body details.collapsed-versions summary {
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .comment-body details.collapsed-versions[open] summary {
+            margin-bottom: 4px;
+        }
+
+        .subfilter-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .subfilter-stack {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            align-items: center;
+            margin: 0 var(--notifications-padding);
+            min-width: 0;
+        }
+
+        .subfilter-tabs {
+            display: inline-flex;
+            flex-wrap: nowrap;
+            gap: 4px;
+            border: 1px solid var(--color-border-default);
+            border-radius: 999px;
+            padding: 4px;
+            margin: 0;
+            background-color: var(--color-bg-default);
+            white-space: nowrap;
+        }
+
+        .subfilter-tabs + .subfilter-tabs {
+            margin-top: 0;
+        }
+
+        .order-control {
+            margin-left: auto;
+            padding: 0 var(--notifications-padding) 0 0;
+        }
+
+        .subfilter-tab {
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-fg-muted);
+            background-color: transparent;
+            border: none;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: color 0.1s, background-color 0.1s;
+        }
+
+        .subfilter-tab:hover {
+            color: var(--color-fg-default);
+            background-color: var(--color-bg-subtle);
+        }
+
+        .subfilter-tab.active {
+            color: #1f2328;
+            background-color: #fd8c73;
+        }
+
+        .subfilter-tab .count {
+            display: inline-block;
+            min-width: 16px;
+            padding: 0 4px;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 16px;
+            text-align: center;
+            background-color: var(--color-bg-subtle);
+            border-radius: 2em;
+            margin-left: 4px;
+        }
+
+        .subfilter-tab.active .count {
+            display: none;
+        }
+
+        .rate-limit-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .rate-limit-explain-btn {
+            border: 1px solid var(--color-border-muted);
+            background: var(--color-bg-default);
+            color: var(--color-fg-muted);
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .rate-limit-explain-btn:hover {
+            color: var(--color-fg-default);
+            border-color: var(--color-border-default);
+        }
+
+        .rate-limit-details {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--color-border-muted);
+        }
+
+        .rate-limit-log-status {
+            font-size: 11px;
+            color: var(--color-fg-muted);
+        }
+
+        .rate-limit-log {
+            list-style: none;
+            margin: 8px 0 0;
+            padding: 0;
+            display: grid;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--color-fg-muted);
+        }
+
+        .rate-limit-log-item {
+            display: grid;
+            gap: 2px;
+        }
+
+        .rate-limit-log-item strong {
+            font-weight: 600;
+            color: var(--color-fg-default);
+        }
+
+        .notification-item:has(.comment-list) .notification-header,
+        .notification-item:has(.comment-list) .notification-checkbox,
+        .notification-item:has(.comment-list) .notification-icon,
+        .notification-item:has(.comment-list) .notification-actors,
+        .notification-item:has(.comment-list) .notification-actions-inline {
+            background-color: var(--color-bg-subtle);
+        }
+
+        .progress-container {
+            display: block;
+            visibility: hidden;
+            opacity: 0;
+            margin: 0;
+            transition: opacity 0.2s ease, visibility 0s linear 1.6s;
+            transition-delay: 1.4s;
+        }
+
+        .progress-container.visible {
+            visibility: visible;
+            opacity: 1;
+            transition-delay: 0s;
+        }
+
+        .progress-text {
+            min-height: 16px;
+            height: 16px;
+            line-height: 16px;
+            white-space: nowrap;
+        }
+
+        .select-all-row {
+            min-height: 44px;
+        }
+
+        .notification-author {
+            margin-left: 8px;
+            font-weight: 400;
+            color: var(--color-fg-muted);
+            white-space: nowrap;
+        }
+
+        @media (max-width: 640px) {
+            .subfilter-row {
+                align-items: flex-start;
+            }
+
+            .subfilter-stack {
+                flex-wrap: wrap;
+            }
+
+            .order-control {
+                margin-left: 0;
+                padding: 8px var(--notifications-padding) 0;
+            }
+
+            .subfilter-tabs {
+                flex-wrap: wrap;
+                white-space: normal;
+            }
+
+            .notifications-container {
+                overflow-x: hidden;
+            }
+
+            .notification-item {
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 12px 10px;
+            }
+
+            .notification-icon {
+                order: 1;
+                margin-top: 0;
+            }
+
+            .notification-content {
+                display: contents;
+            }
+
+            .notification-header {
+                display: contents;
+            }
+
+            .notification-title {
+                order: 2;
+                flex: 1 1 calc(100% - 24px);
+                min-width: 0;
+            }
+
+            .notification-author {
+                order: 3;
+                flex: 0 1 auto;
+            }
+
+            .notification-meta {
+                order: 4;
+                flex: 1 1 60%;
+                min-width: 0;
+                gap: 6px;
+            }
+
+            .comment-list {
+                order: 6;
+                flex-basis: 100%;
+                margin-top: 8px;
+                gap: 6px;
+            }
+
+            .comment-item {
+                padding: 8px;
+            }
+
+            .notification-actions-bottom {
+                order: 7;
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .notification-actions-inline {
+                order: 4;
+                margin-top: 0;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+                margin-left: auto;
+            }
+
+            .notification-time {
+                white-space: normal;
+            }
+
+            .notification-actors {
+                order: 4;
+                margin-top: 0;
+            }
+
+            .notification-checkbox {
+                order: 3;
+                margin-left: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="app-header">
+        <div class="header-inner">
+            <h1>ghinbox</h1>
+            <div class="header-links">
+            </div>
+        </div>
+    </header>
+
+    <div id="floating-notices" class="floating-notices">
+        <div id="status-bar" class="status-bar"></div>
+        <div id="progress-container" class="progress-container">
+            <div class="progress-bar-bg">
+                <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
+            </div>
+            <div id="progress-text" class="progress-text"></div>
+        </div>
+    </div>
+
+    <main class="container">
+        <!-- Controls Section -->
+        <section class="controls">
+            <div class="controls-row">
+                <div class="input-group">
+                    <label for="repo-input">Repository:</label>
+                    <input
+                        type="text"
+                        id="repo-input"
+                        placeholder="owner/repo"
+                        aria-label="Repository in owner/repo format"
+                    >
+                </div>
+                <button id="sync-btn" class="btn btn-primary" type="button">
+                    Quick Sync
+                </button>
+                <button id="full-sync-btn" class="btn" type="button">
+                    Full Sync
+                </button>
+                <button id="force-refresh-btn" class="btn btn-small" type="button">
+                    Force refresh
+                </button>
+                <span id="auth-status" class="auth-status">Checking auth...</span>
+            </div>
+            <div class="controls-row secondary">
+                <label class="comment-expand" for="comment-expand-issues-toggle">
+                    <input type="checkbox" id="comment-expand-issues-toggle">
+                    Show comments (Issues)
+                </label>
+                <label class="comment-expand" for="comment-expand-prs-toggle">
+                    <input type="checkbox" id="comment-expand-prs-toggle">
+                    Show comments (PRs)
+                </label>
+                <label class="comment-hide" for="comment-hide-uninteresting-toggle">
+                    <input type="checkbox" id="comment-hide-uninteresting-toggle">
+                    Hide uninteresting comments
+                </label>
+                <div class="comment-cache-actions">
+                    <span id="comment-cache-status" class="comment-cache-status"></span>
+                    <button id="clear-comment-cache-btn" class="btn btn-small" type="button">
+                        Clear cache
+                    </button>
+                </div>
+            </div>
+            <div id="rate-limit-box" class="rate-limit-box">
+                <div class="rate-limit-row">
+                    <span id="rate-limit-summary">Rate limit: unknown</span>
+                    <button id="rate-limit-explain-btn" class="rate-limit-explain-btn" type="button" aria-expanded="false">
+                        Explain
+                    </button>
+                </div>
+                <div id="rate-limit-details" class="rate-limit-details" hidden>
+                    <div id="rate-limit-log-status" class="rate-limit-log-status">
+                        No rate limit requests logged yet.
+                    </div>
+                    <ul id="rate-limit-log" class="rate-limit-log"></ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Notifications Section -->
+        <section class="notifications-container">
+            <header class="notifications-header">
+                <h2>Notifications</h2>
+                <span id="notification-count"></span>
+            </header>
+
+            <!-- Primary View Tabs -->
+            <nav class="view-tabs" role="tablist" aria-label="View notifications by type">
+                <button
+                    class="view-tab active"
+                    role="tab"
+                    aria-selected="true"
+                    data-view="issues"
+                    id="view-issues"
+                >
+                    Issues <span class="count">0</span>
+                </button>
+                <button
+                    class="view-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-view="my-prs"
+                    id="view-my-prs"
+                >
+                    My PRs <span class="count">0</span>
+                </button>
+                <button
+                    class="view-tab"
+                    role="tab"
+                    aria-selected="false"
+                    data-view="others-prs"
+                    id="view-others-prs"
+                >
+                    Others' PRs <span class="count">0</span>
+                </button>
+            </nav>
+
+            <div class="subfilter-row">
+                <div class="subfilter-stack">
+                    <!-- Subfilter Tabs for Issues -->
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter issues" data-for-view="issues" data-subfilter-group="state">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="open"
+                            aria-pressed="false"
+                        >
+                            Open <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="closed"
+                            aria-pressed="false"
+                        >
+                            Closed <span class="count">0</span>
+                        </button>
+                    </nav>
+
+                    <!-- Subfilter Tabs for Others' PRs -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by status" data-for-view="others-prs" data-subfilter-group="state">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="needs-review"
+                            aria-pressed="false"
+                        >
+                            Needs review <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="approved"
+                            aria-pressed="false"
+                        >
+                            Approved <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="draft"
+                            aria-pressed="false"
+                        >
+                            Draft <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="closed"
+                            aria-pressed="false"
+                        >
+                            Closed <span class="count">0</span>
+                        </button>
+                    </nav>
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by author" data-for-view="others-prs" data-subfilter-group="author">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="committer"
+                            aria-pressed="false"
+                        >
+                            Committers <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="external"
+                            aria-pressed="false"
+                        >
+                            External <span class="count">0</span>
+                        </button>
+                    </nav>
+                </div>
+                <div class="order-control">
+                    <label for="order-select">Order:</label>
+                    <select id="order-select" aria-label="Order notifications">
+                        <option value="recent">Newest first</option>
+                        <option value="size">PR size (small to big)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="select-all-row" class="select-all-row" style="display: none;">
+                <input
+                    type="checkbox"
+                    id="select-all-checkbox"
+                    class="select-all-checkbox"
+                    aria-label="Select all notifications"
+                >
+                <label for="select-all-checkbox" class="select-all-label">Select all</label>
+                <span id="selection-count" class="selection-count"></span>
+                <button
+                    id="open-unread-btn"
+                    class="btn open-unread-btn"
+                    type="button"
+                    aria-label="Open all notifications in this filter"
+                    style="display: none;"
+                >
+                    <svg class="open-unread-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-hidden="true">
+                        <path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path>
+                    </svg>
+                    <span>Open all</span>
+                </button>
+                <button id="mark-done-btn" class="btn btn-danger" style="display: none;">
+                    Mark selected as done
+                </button>
+                <button id="unsubscribe-all-btn" class="btn btn-danger" style="display: none;">
+                    Unsubscribe from all
+                </button>
+            </div>
+
+            <div id="loading" class="loading">
+                Loading notifications...
+            </div>
+
+            <div id="empty-state" class="empty-state">
+                <h3>No notifications</h3>
+                <p>Enter a repository and click Quick Sync to load notifications.</p>
+            </div>
+
+    <ul id="notifications-list" class="notifications-list" role="list">
+        <!-- Notifications will be rendered here -->
+    </ul>
+</section>
+</main>
+
+    <!-- Keyboard Shortcuts Help Overlay -->
+    <div id="keyboard-shortcuts-overlay" class="keyboard-shortcuts-overlay" role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title">
+        <div class="keyboard-shortcuts-modal">
+            <div class="keyboard-shortcuts-header">
+                <h3 id="keyboard-shortcuts-title">Keyboard Shortcuts</h3>
+                <button class="keyboard-shortcuts-close" aria-label="Close" id="keyboard-shortcuts-close">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="keyboard-shortcuts-content">
+                <div class="keyboard-shortcuts-section">
+                    <h4>Navigation</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Move down</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">j</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Move up</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">k</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Scroll to top</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">g</kbd><kbd class="keyboard-shortcut-key">g</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Scroll to bottom</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">G</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Open notification</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Enter</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Actions</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Mark as done</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">e</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Unsubscribe</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">m</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Undo last action</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">u</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Reload page</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">r</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Selection</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Toggle selection</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">t</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Select all</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Ctrl</kbd><kbd class="keyboard-shortcut-key">a</kbd></div>
+                    </div>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Clear selection</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">Esc</kbd></div>
+                    </div>
+                </div>
+                <div class="keyboard-shortcuts-section">
+                    <h4>Help</h4>
+                    <div class="keyboard-shortcut-row">
+                        <span class="keyboard-shortcut-desc">Show this help</span>
+                        <div class="keyboard-shortcut-keys"><kbd class="keyboard-shortcut-key">?</kbd></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <script>
+        (function () {
+            const VIEW_KEY = 'ghnotif_view';
+            const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
+            const REPO_KEY = 'ghnotif_repo';
+            const ORDER_KEY = 'ghnotif_order';
+            const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
+            const DEFAULT_VIEW_FILTERS = {
+                'issues': { state: 'all' },
+                'my-prs': { state: 'all' },
+                'others-prs': { state: 'all', author: 'all' },
+            };
+            const DEFAULT_VIEW_ORDERS = {
+                'issues': 'recent',
+                'my-prs': 'recent',
+                'others-prs': 'recent',
+            };
+            const VALID_VIEWS = new Set(['issues', 'my-prs', 'others-prs']);
+            const VALID_STATE_BY_VIEW = {
+                'issues': new Set(['all', 'open', 'closed']),
+                'my-prs': new Set(['all']),
+                'others-prs': new Set(['all', 'needs-review', 'approved', 'draft', 'closed']),
+            };
+            const VALID_AUTHOR = new Set(['all', 'committer', 'external']);
+            const VALID_ORDERS = new Set(['recent', 'size']);
+            const VIEW_QUERY_KEYS = {
+                'issues': { state: 'issues_state', order: 'issues_order' },
+                'my-prs': { state: 'my_prs_state', order: 'my_prs_order' },
+                'others-prs': {
+                    state: 'others_prs_state',
+                    author: 'others_prs_author',
+                    order: 'others_prs_order',
+                },
+            };
+
+            function cloneDefaults() {
+                return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
+            }
+
+            function normalizeFilters(raw) {
+                const normalized = cloneDefaults();
+                if (!raw || typeof raw !== 'object') {
+                    return normalized;
+                }
+                ['issues', 'my-prs', 'others-prs'].forEach((view) => {
+                    const value = raw[view];
+                    if (typeof value === 'string') {
+                        normalized[view].state = value;
+                        return;
+                    }
+                    if (value && typeof value === 'object') {
+                        normalized[view] = {
+                            ...normalized[view],
+                            ...value,
+                        };
+                    }
+                });
+                return normalized;
+            }
+
+            function cloneDefaultOrders() {
+                return { ...DEFAULT_VIEW_ORDERS };
+            }
+
+            function normalizeOrders(raw) {
+                const normalized = cloneDefaultOrders();
+                if (!raw || typeof raw !== 'object') {
+                    return normalized;
+                }
+                ['issues', 'my-prs', 'others-prs'].forEach((view) => {
+                    const value = raw[view];
+                    if (typeof value === 'string' && VALID_ORDERS.has(value)) {
+                        normalized[view] = value;
+                    }
+                });
+                return normalized;
+            }
+
+            function readStoredFilters() {
+                const raw = localStorage.getItem(VIEW_FILTERS_KEY);
+                if (!raw) {
+                    return cloneDefaults();
+                }
+                try {
+                    return normalizeFilters(JSON.parse(raw));
+                } catch (error) {
+                    return cloneDefaults();
+                }
+            }
+
+            function readStoredOrders() {
+                const raw = localStorage.getItem(ORDER_BY_VIEW_KEY);
+                if (raw) {
+                    try {
+                        return normalizeOrders(JSON.parse(raw));
+                    } catch (error) {
+                        return cloneDefaultOrders();
+                    }
+                }
+                const legacy = localStorage.getItem(ORDER_KEY);
+                if (legacy && VALID_ORDERS.has(legacy)) {
+                    return {
+                        'issues': legacy,
+                        'my-prs': legacy,
+                        'others-prs': legacy,
+                    };
+                }
+                return cloneDefaultOrders();
+            }
+
+            function getStoredView() {
+                const view = localStorage.getItem(VIEW_KEY);
+                return VALID_VIEWS.has(view) ? view : 'issues';
+            }
+
+            function updateQueryFromStorage() {
+                const params = new URLSearchParams(window.location.search);
+                const view = getStoredView();
+                const repo = (localStorage.getItem(REPO_KEY) || '').trim();
+                const filters = readStoredFilters();
+                const orders = readStoredOrders();
+
+                params.set('view', view);
+                if (repo) {
+                    params.set('repo', repo);
+                } else {
+                    params.delete('repo');
+                }
+
+                params.delete('state');
+                params.delete('author');
+
+                Object.keys(VIEW_QUERY_KEYS).forEach((viewName) => {
+                    const config = VIEW_QUERY_KEYS[viewName];
+                    const filtersForView = filters[viewName] || DEFAULT_VIEW_FILTERS[viewName];
+                    const stateFilter = filtersForView.state || 'all';
+                    const authorFilter = filtersForView.author || 'all';
+                    const orderValue = orders[viewName] || DEFAULT_VIEW_ORDERS[viewName];
+                    params.set(config.state, stateFilter);
+                    if (config.author) {
+                        params.set(config.author, authorFilter);
+                    }
+                    params.set(config.order, orderValue);
+                });
+
+                const next = params.toString();
+                const url = next ? `${window.location.pathname}?${next}` : window.location.pathname;
+                window.history.replaceState(null, '', url);
+            }
+
+            function applyQueryToStorage() {
+                const params = new URLSearchParams(window.location.search);
+                const view = params.get('view');
+                const repo = params.get('repo');
+                let applied = false;
+
+                if (repo !== null) {
+                    localStorage.setItem(REPO_KEY, repo);
+                    applied = true;
+                }
+
+                if (view && VALID_VIEWS.has(view)) {
+                    localStorage.setItem(VIEW_KEY, view);
+                    applied = true;
+                }
+
+                const filters = cloneDefaults();
+                const orders = cloneDefaultOrders();
+                let hasFilterParams = false;
+                let hasOrderParams = false;
+                const legacyState = params.get('state');
+                const legacyAuthor = params.get('author');
+
+                Object.keys(VIEW_QUERY_KEYS).forEach((viewName) => {
+                    const config = VIEW_QUERY_KEYS[viewName];
+                    const stateParam = params.get(config.state) ||
+                        (viewName === view ? legacyState : null);
+                    if (stateParam && VALID_STATE_BY_VIEW[viewName]?.has(stateParam)) {
+                        filters[viewName].state = stateParam;
+                        hasFilterParams = true;
+                    }
+
+                    if (config.author) {
+                        const authorParam = params.get(config.author) ||
+                            (viewName === view ? legacyAuthor : null);
+                        if (authorParam && VALID_AUTHOR.has(authorParam)) {
+                            filters[viewName].author = authorParam;
+                            hasFilterParams = true;
+                        }
+                    }
+
+                    const orderParam = params.get(config.order);
+                    if (orderParam && VALID_ORDERS.has(orderParam)) {
+                        orders[viewName] = orderParam;
+                        hasOrderParams = true;
+                    }
+                });
+
+                if (hasFilterParams) {
+                    localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(filters));
+                    applied = true;
+                }
+                if (hasOrderParams) {
+                    localStorage.setItem(ORDER_BY_VIEW_KEY, JSON.stringify(orders));
+                    applied = true;
+                }
+
+                return applied;
+            }
+
+            function scheduleQueryUpdate() {
+                window.setTimeout(updateQueryFromStorage, 0);
+            }
+
+            applyQueryToStorage();
+
+            document.addEventListener('click', (event) => {
+                if (event.target.closest('.view-tab') || event.target.closest('.subfilter-tab')) {
+                    scheduleQueryUpdate();
+                }
+            });
+
+            const repoInput = document.getElementById('repo-input');
+            if (repoInput) {
+                repoInput.addEventListener('input', scheduleQueryUpdate);
+            }
+            const orderSelect = document.getElementById('order-select');
+            if (orderSelect) {
+                orderSelect.addEventListener('change', scheduleQueryUpdate);
+            }
+
+        })();
+    </script>
+    <script>
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const cacheBust = params.get('cache_bust') || localStorage.getItem('ghnotif_cache_bust');
+            if (cacheBust) {
+                localStorage.setItem('ghnotif_cache_bust', cacheBust);
+            }
+            const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
+            document.write(`<script src="notifications-idb.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-comments.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-core.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-sync.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-actions.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-ui.js${bust}"><\/script>`);
+            document.write(
+                `<script>
+                    (function () {
+                        const AUTH_CACHE_KEY = 'ghnotif_auth_cache';
+                        function readCachedAuth() {
+                            try {
+                                const raw = localStorage.getItem(AUTH_CACHE_KEY);
+                                if (!raw) {
+                                    return null;
+                                }
+                                const cached = JSON.parse(raw);
+                                if (!cached || typeof cached !== 'object') {
+                                    return null;
+                                }
+                                return cached;
+                            } catch (error) {
+                                return null;
+                            }
+                        }
+
+                        function applyCachedAuth(cached) {
+                            if (!elements?.authStatus) {
+                                return;
+                            }
+                            if (cached && cached.login) {
+                                elements.authStatus.textContent = \`Signed in as \${cached.login}\`;
+                                elements.authStatus.className = 'auth-status authenticated';
+                                state.currentUserLogin = cached.login;
+                                return;
+                            }
+                            if (cached) {
+                                elements.authStatus.textContent = 'Not authenticated';
+                                elements.authStatus.className = 'auth-status error';
+                                state.currentUserLogin = null;
+                                return;
+                            }
+                            elements.authStatus.textContent = 'Auth status not checked';
+                            elements.authStatus.className = 'auth-status';
+                            state.currentUserLogin = null;
+                        }
+
+                        applyCachedAuth(readCachedAuth());
+                        window.checkAuth = function () {
+                            applyCachedAuth(readCachedAuth());
+                        };
+                    })();
+                <\/script>`
+            );
+            document.write(`<script src="notifications.js${bust}"><\/script>`);
+        })();
+    </script>
+    <script>
+        (function () {
+            function collapseVersionsSection(markdown) {
+                const text = String(markdown ?? '');
+                const lines = text.split('\n');
+                const output = [];
+                let changed = false;
+                let i = 0;
+                while (i < lines.length) {
+                    const line = lines[i];
+                    const match = line.match(/^(#{1,6})\s+Versions\s*$/i);
+                    if (!match) {
+                        output.push(line);
+                        i += 1;
+                        continue;
+                    }
+                    const level = match[1].length;
+                    let j = i + 1;
+                    while (j < lines.length) {
+                        const headingMatch = lines[j].match(/^(#{1,6})\s+.+$/);
+                        if (headingMatch && headingMatch[1].length <= level) {
+                            break;
+                        }
+                        j += 1;
+                    }
+                    const sectionLines = lines.slice(i + 1, j);
+                    output.push('<details class="collapsed-versions">');
+                    output.push('<summary>Versions</summary>');
+                    if (sectionLines.length > 0) {
+                        output.push('');
+                        output.push(...sectionLines);
+                    }
+                    output.push('</details>');
+                    changed = true;
+                    i = j;
+                }
+                return changed ? output.join('\n') : text;
+            }
+
+            function wrapRenderMarkdown() {
+                if (typeof renderMarkdown !== 'function') {
+                    return;
+                }
+                const original = renderMarkdown;
+                window.renderMarkdown = function (text) {
+                    return original(collapseVersionsSection(text));
+                };
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', wrapRenderMarkdown);
+            } else {
+                wrapRenderMarkdown();
+            }
+        })();
+    </script>
+    <script>
+        (function () {
+            const forceRefreshBtn = document.getElementById('force-refresh-btn');
+            if (!forceRefreshBtn) {
+                return;
+            }
+            forceRefreshBtn.addEventListener('click', () => {
+                const cacheBust = Date.now().toString();
+                localStorage.setItem('ghnotif_cache_bust', cacheBust);
+                const url = new URL(window.location.href);
+                url.searchParams.set('cache_bust', cacheBust);
+                window.location.replace(url.toString());
+            });
+        })();
+    </script>
+</body>
+</html>
