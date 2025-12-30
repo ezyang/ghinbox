@@ -215,22 +215,6 @@ test.describe('Mark Done', () => {
       const apiCalls: string[] = [];
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-
-        if (route.request().method() === 'GET') {
-
-          route.fulfill({
-
-            status: 200,
-
-            contentType: 'application/json',
-
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-
-          });
-
-          return;
-
-        }
         apiCalls.push(route.request().url());
         route.fulfill({ status: 204 });
       });
@@ -249,18 +233,17 @@ test.describe('Mark Done', () => {
     test('skips marking done when new comments are detected', async ({ page }) => {
       let deleteCalled = false;
 
+      // Mock DELETE (should not be called)
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ updated_at: '2024-12-28T00:00:00Z' }),
-          });
-          return;
-        }
         deleteCalled = true;
         route.fulfill({ status: 204 });
       });
+
+      // When done button is clicked, syncNotificationBeforeDone does HTML pull
+      // The notification is still present (not Done on GitHub)
+      // Then it checks comments against cache - since cache is empty,
+      // all comments returned by the API are considered "new"
+      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
@@ -269,7 +252,7 @@ test.describe('Mark Done', () => {
             contentType: 'application/json',
             body: JSON.stringify([
               {
-                id: 1,
+                id: 999, // New comment ID not in cache
                 user: { login: 'alice' },
                 body: 'New comment',
                 created_at: '2024-12-28T00:00:00Z',
@@ -289,20 +272,15 @@ test.describe('Mark Done', () => {
 
     test('reloads notification details when new comments are detected', async ({ page }) => {
       let deleteCalled = false;
-      let reloadCalled = false;
+      let reloadCallCount = 0;
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ updated_at: '2024-12-28T00:00:00Z' }),
-          });
-          return;
-        }
         deleteCalled = true;
         route.fulfill({ status: 204 });
       });
+
+      // Mock comments endpoint to return a new comment from another user
+      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
@@ -311,7 +289,7 @@ test.describe('Mark Done', () => {
             contentType: 'application/json',
             body: JSON.stringify([
               {
-                id: 1,
+                id: 999,
                 user: { login: 'alice' },
                 body: 'New comment',
                 created_at: '2024-12-28T00:00:00Z',
@@ -322,6 +300,7 @@ test.describe('Mark Done', () => {
         }
       );
 
+      // Set up HTML endpoint to track reload calls and return updated notification
       await page.unroute('**/notifications/html/repo/**');
       const updatedFixture = {
         ...mixedFixture,
@@ -339,7 +318,7 @@ test.describe('Mark Done', () => {
         ),
       };
       await page.route('**/notifications/html/repo/**', (route) => {
-        reloadCalled = true;
+        reloadCallCount++;
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -360,24 +339,21 @@ test.describe('Mark Done', () => {
         page.locator('[data-id="notif-1"] .notification-title')
       ).toContainText('Fix critical bug in authentication (updated)');
       expect(deleteCalled).toBe(false);
-      expect(reloadCalled).toBe(true);
+      // HTML endpoint is called once for sync check
+      expect(reloadCallCount).toBe(1);
     });
 
     test('allows marking done when new comments are uninteresting or own', async ({ page }) => {
       let deleteCalled = false;
 
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ updated_at: '2024-12-28T00:00:00Z' }),
-          });
-          return;
-        }
         deleteCalled = true;
         route.fulfill({ status: 204 });
       });
+
+      // Mock comments endpoint to return a comment from the current user (testuser)
+      // Since it's the user's own comment, it should allow marking done
+      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
@@ -386,7 +362,7 @@ test.describe('Mark Done', () => {
             contentType: 'application/json',
             body: JSON.stringify([
               {
-                id: 1,
+                id: 999,
                 user: { login: 'testuser' },
                 body: 'My own update',
                 created_at: '2024-12-28T00:00:00Z',
@@ -404,16 +380,37 @@ test.describe('Mark Done', () => {
       expect(deleteCalled).toBe(true);
     });
 
+    test('allows marking done when notification is already Done on GitHub', async ({ page }) => {
+      let deleteCalled = false;
+
+      await page.route('**/github/rest/notifications/threads/**', (route) => {
+        deleteCalled = true;
+        route.fulfill({ status: 204 });
+      });
+
+      // HTML endpoint returns fixture WITHOUT notif-1 (it's been marked Done on GitHub)
+      await page.unroute('**/notifications/html/repo/**');
+      const fixtureWithoutNotif1 = {
+        ...mixedFixture,
+        notifications: mixedFixture.notifications.filter((n) => n.id !== 'notif-1'),
+      };
+      await page.route('**/notifications/html/repo/**', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(fixtureWithoutNotif1),
+        });
+      });
+
+      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+
+      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
+      expect(deleteCalled).toBe(true);
+    });
+
     test('bottom done button removes the notification from the list', async ({ page }) => {
       await page.route('**/github/rest/notifications/threads/**', (route) => {
-        if (route.request().method() === 'GET') {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-          });
-          return;
-        }
         route.fulfill({ status: 204 });
       });
 
@@ -436,22 +433,6 @@ test.describe('Mark Done', () => {
       });
 
       await page.route('**/github/rest/notifications/threads/**', async (route) => {
-
-        if (route.request().method() === 'GET') {
-
-          route.fulfill({
-
-            status: 200,
-
-            contentType: 'application/json',
-
-            body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-
-          });
-
-          return;
-
-        }
         await responseGate;
         route.fulfill({ status: 204 });
       });
