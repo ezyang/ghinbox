@@ -221,7 +221,7 @@ test.describe('Mark Done', () => {
       // 3. If allowed, calls markNotificationDone -> DELETE to threads endpoint
 
       // Ensure comments endpoint returns empty array (no new comments)
-      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
+      await page.unroute('**/github/rest/repos/**/issues/*/comments');
       await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
         route.fulfill({
           status: 200,
@@ -259,7 +259,7 @@ test.describe('Mark Done', () => {
       // The notification is still present (not Done on GitHub)
       // Then it checks comments against cache - since cache is empty,
       // all comments returned by the API are considered "new"
-      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
+      await page.unroute('**/github/rest/repos/**/issues/*/comments');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
@@ -296,7 +296,7 @@ test.describe('Mark Done', () => {
       });
 
       // Mock comments endpoint to return a new comment from another user
-      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
+      await page.unroute('**/github/rest/repos/**/issues/*/comments');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
@@ -369,7 +369,7 @@ test.describe('Mark Done', () => {
 
       // Mock comments endpoint to return a comment from the current user (testuser)
       // Since it's the user's own comment, it should allow marking done
-      await page.unroute('**/github/rest/repos/**/issues/**/comments**');
+      await page.unroute('**/github/rest/repos/**/issues/*/comments');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
         (route) => {
