@@ -2,6 +2,8 @@
 
 A better UI for GitHub notifications.  Forged from the fires of PyTorch.
 
+<img width="1192" height="725" alt="image" src="https://github.com/user-attachments/assets/ba24d830-b413-4fb4-b07c-56e38e9eddbf" />
+
 The three main design philosophies of ghinbox are as follows:
 
 1. **Pull more data, but less often.**  GitHub notifications allows only a very impoverished set of search queries and forces a strict limit of 25 items per page; in return, you can freely refresh your notifications without being rate limited.  ghinbox makes the opposite tradeoff: we want all of the notifications and all of the data; to avoid being rate-limited, you must explicitly request a sync and we expect you to only do syncs rarely, opting to show you our offline view of the state of notifications.
