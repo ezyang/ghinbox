@@ -121,19 +121,6 @@ test.describe('Keyboard Shortcuts', () => {
   });
 
   test('e marks the active notification as done', async ({ page }) => {
-    let releaseReload: () => void = () => {};
-    const reloadGate = new Promise<void>((resolve) => {
-      releaseReload = resolve;
-    });
-    await page.route('**/notifications/html/repo/**', async (route) => {
-      await reloadGate;
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
     await page.route('**/github/rest/notifications/threads/**', (route) => {
       if (route.request().method() === 'GET') {
         route.fulfill({
@@ -149,13 +136,11 @@ test.describe('Keyboard Shortcuts', () => {
     await page.keyboard.press('j');
     await page.keyboard.press('e');
 
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('Checking for new comments');
-    await expect(statusBar).not.toHaveClass(/auto-dismiss/);
-    releaseReload();
-
-    await expect(statusBar).toContainText('Done 1/1 (0 pending)');
+    // Notification is removed immediately (optimistic update)
     await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
+
+    const statusBar = page.locator('#status-bar');
+    await expect(statusBar).toContainText('Done 1/1 (0 pending)');
   });
 
   test('m unsubscribes the active approved notification', async ({ page }) => {

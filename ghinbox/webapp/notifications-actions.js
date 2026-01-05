@@ -184,87 +184,33 @@
             // Disable UI during operation
             elements.markDoneBtn.disabled = true;
             elements.selectAllCheckbox.disabled = true;
-            render();
 
-            const notificationsToRestoreById = new Map(notificationLookup);
-            const successfulIds = [];
-            const preflightFailedResults = [];
-            const blockedResults = []; // Store {id, reason} when updated comments block completion
-            const allowedIds = [];
-
-            for (let i = 0; i < selectedIds.length; i++) {
-                const notifId = selectedIds[i];
-                try {
-                    const notification = notificationLookup.get(notifId);
-                    const syncResult = await syncNotificationBeforeDone(notifId, notification);
-                    if (syncResult?.updatedNotification) {
-                        notificationsToRestoreById.set(notifId, syncResult.updatedNotification);
-                    }
-                    if (syncResult?.status === 'updated') {
-                        blockedResults.push({
-                            id: notifId,
-                            reason: syncResult.reason || 'New comments detected',
-                        });
-                        continue;
-                    }
-                    if (syncResult?.status === 'error') {
-                        preflightFailedResults.push({
-                            id: notifId,
-                            error: syncResult.error || 'Failed to sync notification',
-                        });
-                        continue;
-                    }
-                    allowedIds.push(notifId);
-                } catch (e) {
-                    const errorDetail = e.message || String(e);
-                    preflightFailedResults.push({ id: notifId, error: errorDetail });
-                }
-            }
-
-            if (allowedIds.length === 0) {
-                state.markingInProgress = false;
-                state.markProgress = { current: 0, total: 0 };
-                elements.markDoneBtn.disabled = false;
-                elements.selectAllCheckbox.disabled = false;
-                if (preflightFailedResults.length > 0) {
-                    const firstError = preflightFailedResults[0]?.error || 'Unknown error';
-                    showStatus(`Failed to sync notifications: ${firstError}`, 'error');
-                } else {
-                    showStatus(
-                        `Skipped ${blockedResults.length} notification${blockedResults.length !== 1 ? 's' : ''}: new comments found`,
-                        'info',
-                        { autoDismiss: true }
-                    );
-                }
-                render();
-                return;
-            }
-
-            state.markProgress = { current: 0, total: allowedIds.length };
-
-            const allowedIdSet = new Set(allowedIds);
-            const notificationsToRestoreOnFailure = allowedIds
-                .map(id => notificationsToRestoreById.get(id))
+            // Remove all selected notifications from UI immediately (optimistic update)
+            const notificationsToRestore = selectedIds
+                .map(id => notificationLookup.get(id))
                 .filter(Boolean);
-            const undoEntry = pushToUndoStack('done', notificationsToRestoreOnFailure);
+            const undoEntry = pushToUndoStack('done', notificationsToRestore);
 
+            const selectedIdSet = new Set(selectedIds);
             state.notifications = state.notifications.filter(
-                notif => !allowedIdSet.has(notif.id)
+                notif => !selectedIdSet.has(notif.id)
             );
 
             // Clear selection for removed items
-            allowedIds.forEach(id => state.selected.delete(id));
+            selectedIds.forEach(id => state.selected.delete(id));
 
             // Update localStorage
             persistNotifications();
             render();
 
+            const successfulIds = [];
             const failedResults = []; // Store {id, error} for detailed reporting
+            const skippedCount = { newComments: 0 }; // Track skipped due to new comments
             const queuedDoneIds = new Set();
             let rateLimitDelay = 0;
 
-            for (let i = 0; i < allowedIds.length; i++) {
-                const notifId = allowedIds[i];
+            for (let i = 0; i < selectedIds.length; i++) {
+                const notifId = selectedIds[i];
                 state.markProgress.current = i + 1;
                 render();
 
@@ -275,6 +221,21 @@
                 }
 
                 try {
+                    // Async sync check - if new comments detected, skip DELETE but don't restore
+                    const notification = notificationsToRestore.find(n => n.id === notifId);
+                    const syncResult = await syncNotificationBeforeDone(notifId, notification);
+                    if (syncResult?.status === 'updated') {
+                        // New comments detected - skip DELETE, notification stays removed from UI
+                        // It will reappear on next sync/refresh
+                        skippedCount.newComments++;
+                        continue;
+                    }
+                    if (syncResult?.status === 'error') {
+                        const errorDetail = syncResult.error || 'Failed to sync notification';
+                        failedResults.push({ id: notifId, error: errorDetail });
+                        continue;
+                    }
+
                     if (!queuedDoneIds.has(notifId)) {
                         queueDoneSnapshot(1);
                         queuedDoneIds.add(notifId);
@@ -306,14 +267,14 @@
                 }
 
                 // Small delay between requests to avoid rate limiting
-                if (i < allowedIds.length - 1) {
+                if (i < selectedIds.length - 1) {
                     await sleep(100);
                 }
             }
 
             if (failedResults.length > 0) {
                 const failedNotifications = failedResults
-                    .map(result => notificationsToRestoreById.get(result.id))
+                    .map(result => notificationLookup.get(result.id))
                     .filter(Boolean);
                 restoreNotificationsInOrder(failedNotifications);
                 failedNotifications.forEach(notification => state.selected.add(notification.id));
@@ -327,40 +288,43 @@
             elements.selectAllCheckbox.disabled = false;
 
             // Show result message with details
-            const allFailedResults = [...preflightFailedResults, ...failedResults];
-            if (allFailedResults.length === 0 && blockedResults.length === 0) {
+            if (failedResults.length === 0 && skippedCount.newComments === 0) {
                 updateDoneSnapshotStatus();
-            } else if (successfulIds.length === 0 && allFailedResults.length === 0) {
-                showStatus(
-                    `Skipped ${blockedResults.length} notification${blockedResults.length !== 1 ? 's' : ''}: new comments found`,
-                    'info',
-                    { autoDismiss: true }
-                );
+            } else if (failedResults.length === 0 && skippedCount.newComments > 0) {
+                // Some skipped due to new comments, but no errors
+                const skippedSuffix = ` (${skippedCount.newComments} had new comments)`;
+                if (successfulIds.length > 0) {
+                    showStatus(
+                        `Done ${successfulIds.length}/${selectedIds.length}${skippedSuffix}`,
+                        'info',
+                        { autoDismiss: true }
+                    );
+                } else {
+                    showStatus(
+                        `Skipped ${skippedCount.newComments}: new comments detected`,
+                        'info',
+                        { autoDismiss: true }
+                    );
+                }
             } else if (successfulIds.length === 0) {
                 // All failed - show first error for context
-                const firstError = allFailedResults[0]?.error || 'Unknown error';
-                const blockedSuffix = blockedResults.length
-                    ? ` (${blockedResults.length} skipped for new comments)`
+                const firstError = failedResults[0]?.error || 'Unknown error';
+                const skippedSuffix = skippedCount.newComments > 0
+                    ? ` (${skippedCount.newComments} had new comments)`
                     : '';
-                showStatus(`Failed to mark notifications: ${firstError}${blockedSuffix}`, 'error');
-                console.error('[MarkDone] All failed. Errors:', allFailedResults);
-            } else if (allFailedResults.length === 0) {
-                showStatus(
-                    `Marked ${successfulIds.length} done, ${blockedResults.length} skipped (new comments)`,
-                    'info',
-                    { autoDismiss: true }
-                );
+                showStatus(`Failed to mark notifications: ${firstError}${skippedSuffix}`, 'error');
+                console.error('[MarkDone] All failed. Errors:', failedResults);
             } else {
                 // Partial failure
-                const firstError = allFailedResults[0]?.error || 'Unknown error';
-                const blockedSuffix = blockedResults.length
-                    ? `, ${blockedResults.length} skipped (new comments)`
+                const firstError = failedResults[0]?.error || 'Unknown error';
+                const skippedSuffix = skippedCount.newComments > 0
+                    ? `, ${skippedCount.newComments} skipped`
                     : '';
                 showStatus(
-                    `Marked ${successfulIds.length} done, ${allFailedResults.length} failed${blockedSuffix}: ${firstError}`,
+                    `${successfulIds.length} done, ${failedResults.length} failed${skippedSuffix}: ${firstError}`,
                     'error'
                 );
-                console.error('[MarkDone] Partial failure. Errors:', allFailedResults);
+                console.error('[MarkDone] Partial failure. Errors:', failedResults);
             }
 
             const notificationsForUndo = successfulIds
@@ -895,38 +859,13 @@
         async function handleInlineMarkDone(notifId, button) {
             if (state.markingInProgress) return;
 
-            showStatus('Checking for new comments...', 'info');
             button.disabled = true;
 
             // Find and save the notification for undo before removing
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
             const wasSelected = state.selected.has(notifId);
 
-            const syncResult = await syncNotificationBeforeDone(notifId, notificationToRemove);
-            if (syncResult?.status === 'updated') {
-                showStatus('New comments found. Reloaded notification.', 'info', {
-                    autoDismiss: true,
-                });
-                if (syncResult.updatedNotification) {
-                    const index = state.notifications.findIndex(
-                        notification => notification.id === notifId
-                    );
-                    if (index !== -1) {
-                        state.notifications[index] = syncResult.updatedNotification;
-                        persistNotifications();
-                    }
-                }
-                render();
-                button.disabled = false;
-                return;
-            }
-            if (syncResult?.status === 'error') {
-                const errorDetail = syncResult.error || 'Failed to sync notification';
-                showStatus(`Failed to sync notification: ${errorDetail}`, 'error');
-                button.disabled = false;
-                return;
-            }
-
+            // Remove from UI immediately (optimistic update)
             const filteredBeforeRemoval = getFilteredNotifications();
             advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
             state.notifications = state.notifications.filter(
@@ -940,6 +879,32 @@
             render();
 
             try {
+                // Async sync check - if new comments detected, skip DELETE but don't restore
+                const syncResult = await syncNotificationBeforeDone(notifId, notificationToRemove);
+                if (syncResult?.status === 'updated') {
+                    // New comments detected - skip DELETE, notification stays removed from UI
+                    // It will reappear on next sync/refresh
+                    showStatus('New comments detected. Skipped marking done.', 'info', { autoDismiss: true });
+                    removeUndoEntry(undoEntry);
+                    button.disabled = false;
+                    return;
+                }
+                if (syncResult?.status === 'error') {
+                    const errorDetail = syncResult.error || 'Failed to sync notification';
+                    showStatus(`Failed to sync notification: ${errorDetail}`, 'error');
+                    if (notificationToRemove) {
+                        restoreNotificationsInOrder([notificationToRemove]);
+                        if (wasSelected) {
+                            state.selected.add(notifId);
+                        }
+                        persistNotifications();
+                        render();
+                    }
+                    removeUndoEntry(undoEntry);
+                    button.disabled = false;
+                    return;
+                }
+
                 queueDoneSnapshot(1);
                 const result = await markNotificationDone(notifId);
 

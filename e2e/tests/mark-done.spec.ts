@@ -244,7 +244,7 @@ test.describe('Mark Done', () => {
       expect(apiCalls[0]).toContain('notif-1');
     });
 
-    test('skips marking done when new comments are detected', async ({ page }) => {
+    test('skips DELETE when new comments are detected but removes from UI', async ({ page }) => {
       let deleteCalled = false;
 
       // Mock DELETE (should not be called)
@@ -253,10 +253,8 @@ test.describe('Mark Done', () => {
         route.fulfill({ status: 204 });
       });
 
-      // When done button is clicked, syncNotificationBeforeDone does HTML pull
-      // The notification is still present (not Done on GitHub)
-      // Then it checks comments against cache - since cache is empty,
-      // all comments returned by the API are considered "new"
+      // Mock comments endpoint to return a new comment from another user
+      // Since cache is empty, all comments returned are considered "new"
       await page.unroute('**/github/rest/repos/**/issues/*/comments');
       await page.route(
         '**/github/rest/repos/test/repo/issues/42/comments**',
@@ -279,82 +277,12 @@ test.describe('Mark Done', () => {
 
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
-      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(1);
-      await expect(page.locator('#status-bar')).toContainText('New comments');
+      // Notification is removed from UI immediately (optimistic update)
+      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
+      // Status shows that new comments were detected
+      await expect(page.locator('#status-bar')).toContainText('New comments detected');
+      // DELETE should NOT have been called
       expect(deleteCalled).toBe(false);
-    });
-
-    test('reloads notification details when new comments are detected', async ({ page }) => {
-      let deleteCalled = false;
-      let reloadCallCount = 0;
-
-      await page.route('**/github/rest/notifications/threads/**', (route) => {
-        deleteCalled = true;
-        route.fulfill({ status: 204 });
-      });
-
-      // Mock comments endpoint to return a new comment from another user
-      await page.unroute('**/github/rest/repos/**/issues/*/comments');
-      await page.route(
-        '**/github/rest/repos/test/repo/issues/42/comments**',
-        (route) => {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              {
-                id: 999,
-                user: { login: 'alice' },
-                body: 'New comment',
-                created_at: '2024-12-28T00:00:00Z',
-                updated_at: '2024-12-28T00:00:00Z',
-              },
-            ]),
-          });
-        }
-      );
-
-      // Set up HTML endpoint to track reload calls and return updated notification
-      await page.unroute('**/notifications/html/repo/**');
-      const updatedFixture = {
-        ...mixedFixture,
-        notifications: mixedFixture.notifications.map((notification) =>
-          notification.id === 'notif-1'
-            ? {
-                ...notification,
-                subject: {
-                  ...notification.subject,
-                  title: 'Fix critical bug in authentication (updated)',
-                },
-                updated_at: '2024-12-28T00:00:00Z',
-              }
-            : notification
-        ),
-      };
-      await page.route('**/notifications/html/repo/**', (route) => {
-        reloadCallCount++;
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(updatedFixture),
-        });
-      });
-
-      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-
-      await expect(page.locator('#status-bar')).toContainText('New comments');
-      await expect(page.locator('#status-bar')).toHaveClass(/auto-dismiss/);
-      const statusBar = page.locator('#status-bar');
-      await statusBar.click();
-      await expect(statusBar).toHaveClass(/status-pinned/);
-      await statusBar.click();
-      await expect(statusBar).toBeHidden({ timeout: 7000 });
-      await expect(
-        page.locator('[data-id="notif-1"] .notification-title')
-      ).toContainText('Fix critical bug in authentication (updated)');
-      expect(deleteCalled).toBe(false);
-      // HTML endpoint is called once for sync check
-      expect(reloadCallCount).toBe(1);
     });
 
     test('allows marking done when new comments are uninteresting or own', async ({ page }) => {
