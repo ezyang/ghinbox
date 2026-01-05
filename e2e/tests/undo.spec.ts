@@ -94,7 +94,7 @@ test.describe('Undo', () => {
 
       // Mark as done
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -117,7 +117,7 @@ test.describe('Undo', () => {
 
     test('u key is ignored when typing in input', async ({ page }) => {
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -143,13 +143,13 @@ test.describe('Undo', () => {
 
       // Mark two notifications as done
       let markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
       markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-3"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-3"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -179,7 +179,7 @@ test.describe('Undo', () => {
 
       // Mark the first notification as done
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -202,7 +202,7 @@ test.describe('Undo', () => {
       });
 
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -235,7 +235,7 @@ test.describe('Undo', () => {
       await expect(page.locator('.notification-item')).toHaveCount(3);
 
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
 
       await page.keyboard.press('u');
@@ -266,7 +266,7 @@ test.describe('Undo', () => {
       });
 
       const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
       await markDoneResponse;
       await expect(page.locator('.notification-item')).toHaveCount(2);
 

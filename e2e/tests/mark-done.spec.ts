@@ -235,7 +235,7 @@ test.describe('Mark Done', () => {
 
       await expect(page.locator('.notification-item')).toHaveCount(3);
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -277,7 +277,7 @@ test.describe('Mark Done', () => {
         }
       );
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(1);
       await expect(page.locator('#status-bar')).toContainText('New comments');
@@ -340,7 +340,7 @@ test.describe('Mark Done', () => {
         });
       });
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('New comments');
       await expect(page.locator('#status-bar')).toHaveClass(/auto-dismiss/);
@@ -387,7 +387,7 @@ test.describe('Mark Done', () => {
         }
       );
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
@@ -416,7 +416,7 @@ test.describe('Mark Done', () => {
         });
       });
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
@@ -451,7 +451,7 @@ test.describe('Mark Done', () => {
         route.fulfill({ status: 204 });
       });
 
-      await page.locator('[data-id="notif-1"] .notification-done-btn').click();
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
       await expect(page.locator('.notification-item')).toHaveCount(2);

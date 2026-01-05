@@ -1384,10 +1384,10 @@ test.describe('Notifications Display', () => {
 
     // Check that notification titles are displayed
     const list = page.locator('#notifications-list');
-    await expect(list.locator('li')).toHaveCount(3);
+    await expect(list.locator('.notification-item')).toHaveCount(3);
 
     // First notification should have its title
-    await expect(list.locator('li').first()).toContainText('Fix critical bug in authentication');
+    await expect(list.locator('.notification-item').first()).toContainText('Fix critical bug in authentication');
   });
 
   test('notification items have data-id attribute', async ({ page }) => {

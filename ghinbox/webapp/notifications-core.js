@@ -45,9 +45,9 @@
             markingInProgress: false, // Whether Mark Done is in progress
             markProgress: { current: 0, total: 0 }, // Progress tracking
             doneSnapshot: { pending: 0, done: 0 }, // Current done snapshot counts
-            commentExpandIssues: false,
-            commentExpandPrs: false,
-            commentHideUninteresting: false,
+            commentExpandIssues: true,
+            commentExpandPrs: true,
+            commentHideUninteresting: true,
             commentQueue: [],
             commentQueueRunning: false,
             commentCache: { version: 1, threads: {} },
@@ -511,20 +511,20 @@
             localStorage.removeItem('ghnotif_type_filter');
 
             const savedCommentExpandIssues = localStorage.getItem(COMMENT_EXPAND_ISSUES_KEY);
-            if (savedCommentExpandIssues === 'true') {
-                state.commentExpandIssues = true;
+            if (savedCommentExpandIssues === 'false') {
+                state.commentExpandIssues = false;
             }
             elements.commentExpandIssuesToggle.checked = state.commentExpandIssues;
 
             const savedCommentExpandPrs = localStorage.getItem(COMMENT_EXPAND_PRS_KEY);
-            if (savedCommentExpandPrs === 'true') {
-                state.commentExpandPrs = true;
+            if (savedCommentExpandPrs === 'false') {
+                state.commentExpandPrs = false;
             }
             elements.commentExpandPrsToggle.checked = state.commentExpandPrs;
 
             const savedCommentHideUninteresting = localStorage.getItem(COMMENT_HIDE_UNINTERESTING_KEY);
-            if (savedCommentHideUninteresting === 'true') {
-                state.commentHideUninteresting = true;
+            if (savedCommentHideUninteresting === 'false') {
+                state.commentHideUninteresting = false;
             }
             elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
 
