@@ -105,6 +105,8 @@
             selectAllCheckbox: document.getElementById('select-all-checkbox'),
             selectionCount: document.getElementById('selection-count'),
             markDoneBtn: document.getElementById('mark-done-btn'),
+            markDoneBtnBottom: document.getElementById('mark-done-btn-bottom'),
+            bottomActionsRow: document.getElementById('bottom-actions-row'),
             openUnreadBtn: document.getElementById('open-unread-btn'),
             unsubscribeAllBtn: document.getElementById('unsubscribe-all-btn'),
             progressContainer: document.getElementById('progress-container'),
@@ -596,6 +598,13 @@
             elements.markDoneBtn.addEventListener('click', () => {
                 withActionContext('Mark done (bulk)', handleMarkDone);
             });
+
+            // Mark Done (bottom) button handler
+            if (elements.markDoneBtnBottom) {
+                elements.markDoneBtnBottom.addEventListener('click', () => {
+                    withActionContext('Mark done (bulk)', handleMarkDone);
+                });
+            }
 
             // Open All button handler
             elements.openUnreadBtn.addEventListener('click', () => {

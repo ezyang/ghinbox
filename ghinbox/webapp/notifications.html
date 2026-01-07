@@ -309,6 +309,11 @@
             min-height: 44px;
         }
 
+        #bottom-actions-row {
+            display: flex;
+            justify-content: flex-end;
+        }
+
         .notification-author {
             margin-left: 8px;
             font-weight: 400;
@@ -737,6 +742,12 @@
     <ul id="notifications-list" class="notifications-list" role="list">
         <!-- Notifications will be rendered here -->
     </ul>
+
+            <div id="bottom-actions-row" class="select-all-row" style="display: none;">
+                <button id="mark-done-btn-bottom" class="btn btn-danger" style="display: none;">
+                    Mark all as done
+                </button>
+            </div>
 </section>
 </main>
 
