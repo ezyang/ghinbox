@@ -448,12 +448,11 @@
         async function init() {
             instrumentFetchForRateLimit();
 
-            // Load saved repo from localStorage
+            // Load saved repo from localStorage, defaulting to pytorch/pytorch
             const savedRepo = localStorage.getItem('ghnotif_repo');
-            if (savedRepo) {
-                elements.repoInput.value = savedRepo;
-                state.repo = savedRepo;
-            }
+            const repoValue = savedRepo || 'pytorch/pytorch';
+            elements.repoInput.value = repoValue;
+            state.repo = repoValue;
 
             // Load cached notifications and comments from IndexedDB
             state.notifications = await loadNotificationsFromCache();
