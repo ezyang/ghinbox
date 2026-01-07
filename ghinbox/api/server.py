@@ -131,6 +131,11 @@ def main() -> int:
         help="Run browser in headed mode (visible window)",
     )
     parser.add_argument(
+        "--headed-login",
+        action="store_true",
+        help="Use headed browser for login (fallback for CAPTCHA or security key 2FA)",
+    )
+    parser.add_argument(
         "--test",
         action="store_true",
         help="Test mode: skip account validation (for E2E tests with mocked APIs)",
@@ -152,16 +157,24 @@ def main() -> int:
 
         # Check if account needs setup
         if not has_valid_auth(account):
-            if account == DEFAULT_ACCOUNT:
-                # Auto-setup for default account
-                success, username = setup_default_account(headed=args.headed)
-                if not success:
+            if args.headed_login:
+                # Use headed browser login (fallback for CAPTCHA/security key)
+                if account == DEFAULT_ACCOUNT:
+                    success, username = setup_default_account(headed=args.headed)
+                    if not success:
+                        return 1
+                else:
+                    print(f"ERROR: No valid auth for account '{account}'")
+                    print(f"Run: python -m ghinbox.auth {account}")
                     return 1
             else:
-                # Explicit account must be set up manually
-                print(f"ERROR: No valid auth for account '{account}'")
-                print(f"Run: python -m ghinbox.auth {account}")
-                return 1
+                # Headless mode: start server and serve login page
+                print(f"No valid auth for account '{account}'.")
+                print("Starting server with web-based login...")
+                print("Visit the server URL to login via browser.")
+                os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+                os.environ["GHSIM_ACCOUNT"] = account
+                os.environ["GHSIM_HEADLESS"] = "1"
         else:
             # Account exists, check for token
             if not has_token(account):
@@ -180,7 +193,7 @@ def main() -> int:
                     print("API proxy features will not work without a token.\n")
 
         # Verify the token actually works
-        if has_token(account):
+        if has_token(account) and os.environ.get("GHINBOX_NEEDS_AUTH") != "1":
             print("Verifying GitHub token...")
             is_valid, github_login = verify_token(account)
             if not is_valid:
@@ -189,46 +202,55 @@ def main() -> int:
                     # First verify browser auth is valid (needed for token provisioning)
                     print("Checking browser authentication...")
                     if not verify_auth(account):
-                        print("Browser auth is also invalid. Re-authenticating...")
-                        result = login_interactive(
-                            account, force=True, save_username_flag=True
-                        )
-                        if isinstance(result, tuple):
-                            success, _ = result
+                        if args.headed_login:
+                            # Use headed browser for re-auth
+                            print("Browser auth is also invalid. Re-authenticating...")
+                            result = login_interactive(
+                                account, force=True, save_username_flag=True
+                            )
+                            if isinstance(result, tuple):
+                                success, _ = result
+                            else:
+                                success = result
+                            if not success:
+                                print("ERROR: Browser re-authentication failed")
+                                return 1
                         else:
-                            success = result
-                        if not success:
-                            print("ERROR: Browser re-authentication failed")
-                            return 1
+                            # Headless mode: redirect to web login
+                            print("Browser auth is also invalid.")
+                            print("Starting server with web-based login...")
+                            os.environ["GHINBOX_NEEDS_AUTH"] = "1"
 
-                    print("Re-provisioning token (browser window will open)...")
-                    token = provision_token(
-                        account, force=True, headless=False, prod=True
-                    )
-                    if not token:
-                        print("ERROR: Token re-provisioning failed")
-                        return 1
-                    # Verify the new token
-                    is_valid, github_login = verify_token(account)
-                    if not is_valid:
-                        print("ERROR: New token verification failed")
-                        return 1
-                    print(f"Token verified for GitHub user: {github_login}")
+                    if os.environ.get("GHINBOX_NEEDS_AUTH") != "1":
+                        print("Re-provisioning token (browser window will open)...")
+                        token = provision_token(
+                            account, force=True, headless=not args.headed_login, prod=True
+                        )
+                        if not token:
+                            print("ERROR: Token re-provisioning failed")
+                            return 1
+                        # Verify the new token
+                        is_valid, github_login = verify_token(account)
+                        if not is_valid:
+                            print("ERROR: New token verification failed")
+                            return 1
+                        print(f"Token verified for GitHub user: {github_login}")
                 else:
                     print(f"Run: python -m ghinbox.token {account} --force")
                     return 1
             else:
                 print(f"Token verified for GitHub user: {github_login}")
 
-        # Show account info
-        username = load_username(account)
-        if username:
-            print(f"Starting server with account: {account} (GitHub: {username})")
-        else:
-            print(f"Starting server with account: {account}")
+        # Show account info (only if not in needs-auth mode)
+        if os.environ.get("GHINBOX_NEEDS_AUTH") != "1":
+            username = load_username(account)
+            if username:
+                print(f"Starting server with account: {account} (GitHub: {username})")
+            else:
+                print(f"Starting server with account: {account}")
 
-        os.environ["GHSIM_ACCOUNT"] = account
-        os.environ["GHSIM_HEADLESS"] = "0" if args.headed else "1"
+            os.environ["GHSIM_ACCOUNT"] = account
+            os.environ["GHSIM_HEADLESS"] = "0" if args.headed else "1"
 
     display_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
     print(f"Server: http://{display_host}:{args.port}")

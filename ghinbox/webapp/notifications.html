@@ -18,6 +18,22 @@
             document.write(`<link rel="stylesheet" href="notifications.css${bust}">`);
         })();
     </script>
+    <script>
+        // Check if login is needed and redirect to login page
+        (async function() {
+            try {
+                const response = await fetch('/auth/needs-login');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.needs_login) {
+                        window.location.href = 'login.html';
+                    }
+                }
+            } catch (e) {
+                // Ignore errors, continue loading the page
+            }
+        })();
+    </script>
     <style>
         .container {
             max-width: 1200px;
