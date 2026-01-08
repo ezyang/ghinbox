@@ -855,6 +855,63 @@
             return { success: true };
         }
 
+        // Helper function to extract PR info from notification
+        function extractPRInfo(notification) {
+            const match = notification.subject.url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+            if (!match) {
+                throw new Error('Invalid PR URL');
+            }
+            return {
+                owner: match[1],
+                repo: match[2],
+                prNumber: parseInt(match[3], 10)
+            };
+        }
+
+        // Remove current user as reviewer from a PR using the REST API
+        async function removeReviewer(owner, repo, prNumber, username) {
+            console.log(`[RemoveReviewer] Removing ${username} from PR ${owner}/${repo}#${prNumber}`);
+
+            const url = `/github/rest/repos/${owner}/${repo}/pulls/${prNumber}/requested_reviewers`;
+            console.log(`[RemoveReviewer] REST request: DELETE ${url}`);
+
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    reviewers: [username]
+                }),
+            });
+
+            console.log(`[RemoveReviewer] Response status: ${response.status}`);
+
+            if (response.status === 429) {
+                const retryAfter = response.headers.get('Retry-After');
+                console.warn(`[RemoveReviewer] Rate limited, retry after: ${retryAfter}s`);
+                return {
+                    success: false,
+                    rateLimited: true,
+                    retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000
+                };
+            }
+
+            if (!response.ok && response.status !== 204) {
+                const responseText = await response.text();
+                const error = `REST error: ${response.status} ${response.statusText}`;
+                console.error(`[RemoveReviewer] ${error}`, responseText);
+                return {
+                    success: false,
+                    error,
+                    status: response.status
+                };
+            }
+
+            console.log(`[RemoveReviewer] Success`);
+            return { success: true };
+        }
+
         // Handle inline Mark Done button click for a single notification
         async function handleInlineMarkDone(notifId, button) {
             if (state.markingInProgress) return;
@@ -1018,6 +1075,103 @@
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
+                button.disabled = false;
+                return;
+            }
+
+            await refreshRateLimit();
+            render();
+        }
+
+        // Handle inline Remove Reviewer button click for a single notification
+        async function handleInlineRemoveReviewer(notifId, button) {
+            if (state.markingInProgress) return;
+
+            button.disabled = true;
+
+            try {
+                const notification = state.notifications.find(n => n.id === notifId);
+                if (!notification) {
+                    showStatus('Notification not found', 'error');
+                    button.disabled = false;
+                    return;
+                }
+
+                const { owner, repo, prNumber } = extractPRInfo(notification);
+                const currentUser = ensureCurrentUserLogin();
+
+                if (!currentUser) {
+                    showStatus('Unable to determine current user. Make sure you are authenticated (check top-left status).', 'error');
+                    button.disabled = false;
+                    return;
+                }
+
+                // Remove reviewer
+                showStatus('Removing you as reviewer...', 'info');
+                const removeResult = await removeReviewer(owner, repo, prNumber, currentUser);
+
+                if (removeResult.rateLimited) {
+                    showStatus('Rate limited. Please try again shortly.', 'info');
+                    button.disabled = false;
+                    return;
+                }
+
+                // If removal failed, show message but continue with unsubscribe
+                if (!removeResult.success) {
+                    const errorDetail = removeResult.error || `HTTP ${removeResult.status || 'unknown'}`;
+                    showStatus(`Failed to remove reviewer: ${errorDetail}. Proceeding with unsubscribe...`, 'info');
+                }
+
+                // Always unsubscribe (this also marks as done per handleInlineUnsubscribe pattern)
+                const unsubResult = await unsubscribeNotification(notifId);
+
+                if (unsubResult.rateLimited) {
+                    showStatus('Rate limited. Please try again shortly.', 'info');
+                    button.disabled = false;
+                    return;
+                }
+
+                if (!unsubResult.success) {
+                    const errorDetail = unsubResult.error || `HTTP ${unsubResult.status || 'unknown'}`;
+                    showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
+                    button.disabled = false;
+                    return;
+                }
+
+                // Mark as done (following handleInlineUnsubscribe pattern)
+                queueDoneSnapshot(1);
+                const markDoneResult = await markNotificationDone(notifId);
+                if (markDoneResult.rateLimited) {
+                    showStatus(
+                        'Removed reviewer and unsubscribed, but rate limited when marking as done. Please try again shortly.',
+                        'info'
+                    );
+                    resolveDoneSnapshot(false, { suppressStatus: true });
+                } else if (!markDoneResult.success) {
+                    const errorDetail =
+                        markDoneResult.error || `HTTP ${markDoneResult.status || 'unknown'}`;
+                    showStatus(`Removed reviewer and unsubscribed, but failed to mark as done: ${errorDetail}`, 'error');
+                    resolveDoneSnapshot(false);
+                } else {
+                    resolveDoneSnapshot(true);
+                }
+
+                // Remove from UI
+                const notificationToRemove = state.notifications.find(n => n.id === notifId);
+                const filteredBeforeRemoval = getFilteredNotifications();
+                advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
+
+                state.notifications = state.notifications.filter(n => n.id !== notifId);
+                state.selected.delete(notifId);
+                persistNotifications();
+
+                // Save for undo
+                if (notificationToRemove) {
+                    pushToUndoStack('remove_reviewer', [notificationToRemove]);
+                }
+            } catch (e) {
+                const errorDetail = e.message || String(e);
+                showStatus(`Failed: ${errorDetail}`, 'error');
                 button.disabled = false;
                 return;
             }

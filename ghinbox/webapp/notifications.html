@@ -1095,9 +1095,12 @@
                         }
 
                         applyCachedAuth(readCachedAuth());
-                        window.checkAuth = function () {
+                        // Store reference to cache-based auth check
+                        const cachedAuthCheck = function () {
                             applyCachedAuth(readCachedAuth());
                         };
+                        // Don't overwrite checkAuth - let the loaded scripts define it
+                        // They will handle fetching from API and caching
                     })();
                 <\/script>`
             );

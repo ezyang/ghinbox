@@ -425,12 +425,19 @@
                     elements.authStatus.textContent = `Signed in as ${data.login}`;
                     elements.authStatus.className = 'auth-status authenticated';
                     state.currentUserLogin = data.login;
+                    // Cache auth for use by other functions
+                    if (typeof setCachedAuth === 'function') {
+                        setCachedAuth(data.login);
+                    }
                     // Re-render to update view counts that depend on current user
                     render();
                 } else {
                     elements.authStatus.textContent = 'Not authenticated';
                     elements.authStatus.className = 'auth-status error';
                     state.currentUserLogin = null;
+                    if (typeof setCachedAuth === 'function') {
+                        setCachedAuth(null);
+                    }
                 }
             } catch (e) {
                 elements.authStatus.textContent = 'Auth check failed';
@@ -797,7 +804,34 @@
             check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
             bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
             openInNewTab: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path></svg>`,
+            personRemove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 5.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM1.5 12.5A3.5 3.5 0 0 1 5 9h2a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-.5ZM11.22 6.22a.75.75 0 0 1 1.06 0L14 7.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L15.06 9l1.72 1.72a.75.75 0 1 1-1.06 1.06L14 10.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L12.94 9l-1.72-1.72a.75.75 0 0 1 0-1.06Z"></path></svg>`,
         };
+
+        // Check if current user is a reviewer on a PR
+        async function checkIfUserIsReviewer(notification) {
+            if (notification.subject.type !== 'PullRequest') return false;
+
+            const match = notification.subject.url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+            if (!match) return false;
+
+            const [, owner, repo, prNumber] = match;
+            if (!state.currentUserLogin) return false;
+
+            try {
+                const response = await fetch(`/github/rest/repos/${owner}/${repo}/pulls/${prNumber}`);
+                if (!response.ok) return false;
+
+                const pr = await response.json();
+                const requestedReviewers = pr.requested_reviewers || [];
+
+                return requestedReviewers.some(r =>
+                    r.login.toLowerCase() === state.currentUserLogin.toLowerCase()
+                );
+            } catch (e) {
+                console.error('[CheckReviewer] Error checking reviewer status:', e);
+                return false;
+            }
+        }
 
         // Get icon for notification type and state
         function getNotificationIcon(notif) {
@@ -1145,6 +1179,17 @@
                                     ${icons.bellSlash}
                                     <span>Unsubscribe</span>
                                 </button>
+                                ${notif.subject.type === 'PullRequest' ? `
+                                <button
+                                    type="button"
+                                    class="notification-remove-reviewer-btn notification-remove-reviewer-btn-bottom"
+                                    aria-label="Remove me as reviewer"
+                                    ${state.markingInProgress ? 'disabled' : ''}
+                                >
+                                    ${icons.personRemove}
+                                    <span>Remove me</span>
+                                </button>
+                                ` : ''}
                                 <button
                                     type="button"
                                     class="notification-done-btn notification-done-btn-bottom"
@@ -1177,6 +1222,16 @@
                             ${icons.bellSlash}
                         </button>
                     `;
+                    const removeReviewerButton = notif.subject.type === 'PullRequest' ? `
+                        <button
+                            type="button"
+                            class="notification-remove-reviewer-btn"
+                            aria-label="Remove me as reviewer"
+                            ${state.markingInProgress ? 'disabled' : ''}
+                        >
+                            ${icons.personRemove}
+                        </button>
+                    ` : '';
 
                     // Actors HTML
                     let actorsHtml = '';
@@ -1223,6 +1278,7 @@
                             </time>
                             ${doneButton}
                             ${unsubscribeButton}
+                            ${removeReviewerButton}
                         </div>
                     `;
 
@@ -1249,6 +1305,16 @@
                             e.stopPropagation();
                             withActionContext('Unsubscribe (inline)', () =>
                                 handleInlineUnsubscribe(notif.id, unsubscribeBtn)
+                            );
+                        });
+                    });
+
+                    const removeReviewerButtons = li.querySelectorAll('.notification-remove-reviewer-btn');
+                    removeReviewerButtons.forEach((removeBtn) => {
+                        removeBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            withActionContext('Remove reviewer (inline)', () =>
+                                handleInlineRemoveReviewer(notif.id, removeBtn)
                             );
                         });
                     });

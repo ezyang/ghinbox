@@ -743,6 +743,7 @@
 
         .notification-done-btn,
         .notification-unsubscribe-btn,
+        .notification-remove-reviewer-btn,
         .notification-open-btn {
             display: inline-flex;
             align-items: center;
@@ -757,6 +758,7 @@
 
         .notification-done-btn:hover,
         .notification-unsubscribe-btn:hover,
+        .notification-remove-reviewer-btn:hover,
         .notification-open-btn:hover {
             background-color: var(--color-btn-hover-bg);
             border-color: var(--color-border-default);
@@ -765,6 +767,7 @@
 
         .notification-done-btn:disabled,
         .notification-unsubscribe-btn:disabled,
+        .notification-remove-reviewer-btn:disabled,
         .notification-open-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -772,6 +775,7 @@
 
         .notification-done-btn svg,
         .notification-unsubscribe-btn svg,
+        .notification-remove-reviewer-btn svg,
         .notification-open-btn svg {
             width: 16px;
             height: 16px;
@@ -786,6 +790,7 @@
 
         .notification-done-btn-bottom,
         .notification-unsubscribe-btn-bottom,
+        .notification-remove-reviewer-btn-bottom,
         .notification-open-btn-bottom {
             gap: 6px;
             font-size: 12px;
@@ -794,6 +799,7 @@
 
         .notification-done-btn-bottom span,
         .notification-unsubscribe-btn-bottom span,
+        .notification-remove-reviewer-btn-bottom span,
         .notification-open-btn-bottom span {
             line-height: 1;
         }
@@ -801,6 +807,7 @@
         @media (max-width: 640px) {
             .notification-done-btn-bottom,
             .notification-unsubscribe-btn-bottom,
+            .notification-remove-reviewer-btn-bottom,
             .notification-open-btn-bottom {
                 font-size: 11px;
                 padding: 5px 8px;
