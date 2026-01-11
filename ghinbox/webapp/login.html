@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - GitHub Inbox</title>
+    <link rel="stylesheet" href="login.css">
+</head>
+<body>
+    <div class="login-page">
+        <div class="login-container">
+            <div class="login-card">
+                <div class="login-header">
+                    <h1>Sign in to GitHub</h1>
+                    <p class="login-subtitle">Enter your GitHub credentials to continue</p>
+                </div>
+
+                <!-- Credentials Form -->
+                <form id="credentials-form" class="login-form">
+                    <div class="form-group">
+                        <label for="username">Username or email address</label>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            autocomplete="username"
+                            autocapitalize="none"
+                            autocorrect="off"
+                            spellcheck="false"
+                            required
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            autocomplete="current-password"
+                            required
+                        >
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        Sign in
+                    </button>
+                </form>
+
+                <!-- 2FA Form (hidden initially) -->
+                <form id="twofa-form" class="login-form" hidden>
+                    <div class="twofa-info">
+                        <span class="twofa-icon">&#128274;</span>
+                        <p>Two-factor authentication</p>
+                    </div>
+                    <div class="form-group">
+                        <label for="twofa-code">Authentication code</label>
+                        <input
+                            type="text"
+                            id="twofa-code"
+                            name="twofa-code"
+                            inputmode="numeric"
+                            pattern="[0-9]*"
+                            autocomplete="one-time-code"
+                            maxlength="8"
+                            placeholder="XXXXXX"
+                            required
+                        >
+                        <p class="form-hint" id="twofa-hint">
+                            Open your authenticator app to view your code
+                        </p>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">
+                        Verify
+                    </button>
+                    <button type="button" id="back-to-login" class="btn btn-secondary btn-block">
+                        Cancel
+                    </button>
+                </form>
+
+                <!-- Mobile 2FA Wait Form (hidden initially) -->
+                <div id="mobile-wait-form" class="login-form" hidden>
+                    <div class="twofa-info">
+                        <span class="twofa-icon">&#128241;</span>
+                        <p>GitHub Mobile authentication</p>
+                    </div>
+                    <div class="mobile-wait-content">
+                        <div class="verification-code-display" id="verification-code-display" hidden>
+                            <span class="verification-code-label">Confirm this number on your device:</span>
+                            <span class="verification-code-number" id="verification-code-number"></span>
+                        </div>
+                        <div class="spinner"></div>
+                        <p class="mobile-wait-text">
+                            Check your GitHub Mobile app and approve the sign-in request.
+                        </p>
+                        <p class="form-hint">
+                            Waiting for approval...
+                        </p>
+                    </div>
+                    <button type="button" id="back-to-login-mobile" class="btn btn-secondary btn-block">
+                        Cancel
+                    </button>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="status-message" class="status-message" hidden></div>
+
+                <!-- Loading Indicator -->
+                <div id="loading" class="loading" hidden>
+                    <div class="spinner"></div>
+                    <span id="loading-text">Signing in...</span>
+                </div>
+
+                <!-- Success State -->
+                <div id="success-state" class="success-state" hidden>
+                    <span class="success-icon">&#10003;</span>
+                    <p>Login successful!</p>
+                    <p class="success-user" id="success-username"></p>
+                    <p class="success-redirect">Redirecting...</p>
+                </div>
+            </div>
+
+            <div class="login-footer">
+                <p>
+                    This login is handled by your local ghinbox server using
+                    a headless browser to authenticate with GitHub.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script src="login.js"></script>
+</body>
+</html>

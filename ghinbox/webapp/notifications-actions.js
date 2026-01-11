@@ -529,8 +529,9 @@
 
             try {
                 const suffix = nodeId.slice(3); // Remove 'NT_'
-                // Base64 decode
-                const decoded = atob(suffix);
+                // Convert URL-safe base64 to standard base64, then decode
+                const standardBase64 = suffix.replace(/-/g, '+').replace(/_/g, '/');
+                const decoded = atob(standardBase64);
                 // Extract thread_id:user_id pattern (the numeric part after binary prefix)
                 const match = decoded.match(/(\d{10,}):\d+/);
                 if (match) {

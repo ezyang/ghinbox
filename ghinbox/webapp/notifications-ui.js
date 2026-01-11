@@ -1080,6 +1080,17 @@
                     elements.markDoneBtn.textContent = markDoneState.label;
                 }
 
+                // Update bottom actions row and button
+                if (elements.bottomActionsRow) {
+                    elements.bottomActionsRow.style.display = markDoneState.show ? 'flex' : 'none';
+                }
+                if (elements.markDoneBtnBottom) {
+                    elements.markDoneBtnBottom.style.display = markDoneState.show ? 'inline-block' : 'none';
+                    if (markDoneState.show) {
+                        elements.markDoneBtnBottom.textContent = markDoneState.label;
+                    }
+                }
+
                 const openAllState = getOpenAllTargets(filteredNotifications);
                 elements.openUnreadBtn.style.display = openAllState.show ? 'inline-flex' : 'none';
 

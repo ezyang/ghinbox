@@ -9,7 +9,7 @@ __pycache__
 .claude
 
 # Playwright credential storage (contains sensitive auth state)
-auth_state/
+auth_state
 
 # Playwright artifacts (Python)
 playwright-report/

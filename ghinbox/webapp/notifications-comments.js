@@ -196,7 +196,7 @@ function shouldPrefetchNotificationComments(notification) {
     return false;
 }
 
-// Extract the comment ID from an anchor like "issuecomment-12345" or "discussion_r12345"
+// Extract the comment ID and type from an anchor like "issuecomment-12345" or "discussion_r12345"
 function extractCommentIdFromAnchor(anchor) {
     if (!anchor) {
         return null;
@@ -204,17 +204,22 @@ function extractCommentIdFromAnchor(anchor) {
     // Handle "issuecomment-12345" format
     const issueMatch = anchor.match(/^issuecomment-(\d+)$/);
     if (issueMatch) {
-        return parseInt(issueMatch[1], 10);
+        return { id: parseInt(issueMatch[1], 10), type: 'issue' };
     }
     // Handle "discussion_r12345" format (discussion comments)
     const discussionMatch = anchor.match(/^discussion_r(\d+)$/);
     if (discussionMatch) {
-        return parseInt(discussionMatch[1], 10);
+        return { id: parseInt(discussionMatch[1], 10), type: 'discussion' };
     }
-    // Handle "pullrequestreview-12345" format
+    // Handle "pullrequestreview-12345" format (PR review, not individual comment)
     const reviewMatch = anchor.match(/^pullrequestreview-(\d+)$/);
     if (reviewMatch) {
-        return parseInt(reviewMatch[1], 10);
+        return { id: parseInt(reviewMatch[1], 10), type: 'review' };
+    }
+    // Handle "r12345" format (PR review comments on the diff)
+    const reviewCommentMatch = anchor.match(/^r(\d+)$/);
+    if (reviewCommentMatch) {
+        return { id: parseInt(reviewCommentMatch[1], 10), type: 'review_comment' };
     }
     return null;
 }
@@ -233,7 +238,8 @@ function toIssueComment(issue) {
     };
 }
 
-async function fetchAllIssueComments(repo, issueNumber) {
+async function fetchAllIssueComments(repo, issueNumber, options = {}) {
+    const isPR = Boolean(options.isPR);
     const issueUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}`;
     let issue = null;
     try {
@@ -251,6 +257,31 @@ async function fetchAllIssueComments(repo, issueNumber) {
     if (Array.isArray(commentPayload)) {
         comments.push(...commentPayload);
     }
+
+    // For PRs, also fetch review comments (comments on the diff)
+    if (isPR) {
+        const reviewCommentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/pulls/${issueNumber}/comments`;
+        try {
+            const reviewComments = await fetchJson(reviewCommentUrl);
+            if (Array.isArray(reviewComments)) {
+                // Mark these as review comments and add file context
+                reviewComments.forEach((rc) => {
+                    rc.isReviewComment = true;
+                });
+                comments.push(...reviewComments);
+            }
+        } catch (error) {
+            console.error('Failed to fetch PR review comments:', error);
+        }
+    }
+
+    // Sort all comments by created_at chronologically
+    comments.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateA - dateB;
+    });
+
     return comments;
 }
 
@@ -501,6 +532,7 @@ async function prefetchNotificationComments(notification) {
             throw new Error('Missing repository input.');
         }
 
+        const isPR = notification.subject?.type === 'PullRequest';
         let comments = [];
         let allComments = false;
 
@@ -510,16 +542,39 @@ async function prefetchNotificationComments(notification) {
         if (anchor) {
             // Anchor-based: fetch all, filter client-side
             allComments = true;
-            comments = await fetchAllIssueComments(repo, issueNumber);
+            comments = await fetchAllIssueComments(repo, issueNumber, { isPR });
         } else if (lastReadAt) {
             // Fallback: use last_read_at as server-side filter
             let commentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/comments`;
             commentUrl += `?since=${encodeURIComponent(lastReadAt)}`;
             comments = await fetchJson(commentUrl);
+
+            // For PRs, also fetch review comments with since filter
+            if (isPR) {
+                try {
+                    let reviewCommentUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/pulls/${issueNumber}/comments`;
+                    reviewCommentUrl += `?since=${encodeURIComponent(lastReadAt)}`;
+                    const reviewComments = await fetchJson(reviewCommentUrl);
+                    if (Array.isArray(reviewComments)) {
+                        reviewComments.forEach((rc) => {
+                            rc.isReviewComment = true;
+                        });
+                        comments.push(...reviewComments);
+                        // Sort by created_at
+                        comments.sort((a, b) => {
+                            const dateA = new Date(a.created_at || 0);
+                            const dateB = new Date(b.created_at || 0);
+                            return dateA - dateB;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to fetch PR review comments:', error);
+                }
+            }
         } else {
             // No filter available - fetch all
             allComments = true;
-            comments = await fetchAllIssueComments(repo, issueNumber);
+            comments = await fetchAllIssueComments(repo, issueNumber, { isPR });
         }
 
         const next = {
@@ -629,19 +684,33 @@ function filterCommentsByAnchor(comments, anchor) {
     if (!anchor || !comments || comments.length === 0) {
         return comments;
     }
-    const anchorCommentId = extractCommentIdFromAnchor(anchor);
-    if (!anchorCommentId) {
+    const anchorInfo = extractCommentIdFromAnchor(anchor);
+    if (!anchorInfo) {
         // Anchor format not recognized, return all comments
         return comments;
     }
+    const { id: anchorCommentId, type: anchorType } = anchorInfo;
+
     // Find the index of the anchor comment and return from there
+    // Match based on both ID and type to handle mixed comment types
     const anchorIndex = comments.findIndex((comment) => {
         const commentId = typeof comment.id === 'number' ? comment.id : parseInt(comment.id, 10);
+        if (commentId !== anchorCommentId) {
+            return false;
+        }
+        // Check if comment type matches anchor type
+        if (anchorType === 'review_comment' && comment.isReviewComment) {
+            return true;
+        }
+        if (anchorType === 'issue' && !comment.isReviewComment && !comment.isIssue) {
+            return true;
+        }
+        // For other types or if we can't determine, just match by ID
         return commentId === anchorCommentId;
     });
     if (anchorIndex === -1) {
-        // Anchor comment not found - this could happen if the anchor points to
-        // a review comment (not an issue comment). Return all comments.
+        // Anchor comment not found - could be a review that's not in our comments list.
+        // Return all comments.
         return comments;
     }
     return comments.slice(anchorIndex);
@@ -684,12 +753,22 @@ function getCommentItems(notification) {
             const timestamp = comment.updated_at || comment.created_at || '';
             const bodyRaw = comment.body || '';
             const renderedBody = renderMarkdown(bodyRaw);
+
+            // For review comments, show file path context
+            let fileContext = '';
+            if (comment.isReviewComment && comment.path) {
+                const line = comment.line || comment.original_line || '';
+                const lineInfo = line ? `:${line}` : '';
+                fileContext = `<div class="comment-file-context">${escapeHtml(comment.path)}${lineInfo}</div>`;
+            }
+
             return `
-                <li class="comment-item">
+                <li class="comment-item${comment.isReviewComment ? ' review-comment' : ''}">
                     <div class="comment-meta">
                         <span>${escapeHtml(author)}</span>
                         <span>${escapeHtml(new Date(timestamp).toLocaleString())}</span>
                     </div>
+                    ${fileContext}
                     <div class="comment-body markdown-body">${renderedBody}</div>
                 </li>
             `;

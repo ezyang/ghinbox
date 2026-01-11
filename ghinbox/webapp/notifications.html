@@ -18,6 +18,22 @@
             document.write(`<link rel="stylesheet" href="notifications.css${bust}">`);
         })();
     </script>
+    <script>
+        // Check if login is needed and redirect to login page
+        (async function() {
+            try {
+                const response = await fetch('/auth/needs-login');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.needs_login) {
+                        window.location.href = 'login.html';
+                    }
+                }
+            } catch (e) {
+                // Ignore errors, continue loading the page
+            }
+        })();
+    </script>
     <style>
         .container {
             max-width: 1200px;
@@ -123,6 +139,23 @@
 
         .comment-body details.collapsed-versions[open] summary {
             margin-bottom: 4px;
+        }
+
+        .comment-item.review-comment {
+            border-left: 3px solid #0969da;
+            padding-left: 8px;
+            margin-left: 0;
+        }
+
+        .comment-file-context {
+            font-size: 12px;
+            font-family: monospace;
+            color: #656d76;
+            background-color: #f6f8fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-bottom: 4px;
+            display: inline-block;
         }
 
         .notification-item.unread::before {
@@ -293,6 +326,11 @@
             min-height: 44px;
         }
 
+        #bottom-actions-row {
+            display: flex;
+            justify-content: flex-end;
+        }
+
         .notification-author {
             margin-left: 8px;
             font-weight: 400;
@@ -447,17 +485,54 @@
                 display: flex !important;
             }
 
-            /* Mobile filter controls: dropdown + select button on one line */
+            /* Always show action rows on mobile (JS controls button visibility) */
+            #select-all-row.select-all-row,
+            #bottom-actions-row.select-all-row {
+                display: flex !important;
+            }
+
+            /* Hide checkbox/label/count on mobile unless in select mode */
+            #select-all-row .select-all-checkbox,
+            #select-all-row .select-all-label,
+            #select-all-row .selection-count {
+                display: none;
+            }
+
+            .notifications-container.select-mode #select-all-row .select-all-checkbox,
+            .notifications-container.select-mode #select-all-row .select-all-label,
+            .notifications-container.select-mode #select-all-row .selection-count {
+                display: inline;
+            }
+
+            /* Mobile filter controls: dropdowns + select button on two lines */
             .mobile-filter-row {
                 display: flex;
-                align-items: center;
+                flex-direction: column;
                 gap: 8px;
                 padding: 8px var(--notifications-padding);
+            }
+
+            .mobile-filter-dropdowns {
+                display: flex;
+                gap: 8px;
             }
 
             .mobile-filter-select {
                 flex: 1;
                 min-width: 0;
+            }
+
+            .mobile-author-select {
+                display: none;
+            }
+
+            .notifications-container[data-view="others-prs"] .mobile-author-select {
+                display: block;
+            }
+
+            .mobile-sort-row {
+                display: flex;
+                gap: 8px;
             }
 
             .mobile-select-btn {
@@ -666,18 +741,27 @@
                 </div>
             </div>
 
-            <!-- Mobile filter row: dropdown + select button -->
+            <!-- Mobile filter row: filter dropdowns on first row, sort/select on second row -->
             <div class="mobile-filter-row">
-                <select id="mobile-filter-select" class="mobile-filter-select" aria-label="Filter notifications">
-                    <!-- Options populated by JS based on current view -->
-                </select>
-                <select id="mobile-order-select" class="mobile-filter-select" aria-label="Order notifications">
-                    <option value="recent">Newest first</option>
-                    <option value="size">PR size (small to big)</option>
-                </select>
-                <button id="mobile-select-btn" class="btn btn-small mobile-select-btn" type="button">
-                    Select
-                </button>
+                <div class="mobile-filter-dropdowns">
+                    <select id="mobile-filter-select" class="mobile-filter-select" aria-label="Filter notifications">
+                        <!-- Options populated by JS based on current view -->
+                    </select>
+                    <select id="mobile-author-select" class="mobile-filter-select mobile-author-select" aria-label="Filter by author type">
+                        <option value="all">All authors</option>
+                        <option value="committer">Committers</option>
+                        <option value="external">External</option>
+                    </select>
+                </div>
+                <div class="mobile-sort-row">
+                    <select id="mobile-order-select" class="mobile-filter-select" aria-label="Order notifications">
+                        <option value="recent">Newest first</option>
+                        <option value="size">PR size (small to big)</option>
+                    </select>
+                    <button id="mobile-select-btn" class="btn btn-small mobile-select-btn" type="button">
+                        Select
+                    </button>
+                </div>
             </div>
 
             <div id="select-all-row" class="select-all-row" style="display: none;">
@@ -721,6 +805,12 @@
     <ul id="notifications-list" class="notifications-list" role="list">
         <!-- Notifications will be rendered here -->
     </ul>
+
+            <div id="bottom-actions-row" class="select-all-row" style="display: none;">
+                <button id="mark-done-btn-bottom" class="btn btn-danger" style="display: none;">
+                    Mark all as done
+                </button>
+            </div>
 </section>
 </main>
 

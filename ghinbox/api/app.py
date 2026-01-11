@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ghinbox.api.routes import router as notifications_router
 from ghinbox.api.github_proxy import router as github_proxy_router
+from ghinbox.api.login_routes import router as login_router
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
     set_fetcher,
@@ -93,6 +94,7 @@ app = FastAPI(
 
 app.include_router(notifications_router)
 app.include_router(github_proxy_router)
+app.include_router(login_router)
 
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:
