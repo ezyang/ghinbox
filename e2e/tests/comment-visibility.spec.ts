@@ -31,7 +31,16 @@ const notificationsResponse = {
         state_reason: null,
       },
       actors: [],
-      ui: { saved: false, done: false },
+      ui: {
+        saved: false,
+        done: false,
+        action_tokens: {
+          archive: 'test-csrf-token',
+          unarchive: 'test-csrf-token',
+          subscribe: 'test-csrf-token',
+          unsubscribe: 'test-csrf-token',
+        },
+      },
     },
   ],
   pagination: {
@@ -169,16 +178,12 @@ test.describe('Comment visibility', () => {
   test('shows bottom mark done button when comments are expanded', async ({
     page,
   }) => {
-    await page.route('**/github/rest/notifications/threads/**', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      route.fulfill({ status: 204, body: '' });
+    await page.route('**/notifications/html/action', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     const bottomDoneButton = page.locator('.notification-done-btn-bottom');

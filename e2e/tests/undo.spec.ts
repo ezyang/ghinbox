@@ -61,9 +61,13 @@ test.describe('Undo', () => {
       });
     });
 
-    // Mock mark done API
-    await page.route('**/github/rest/notifications/threads/**', (route) => {
-      route.fulfill({ status: 204 });
+    // Mock mark done API (using HTML action endpoint)
+    await page.route('**/notifications/html/action', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     await page.goto('notifications.html');
@@ -77,25 +81,37 @@ test.describe('Undo', () => {
 
   test.describe('Undo via Keyboard', () => {
     test('pressing u triggers undo', async ({ page }) => {
-      // Mock the undo action endpoint
+      // Track undo call verification
+      let undoVerified = false;
+
+      // Unroute the default beforeEach handler and set up custom handler
+      await page.unroute('**/notifications/html/action');
       await page.route('**/notifications/html/action', (route) => {
         const body = route.request().postDataJSON();
-        expect(body.action).toBe('unarchive');
-        expect(body.notification_ids).toEqual(['notif-1']);
-        expect(body.authenticity_token).toBe(undoToken);
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
+        if (body.action === 'archive') {
+          // Mark done - just succeed
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
+        } else if (body.action === 'unarchive') {
+          // Undo - verify parameters
+          expect(body.notification_ids).toEqual(['notif-1']);
+          expect(body.authenticity_token).toBe(undoToken);
+          undoVerified = true;
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
+        }
       });
 
       await expect(page.locator('.notification-item')).toHaveCount(3);
 
       // Mark as done
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
@@ -105,6 +121,7 @@ test.describe('Undo', () => {
       // Notification should be restored
       await expect(page.locator('#status-bar')).toContainText('Undo successful');
       await expect(page.locator('.notification-item')).toHaveCount(3);
+      expect(undoVerified).toBe(true);
     });
 
     test('pressing u does nothing when no undo available', async ({ page }) => {
@@ -116,9 +133,7 @@ test.describe('Undo', () => {
     });
 
     test('u key is ignored when typing in input', async ({ page }) => {
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
@@ -142,15 +157,11 @@ test.describe('Undo', () => {
       });
 
       // Mark two notifications as done
-      let markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
-      markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-3"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
@@ -178,9 +189,7 @@ test.describe('Undo', () => {
       });
 
       // Mark the first notification as done
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
@@ -201,9 +210,7 @@ test.describe('Undo', () => {
         });
       });
 
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
       await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
@@ -221,53 +228,77 @@ test.describe('Undo', () => {
 
   test.describe('Token Persistence', () => {
     test('undo after reload uses persisted authenticity token', async ({ page }) => {
+      let undoVerified = false;
+
+      await page.unroute('**/notifications/html/action');
       await page.route('**/notifications/html/action', (route) => {
         const body = route.request().postDataJSON();
-        expect(body.authenticity_token).toBe(undoToken);
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
+        if (body.action === 'archive') {
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
+        } else if (body.action === 'unarchive') {
+          expect(body.authenticity_token).toBe(undoToken);
+          undoVerified = true;
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
+        }
       });
 
       await page.reload();
       await expect(page.locator('.notification-item')).toHaveCount(3);
 
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
+      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
 
       await page.keyboard.press('u');
       await expect(page.locator('#status-bar')).toContainText('Undo successful');
+      expect(undoVerified).toBe(true);
     });
   });
 
   test.describe('Undo Error Handling', () => {
     test('undo reports action errors and preserves the undo stack', async ({ page }) => {
       let undoCalls = 0;
+
+      await page.unroute('**/notifications/html/action');
       await page.route('**/notifications/html/action', (route) => {
-        undoCalls += 1;
-        if (undoCalls === 1) {
+        const body = route.request().postDataJSON();
+        if (body.action === 'archive') {
+          // Mark done - succeed
           route.fulfill({
-            status: 503,
+            status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({
-              detail: 'No fetcher configured. Start server with --account to enable actions.',
-            }),
+            body: JSON.stringify({ status: 'ok' }),
           });
-          return;
+        } else if (body.action === 'unarchive') {
+          // Undo - first fails, second succeeds
+          undoCalls += 1;
+          if (undoCalls === 1) {
+            route.fulfill({
+              status: 503,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                detail: 'No fetcher configured. Start server with --account to enable actions.',
+              }),
+            });
+          } else {
+            route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({ status: 'ok' }),
+            });
+          }
         }
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
       });
 
-      const markDoneResponse = page.waitForResponse((response) => response.url().includes('/github/rest/notifications/threads/') && response.request().method() === 'DELETE');
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
-      await markDoneResponse;
+      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
       await expect(page.locator('.notification-item')).toHaveCount(2);
 
       await page.keyboard.press('u');
