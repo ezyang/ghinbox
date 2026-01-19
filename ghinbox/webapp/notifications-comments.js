@@ -12,6 +12,73 @@ const REVIEW_DECISION_BATCH_SIZE = 40;
 const COMMENT_EXPAND_ISSUES_KEY = 'ghnotif_comment_expand_issues';
 const COMMENT_EXPAND_PRS_KEY = 'ghnotif_comment_expand_prs';
 const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
+const PREFETCH_STATUS_REFRESH_MS = 750;
+const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
+
+function canUpdateCommentPrefetchStatus() {
+    return !state.statusState || state.statusState.type === 'info';
+}
+
+function clearCommentPrefetchStatusTimers() {
+    if (state.commentPrefetchStatusTimer) {
+        clearTimeout(state.commentPrefetchStatusTimer);
+        state.commentPrefetchStatusTimer = null;
+    }
+}
+
+function clearCommentPrefetchIdleTimer() {
+    if (state.commentPrefetchIdleTimer) {
+        clearTimeout(state.commentPrefetchIdleTimer);
+        state.commentPrefetchIdleTimer = null;
+    }
+}
+
+function updateCommentPrefetchStatus(message, { force = false } = {}) {
+    if (!canUpdateCommentPrefetchStatus()) {
+        return;
+    }
+    clearCommentPrefetchIdleTimer();
+    state.commentPrefetchStatusMessage = message;
+    const now = Date.now();
+    const elapsed = now - (state.commentPrefetchStatusLastUpdate || 0);
+    const shouldUpdate = force || elapsed >= PREFETCH_STATUS_REFRESH_MS;
+    if (shouldUpdate) {
+        clearCommentPrefetchStatusTimers();
+        state.commentPrefetchStatusLastUpdate = now;
+        state.commentPrefetchStatusActive = true;
+        showStatus(message, 'info');
+        return;
+    }
+    if (!state.commentPrefetchStatusTimer) {
+        state.commentPrefetchStatusTimer = setTimeout(() => {
+            state.commentPrefetchStatusTimer = null;
+            if (!state.commentPrefetchStatusMessage || !canUpdateCommentPrefetchStatus()) {
+                return;
+            }
+            state.commentPrefetchStatusLastUpdate = Date.now();
+            state.commentPrefetchStatusActive = true;
+            showStatus(state.commentPrefetchStatusMessage, 'info');
+        }, PREFETCH_STATUS_REFRESH_MS - elapsed);
+    }
+}
+
+function scheduleCommentPrefetchIdleClear() {
+    if (!state.commentPrefetchStatusActive || !canUpdateCommentPrefetchStatus()) {
+        return;
+    }
+    clearCommentPrefetchStatusTimers();
+    clearCommentPrefetchIdleTimer();
+    state.commentPrefetchIdleTimer = setTimeout(() => {
+        state.commentPrefetchIdleTimer = null;
+        state.commentPrefetchStatusActive = false;
+        state.commentPrefetchStatusMessage = null;
+        state.commentPrefetchStatusLastUpdate = 0;
+        showStatus('Prefetch: idle', 'info', {
+            autoDismiss: true,
+            autoDismissMs: PREFETCH_STATUS_IDLE_CLEAR_MS,
+        });
+    }, PREFETCH_STATUS_REFRESH_MS);
+}
 
 async function loadCommentCache() {
     try {
@@ -126,10 +193,9 @@ function scheduleCommentPrefetch(notifications) {
     if (!pending.length) {
         return;
     }
-    showStatus(
+    updateCommentPrefetchStatus(
         `Prefetch: queued ${pending.length} notifications (concurrency ${COMMENT_CONCURRENCY})`,
-        'info',
-        { flash: true }
+        { force: true }
     );
     pending.forEach((notif) => {
         state.commentQueue.push(() => prefetchNotificationComments(notif));
@@ -142,17 +208,14 @@ async function runCommentQueue() {
         return;
     }
     state.commentQueueRunning = true;
-    showStatus(
+    updateCommentPrefetchStatus(
         `Prefetch: starting ${state.commentQueue.length} requests`,
-        'info',
-        { flash: true }
+        { force: true }
     );
     while (state.commentQueue.length) {
         const batch = state.commentQueue.splice(0, COMMENT_CONCURRENCY);
-        showStatus(
-            `Prefetch: fetching ${batch.length} (remaining ${state.commentQueue.length})`,
-            'info',
-            { flash: true }
+        updateCommentPrefetchStatus(
+            `Prefetch: fetching ${batch.length} (remaining ${state.commentQueue.length})`
         );
         await Promise.all(batch.map((task) => task()));
         saveCommentCache();
@@ -162,7 +225,9 @@ async function runCommentQueue() {
     state.commentQueueRunning = false;
     if (state.commentQueue.length) {
         runCommentQueue();
+        return;
     }
+    scheduleCommentPrefetchIdleClear();
 }
 
 function shouldPrefetchNotificationComments(notification) {
