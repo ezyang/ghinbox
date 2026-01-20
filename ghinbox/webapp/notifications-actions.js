@@ -240,7 +240,7 @@
                         queueDoneSnapshot(1);
                         queuedDoneIds.add(notifId);
                     }
-                    const result = await markNotificationDone(notifId);
+                    const result = await markNotificationDone(notifId, notification);
 
                     if (result.rateLimited) {
                         // Rate limited - wait and retry
@@ -425,7 +425,8 @@
                 }
 
                 try {
-                    const result = await unsubscribeNotification(notifId);
+                    const notification = notificationLookup.get(notifId);
+                    const result = await unsubscribeNotification(notifId, notification);
 
                     if (result.rateLimited) {
                         rateLimitDelay = result.retryAfter || 60000;
@@ -437,7 +438,8 @@
                     if (result.success) {
                         // Also mark as done after unsubscribing
                         queueDoneSnapshot(1);
-                        const markDoneResult = await markNotificationDone(notifId);
+                        const notification = notificationLookup.get(notifId);
+                        const markDoneResult = await markNotificationDone(notifId, notification);
                         if (markDoneResult.rateLimited) {
                             rateLimitDelay = markDoneResult.retryAfter || 60000;
                             showStatus(`Rate limited. Waiting ${Math.ceil(rateLimitDelay / 1000)}s...`, 'info');
@@ -513,35 +515,6 @@
         // Sleep helper for delays
         function sleep(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
-        }
-
-        // Check if ID is a GitHub node ID (starts with prefix like NT_, PR_, etc.)
-        function isNodeId(id) {
-            return typeof id === 'string' && /^[A-Z]+_/.test(id);
-        }
-
-        // Extract REST API thread_id from a GitHub node ID
-        // Node IDs are base64 encoded and contain "thread_id:user_id"
-        function extractThreadIdFromNodeId(nodeId) {
-            if (!nodeId.startsWith('NT_')) {
-                return null;
-            }
-
-            try {
-                const suffix = nodeId.slice(3); // Remove 'NT_'
-                // Convert URL-safe base64 to standard base64, then decode
-                const standardBase64 = suffix.replace(/-/g, '+').replace(/_/g, '/');
-                const decoded = atob(standardBase64);
-                // Extract thread_id:user_id pattern (the numeric part after binary prefix)
-                const match = decoded.match(/(\d{10,}):\d+/);
-                if (match) {
-                    return match[1];
-                }
-            } catch (e) {
-                console.error(`[MarkDone] Failed to decode node ID ${nodeId}:`, e);
-            }
-
-            return null;
         }
 
         const MARK_DONE_AUTH_CACHE_KEY = 'ghnotif_auth_cache';
@@ -757,103 +730,139 @@
             }
         }
 
-        // Mark a single notification as done using the REST API
-        async function markNotificationDone(notifId) {
+        // Mark a single notification as done using the HTML action endpoint
+        // notification parameter is optional - if provided, use it; otherwise look up from state
+        async function markNotificationDone(notifId, notification = null) {
             console.log(`[MarkDone] Attempting to mark notification: ${notifId}`);
 
-            let threadId = notifId;
+            // Get the notification to access its archive token
+            // Use provided notification or fall back to state lookup
+            const notif = notification || state.notifications.find(n => n.id === notifId);
+            const archiveToken = notif?.ui?.action_tokens?.archive || state.authenticity_token;
 
-            // If it's a node ID, extract the REST API thread_id
-            if (isNodeId(notifId)) {
-                console.log(`[MarkDone] ID is a node ID, extracting thread_id...`);
-                const extracted = extractThreadIdFromNodeId(notifId);
-                if (!extracted) {
-                    const error = `Failed to extract thread_id from node ID: ${notifId}`;
-                    console.error(`[MarkDone] ${error}`);
+            if (!archiveToken) {
+                const error = 'No authenticity token available for archive action';
+                console.error(`[MarkDone] ${error}`);
+                return { success: false, error };
+            }
+
+            // Use HTML action endpoint with the notification's node ID directly
+            const url = '/notifications/html/action';
+            console.log(`[MarkDone] HTML action request: POST ${url}`);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'archive',
+                        notification_ids: [notifId],
+                        authenticity_token: archiveToken,
+                    }),
+                });
+
+                console.log(`[MarkDone] HTML action response status: ${response.status} ${response.statusText}`);
+
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    console.warn(`[MarkDone] Rate limited, retry after: ${retryAfter}s`);
+                    return {
+                        success: false,
+                        rateLimited: true,
+                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000
+                    };
+                }
+
+                if (!response.ok) {
+                    const responseText = await response.text();
+                    const error = `HTTP ${response.status} ${response.statusText}`;
+                    console.error(`[MarkDone] ${error}`, responseText);
+                    return { success: false, error, status: response.status, responseBody: responseText };
+                }
+
+                const result = await response.json();
+                if (result.status !== 'ok') {
+                    const error = result.error || 'Unknown error from server';
+                    console.error(`[MarkDone] Server error: ${error}`);
                     return { success: false, error };
                 }
-                threadId = extracted;
-                console.log(`[MarkDone] Extracted thread_id: ${threadId}`);
+
+                console.log(`[MarkDone] HTML action success for ${notifId}`);
+                return { success: true };
+            } catch (e) {
+                const error = e.message || String(e);
+                console.error(`[MarkDone] Exception:`, e);
+                return { success: false, error };
             }
-
-            // Use REST API with the thread_id
-            // DELETE marks as "Done", PATCH only marks as "Read"
-            const url = `/github/rest/notifications/threads/${threadId}`;
-            console.log(`[MarkDone] REST request: DELETE ${url}`);
-
-            const response = await fetch(url, {
-                method: 'DELETE',
-            });
-
-            console.log(`[MarkDone] REST response status: ${response.status} ${response.statusText}`);
-
-            if (response.status === 429) {
-                const retryAfter = response.headers.get('Retry-After');
-                console.warn(`[MarkDone] Rate limited, retry after: ${retryAfter}s`);
-                return {
-                    success: false,
-                    rateLimited: true,
-                    retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000
-                };
-            }
-
-            // DELETE returns 204 No Content on success
-            if (!response.ok && response.status !== 204) {
-                const responseText = await response.text();
-                const error = `REST error: ${response.status} ${response.statusText}`;
-                console.error(`[MarkDone] ${error}`, responseText);
-                return { success: false, error, status: response.status, responseBody: responseText };
-            }
-
-            console.log(`[MarkDone] REST success for ${notifId} (thread_id: ${threadId})`);
-            return { success: true };
         }
 
-        async function unsubscribeNotification(notifId) {
+        // notification parameter is optional - if provided, use it; otherwise look up from state
+        async function unsubscribeNotification(notifId, notification = null) {
             console.log(`[Unsubscribe] Attempting to unsubscribe: ${notifId}`);
 
-            let threadId = notifId;
+            // Get the notification to access its unsubscribe token
+            // Use provided notification or fall back to state lookup
+            const notif = notification || state.notifications.find(n => n.id === notifId);
+            const unsubscribeToken = notif?.ui?.action_tokens?.unsubscribe || state.authenticity_token;
 
-            if (isNodeId(notifId)) {
-                console.log(`[Unsubscribe] ID is a node ID, extracting thread_id...`);
-                const extracted = extractThreadIdFromNodeId(notifId);
-                if (!extracted) {
-                    const error = `Failed to extract thread_id from node ID: ${notifId}`;
-                    console.error(`[Unsubscribe] ${error}`);
+            if (!unsubscribeToken) {
+                const error = 'No authenticity token available for unsubscribe action';
+                console.error(`[Unsubscribe] ${error}`);
+                return { success: false, error };
+            }
+
+            // Use HTML action endpoint with the notification's node ID directly
+            const url = '/notifications/html/action';
+            console.log(`[Unsubscribe] HTML action request: POST ${url}`);
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'unsubscribe',
+                        notification_ids: [notifId],
+                        authenticity_token: unsubscribeToken,
+                    }),
+                });
+
+                console.log(`[Unsubscribe] HTML action response status: ${response.status} ${response.statusText}`);
+
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    console.warn(`[Unsubscribe] Rate limited, retry after: ${retryAfter}s`);
+                    return {
+                        success: false,
+                        rateLimited: true,
+                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000,
+                    };
+                }
+
+                if (!response.ok) {
+                    const responseText = await response.text();
+                    const error = `HTTP ${response.status} ${response.statusText}`;
+                    console.error(`[Unsubscribe] ${error}`, responseText);
+                    return { success: false, error, status: response.status, responseBody: responseText };
+                }
+
+                const result = await response.json();
+                if (result.status !== 'ok') {
+                    const error = result.error || 'Unknown error from server';
+                    console.error(`[Unsubscribe] Server error: ${error}`);
                     return { success: false, error };
                 }
-                threadId = extracted;
-                console.log(`[Unsubscribe] Extracted thread_id: ${threadId}`);
+
+                console.log(`[Unsubscribe] HTML action success for ${notifId}`);
+                return { success: true };
+            } catch (e) {
+                const error = e.message || String(e);
+                console.error(`[Unsubscribe] Exception:`, e);
+                return { success: false, error };
             }
-
-            const url = `/github/rest/notifications/threads/${threadId}/subscription`;
-            console.log(`[Unsubscribe] REST request: DELETE ${url}`);
-
-            const response = await fetch(url, {
-                method: 'DELETE',
-            });
-
-            console.log(`[Unsubscribe] REST response status: ${response.status} ${response.statusText}`);
-
-            if (response.status === 429) {
-                const retryAfter = response.headers.get('Retry-After');
-                console.warn(`[Unsubscribe] Rate limited, retry after: ${retryAfter}s`);
-                return {
-                    success: false,
-                    rateLimited: true,
-                    retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000,
-                };
-            }
-
-            if (!response.ok && response.status !== 204) {
-                const responseText = await response.text();
-                const error = `REST error: ${response.status} ${response.statusText}`;
-                console.error(`[Unsubscribe] ${error}`, responseText);
-                return { success: false, error, status: response.status, responseBody: responseText };
-            }
-
-            console.log(`[Unsubscribe] REST success for ${notifId} (thread_id: ${threadId})`);
-            return { success: true };
         }
 
         // Helper function to extract PR info from notification
@@ -964,7 +973,7 @@
                 }
 
                 queueDoneSnapshot(1);
-                const result = await markNotificationDone(notifId);
+                const result = await markNotificationDone(notifId, notificationToRemove);
 
                 if (result.rateLimited) {
                     showStatus('Rate limited. Please try again shortly.', 'info');
@@ -1029,7 +1038,7 @@
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
 
             try {
-                const result = await unsubscribeNotification(notifId);
+                const result = await unsubscribeNotification(notifId, notificationToRemove);
 
                 if (result.rateLimited) {
                     showStatus('Rate limited. Please try again shortly.', 'info');
@@ -1045,7 +1054,7 @@
                 }
 
                 queueDoneSnapshot(1);
-                const markDoneResult = await markNotificationDone(notifId);
+                const markDoneResult = await markNotificationDone(notifId, notificationToRemove);
                 if (markDoneResult.rateLimited) {
                     showStatus(
                         'Unsubscribed, but rate limited when marking as done. Please try again shortly.',
@@ -1124,7 +1133,7 @@
                 }
 
                 // Always unsubscribe (this also marks as done per handleInlineUnsubscribe pattern)
-                const unsubResult = await unsubscribeNotification(notifId);
+                const unsubResult = await unsubscribeNotification(notifId, notification);
 
                 if (unsubResult.rateLimited) {
                     showStatus('Rate limited. Please try again shortly.', 'info');
@@ -1141,7 +1150,7 @@
 
                 // Mark as done (following handleInlineUnsubscribe pattern)
                 queueDoneSnapshot(1);
-                const markDoneResult = await markNotificationDone(notifId);
+                const markDoneResult = await markNotificationDone(notifId, notification);
                 if (markDoneResult.rateLimited) {
                     showStatus(
                         'Removed reviewer and unsubscribed, but rate limited when marking as done. Please try again shortly.',

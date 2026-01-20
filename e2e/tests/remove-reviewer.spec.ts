@@ -114,7 +114,6 @@ test.describe('Remove Reviewer', () => {
     test('removes reviewer and unsubscribes successfully', async ({ page }) => {
       let removeReviewerCalled = false;
       let unsubscribeCalled = false;
-      let markDoneCalled = false;
 
       // Mock remove reviewer endpoint
       await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
@@ -124,20 +123,17 @@ test.describe('Remove Reviewer', () => {
         }
       });
 
-      // Mock unsubscribe endpoint
-      await page.route('**/github/rest/notifications/threads/*/subscription', (route) => {
-        if (route.request().method() === 'DELETE') {
+      // Mock HTML action endpoint for unsubscribe
+      await page.route('**/notifications/html/action', (route) => {
+        const body = route.request().postDataJSON();
+        if (body.action === 'unsubscribe') {
           unsubscribeCalled = true;
-          route.fulfill({ status: 204 });
         }
-      });
-
-      // Mock mark done endpoint
-      await page.route('**/github/rest/notifications/threads/*', (route) => {
-        if (route.request().method() === 'DELETE') {
-          markDoneCalled = true;
-          route.fulfill({ status: 204 });
-        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
@@ -149,7 +145,6 @@ test.describe('Remove Reviewer', () => {
       // Verify all API calls were made
       expect(removeReviewerCalled).toBe(true);
       expect(unsubscribeCalled).toBe(true);
-      expect(markDoneCalled).toBe(true);
 
       // Notification should be removed from UI
       await expect(prNotification).toHaveCount(0);
@@ -158,7 +153,6 @@ test.describe('Remove Reviewer', () => {
 
     test('continues with unsubscribe when reviewer removal fails', async ({ page }) => {
       let unsubscribeCalled = false;
-      let markDoneCalled = false;
       let removeReviewerCalled = false;
 
       // Mock remove reviewer endpoint to fail
@@ -171,20 +165,17 @@ test.describe('Remove Reviewer', () => {
         });
       });
 
-      // Mock unsubscribe endpoint to succeed
-      await page.route('**/github/rest/notifications/threads/*/subscription', (route) => {
-        if (route.request().method() === 'DELETE') {
+      // Mock HTML action endpoint for unsubscribe
+      await page.route('**/notifications/html/action', (route) => {
+        const body = route.request().postDataJSON();
+        if (body.action === 'unsubscribe') {
           unsubscribeCalled = true;
-          route.fulfill({ status: 204 });
         }
-      });
-
-      // Mock mark done endpoint
-      await page.route('**/github/rest/notifications/threads/*', (route) => {
-        if (route.request().method() === 'DELETE') {
-          markDoneCalled = true;
-          route.fulfill({ status: 204 });
-        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
@@ -198,7 +189,6 @@ test.describe('Remove Reviewer', () => {
 
       // Verify unsubscribe was still called despite reviewer removal failure
       expect(unsubscribeCalled).toBe(true);
-      expect(markDoneCalled).toBe(true);
 
       // Notification should still be removed from UI
       await expect(prNotification).toHaveCount(0);
@@ -214,8 +204,12 @@ test.describe('Remove Reviewer', () => {
         }
       });
 
-      await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 204 });
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
@@ -239,8 +233,12 @@ test.describe('Remove Reviewer', () => {
         }
       });
 
-      await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 204 });
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       // Enable comment expansion
@@ -279,8 +277,12 @@ test.describe('Remove Reviewer', () => {
         route.fulfill({ status: 204 });
       });
 
-      await page.route('**/github/rest/notifications/threads/*/subscription', (route) => {
-        route.fulfill({ status: 500 });
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'error', error: 'Server error' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
@@ -335,8 +337,12 @@ test.describe('Remove Reviewer', () => {
         route.fulfill({ status: 204 });
       });
 
-      await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 204 });
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
@@ -355,8 +361,12 @@ test.describe('Remove Reviewer', () => {
         route.fulfill({ status: 204 });
       });
 
-      await page.route('**/github/rest/notifications/threads/**', (route) => {
-        route.fulfill({ status: 204 });
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');

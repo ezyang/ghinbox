@@ -192,6 +192,7 @@ class NotificationsFetcher:
             "archive": "/notifications/beta/archive",
             "unarchive": "/notifications/beta/unarchive",
             "subscribe": "/notifications/beta/subscribe",
+            "unsubscribe": "/notifications/beta/unsubscribe",
         }
 
         if action not in action_paths:

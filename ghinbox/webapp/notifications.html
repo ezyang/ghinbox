@@ -606,6 +606,16 @@
                     <input type="checkbox" id="comment-hide-uninteresting-toggle">
                     Hide uninteresting comments
                 </label>
+                <div class="comment-age-filter">
+                    <label for="comment-age-filter-select">Comments from:</label>
+                    <select id="comment-age-filter-select" class="comment-age-filter-select">
+                        <option value="all">All time</option>
+                        <option value="1day">Last 1 day</option>
+                        <option value="3days">Last 3 days</option>
+                        <option value="1week">Last 1 week</option>
+                        <option value="1month">Last 1 month</option>
+                    </select>
+                </div>
                 <div class="comment-cache-actions">
                     <span id="comment-cache-status" class="comment-cache-status"></span>
                     <button id="clear-comment-cache-btn" class="btn btn-small" type="button">
@@ -729,6 +739,33 @@
                             aria-pressed="false"
                         >
                             External <span class="count">0</span>
+                        </button>
+                    </nav>
+                    <!-- Interest filter - Issues -->
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter by interest" data-for-view="issues" data-subfilter-group="interest">
+                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
+                            Has new <span class="count">0</span>
+                        </button>
+                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
+                            No new <span class="count">0</span>
+                        </button>
+                    </nav>
+                    <!-- Interest filter - My PRs -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter by interest" data-for-view="my-prs" data-subfilter-group="interest">
+                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
+                            Has new <span class="count">0</span>
+                        </button>
+                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
+                            No new <span class="count">0</span>
+                        </button>
+                    </nav>
+                    <!-- Interest filter - Others' PRs -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter by interest" data-for-view="others-prs" data-subfilter-group="interest">
+                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
+                            Has new <span class="count">0</span>
+                        </button>
+                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
+                            No new <span class="count">0</span>
                         </button>
                     </nav>
                 </div>

@@ -12,6 +12,7 @@ const REVIEW_DECISION_BATCH_SIZE = 40;
 const COMMENT_EXPAND_ISSUES_KEY = 'ghnotif_comment_expand_issues';
 const COMMENT_EXPAND_PRS_KEY = 'ghnotif_comment_expand_prs';
 const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
+const COMMENT_AGE_FILTER_KEY = 'ghnotif_comment_age_filter';
 
 async function loadCommentCache() {
     try {
@@ -641,11 +642,18 @@ function getCommentStatus(notification) {
     if (isNotificationNeedsReview(notification)) {
         return { label: 'Needs review', className: 'needs-review' };
     }
-    if (count === 0) {
-        return { label: 'Uninteresting (0)', className: 'uninteresting' };
-    }
-    if (isNotificationUninteresting(notification)) {
-        return { label: `Uninteresting (${count})`, className: 'uninteresting' };
+    const reason = getUninterestingReason(notification);
+    const reasonLabels = {
+        'no-comments': 'No new comments',
+        'bot-only': 'Bot comments only',
+        'bot-commands': 'Bot commands only',
+    };
+    if (reason !== null) {
+        const reasonLabel = reasonLabels[reason];
+        return {
+            label: count > 0 ? `${reasonLabel} (${count})` : reasonLabel,
+            className: 'uninteresting'
+        };
     }
     return { label: `Interesting (${count})`, className: 'interesting' };
 }
@@ -716,6 +724,26 @@ function filterCommentsByAnchor(comments, anchor) {
     return comments.slice(anchorIndex);
 }
 
+function isCommentTooOld(comment, ageFilter) {
+    if (ageFilter === 'all') return false;
+
+    const timestamp = comment.created_at || comment.updated_at;
+    if (!timestamp) return false;
+
+    const commentDate = new Date(timestamp);
+    const now = new Date();
+    const ageMs = now - commentDate;
+
+    const thresholds = {
+        '1day': 1 * 24 * 60 * 60 * 1000,
+        '3days': 3 * 24 * 60 * 60 * 1000,
+        '1week': 7 * 24 * 60 * 60 * 1000,
+        '1month': 30 * 24 * 60 * 60 * 1000,
+    };
+
+    return ageMs > thresholds[ageFilter];
+}
+
 function getCommentItems(notification) {
     const isIssue = notification.subject?.type === 'Issue';
     const isPR = notification.subject?.type === 'PullRequest';
@@ -744,10 +772,17 @@ function getCommentItems(notification) {
     const visibleComments = state.commentHideUninteresting
         ? comments.filter((comment) => !isUninterestingComment(comment))
         : comments;
-    if (visibleComments.length === 0) {
+    // Apply age filter
+    const ageFilteredComments = visibleComments.filter(
+        (comment) => !isCommentTooOld(comment, state.commentAgeFilter)
+    );
+    if (ageFilteredComments.length === 0) {
+        if (visibleComments.length > 0) {
+            return '<li class="comment-item">All comments filtered by age.</li>';
+        }
         return '<li class="comment-item">No interesting unread comments found.</li>';
     }
-    return visibleComments
+    return ageFilteredComments
         .map((comment) => {
             const author = comment.user?.login || 'unknown';
             const timestamp = comment.updated_at || comment.created_at || '';
@@ -812,6 +847,51 @@ function isNotificationUninteresting(notification) {
         return true;
     }
     return comments.every(isUninterestingComment);
+}
+
+function getUninterestingReason(notification) {
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    if (!cached || cached.error) {
+        return null;
+    }
+    const anchor = cached.anchor || notification.subject?.anchor || null;
+    const rawComments = cached.comments || [];
+    const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    const filteredComments = filterCommentsAfterOwnComment(comments);
+
+    // Check PR-specific conditions
+    if (notification.subject?.type === 'PullRequest') {
+        if (isNotificationApproved(notification)) {
+            return null; // Approved PRs are interesting
+        }
+        if (filteredComments.length === 0) {
+            return null; // PRs with no comments show "Needs review" - not uninteresting
+        }
+    }
+
+    // No comments case (for issues)
+    if (filteredComments.length === 0) {
+        return 'no-comments';
+    }
+
+    // Check if all comments are from bot authors
+    const allBotAuthors = filteredComments.every(c => isBotAuthor(c?.user?.login || ''));
+    if (allBotAuthors) {
+        return 'bot-only';
+    }
+
+    // Check if all comments are bot interaction commands
+    const allBotCommands = filteredComments.every(c => isBotInteractionComment(c?.body || ''));
+    if (allBotCommands) {
+        return 'bot-commands';
+    }
+
+    // General uninteresting check (mixed bot content)
+    if (filteredComments.every(isUninterestingComment)) {
+        return 'bot-only';
+    }
+
+    return null; // Has interesting content
 }
 
 function isNotificationNeedsReview(notification) {

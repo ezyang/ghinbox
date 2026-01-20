@@ -121,16 +121,12 @@ test.describe('Keyboard Shortcuts', () => {
   });
 
   test('e marks the active notification as done', async ({ page }) => {
-    await page.route('**/github/rest/notifications/threads/**', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      route.fulfill({ status: 204 });
+    await page.route('**/notifications/html/action', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     await page.keyboard.press('j');
@@ -144,22 +140,12 @@ test.describe('Keyboard Shortcuts', () => {
   });
 
   test('m unsubscribes the active approved notification', async ({ page }) => {
-    await page.route(
-      '**/github/rest/notifications/threads/**/subscription',
-      (route) => {
-        route.fulfill({ status: 204 });
-      }
-    );
-    await page.route('**/github/rest/notifications/threads/**', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      route.fulfill({ status: 204 });
+    await page.route('**/notifications/html/action', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     // Switch to Others' PRs view and approved subfilter to see notif-2

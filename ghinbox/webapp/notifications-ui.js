@@ -1002,12 +1002,15 @@
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
             const currentStateFilter = viewFilters.state || 'all';
             const currentAuthorFilter = viewFilters.author || 'all';
+            const currentInterestFilter = viewFilters.interest || 'all';
             elements.subfilterTabs.forEach(tab => {
                 const subfilter = tab.dataset.subfilter;
                 const tabView = tab.closest('.subfilter-tabs')?.dataset.forView;
                 const group = tab.closest('.subfilter-tabs')?.dataset.subfilterGroup || 'state';
                 const currentSubfilter =
-                    group === 'author' ? currentAuthorFilter : currentStateFilter;
+                    group === 'author' ? currentAuthorFilter :
+                    group === 'interest' ? currentInterestFilter :
+                    currentStateFilter;
                 const isActive =
                     tabView === state.view &&
                     currentSubfilter !== 'all' &&
@@ -1023,11 +1026,14 @@
                             countSpan.textContent = '';
                         } else {
                             const countMap =
-                                group === 'author' ? subfilterCounts.author : subfilterCounts.state;
+                                group === 'author' ? subfilterCounts.author :
+                                group === 'interest' ? subfilterCounts.interest :
+                                subfilterCounts.state;
                             const countKey =
-                                group === 'state' && subfilter === 'needs-review'
-                                    ? 'needsReview'
-                                    : subfilter;
+                                group === 'state' && subfilter === 'needs-review' ? 'needsReview' :
+                                subfilter === 'has-new' ? 'hasNew' :
+                                subfilter === 'no-new' ? 'noNew' :
+                                subfilter;
                             countSpan.textContent = countMap[countKey] ?? 0;
                         }
                     }

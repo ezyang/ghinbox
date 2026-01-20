@@ -20,7 +20,7 @@ router = APIRouter(prefix="/notifications/html", tags=["notifications"])
 class NotificationActionRequest(BaseModel):
     """Request body for notification actions."""
 
-    action: Literal["unarchive", "subscribe"]
+    action: Literal["archive", "unarchive", "subscribe", "unsubscribe"]
     notification_ids: list[str]
     authenticity_token: str
 
@@ -220,14 +220,16 @@ async def parse_fixture(
     response_model=NotificationActionResponse,
     summary="Submit a notification action",
     description="""
-    Submit a notification action (unarchive, subscribe) to GitHub.
+    Submit a notification action (archive, unarchive, subscribe, unsubscribe) to GitHub.
 
     This uses Playwright to submit an HTML form to GitHub's notification
     endpoints, which requires a valid authenticity_token from the page.
 
     Actions:
+    - archive: Mark a notification as done ("Mark as Done")
     - unarchive: Move a notification back to inbox (undo "Mark as Done")
     - subscribe: Re-subscribe to a thread (undo "Unsubscribe")
+    - unsubscribe: Unsubscribe from a thread
     """,
 )
 async def submit_action(

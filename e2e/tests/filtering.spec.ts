@@ -150,7 +150,7 @@ test.describe('Filtering', () => {
 
   test.describe('Subfilter Tabs', () => {
     test('displays Issues subfilter tabs when Issues view is active', async ({ page }) => {
-      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]');
       await expect(issuesSubfilters).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="closed"]')).toBeVisible();
@@ -160,7 +160,7 @@ test.describe('Filtering', () => {
       const othersPrsSubfilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
       );
-      await expect(page.locator('.subfilter-tabs[data-for-view="my-prs"]')).toHaveCount(0);
+      await expect(page.locator('.subfilter-tabs[data-for-view="my-prs"][data-subfilter-group="state"]')).toHaveCount(0);
       await expect(othersPrsSubfilters).toHaveClass(/hidden/);
     });
 
@@ -186,7 +186,7 @@ test.describe('Filtering', () => {
     test('subfilter divider stays within the notifications container', async ({ page }) => {
       const container = page.locator('.notifications-container');
       const viewTabs = page.locator('.view-tabs');
-      const subfilterTabs = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      const subfilterTabs = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]');
 
       await expect(container).toBeVisible();
       await expect(viewTabs).toBeVisible();

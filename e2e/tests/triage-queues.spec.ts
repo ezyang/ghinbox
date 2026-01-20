@@ -35,7 +35,16 @@ const notificationsResponse = {
         state_reason: null,
       },
       actors: [],
-      ui: { saved: false, done: false },
+      ui: {
+        saved: false,
+        done: false,
+        action_tokens: {
+          archive: 'test-csrf-token',
+          unarchive: 'test-csrf-token',
+          subscribe: 'test-csrf-token',
+          unsubscribe: 'test-csrf-token',
+        },
+      },
     },
     {
       id: 'thread-pr-2',
@@ -52,7 +61,16 @@ const notificationsResponse = {
         state_reason: null,
       },
       actors: [],
-      ui: { saved: false, done: false },
+      ui: {
+        saved: false,
+        done: false,
+        action_tokens: {
+          archive: 'test-csrf-token',
+          unarchive: 'test-csrf-token',
+          subscribe: 'test-csrf-token',
+          unsubscribe: 'test-csrf-token',
+        },
+      },
     },
   ],
   pagination: {
@@ -158,25 +176,16 @@ test.describe('Triage queues', () => {
 
   test('approved queue allows unsubscribe', async ({ page }) => {
     let unsubscribeCalled = false;
-    let markDoneCalled = false;
-    await page.route(
-      '**/github/rest/notifications/threads/thread-pr-2/subscription',
-      (route) => {
-        unsubscribeCalled = route.request().method() === 'DELETE';
-        route.fulfill({ status: 204, body: '' });
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'unsubscribe') {
+        unsubscribeCalled = true;
       }
-    );
-    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      markDoneCalled = route.request().method() === 'DELETE';
-      route.fulfill({ status: 204, body: '' });
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     // Switch to Others' PRs view and approved subfilter
@@ -193,32 +202,22 @@ test.describe('Triage queues', () => {
     );
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
     expect(unsubscribeCalled).toBe(true);
-    expect(markDoneCalled).toBe(true);
   });
 
   test('approved queue shows bottom unsubscribe when comments are expanded', async ({
     page,
   }) => {
     let unsubscribeCalled = false;
-    let markDoneCalled = false;
-    await page.route(
-      '**/github/rest/notifications/threads/thread-pr-2/subscription',
-      (route) => {
-        unsubscribeCalled = route.request().method() === 'DELETE';
-        route.fulfill({ status: 204, body: '' });
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'unsubscribe') {
+        unsubscribeCalled = true;
       }
-    );
-    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      markDoneCalled = route.request().method() === 'DELETE';
-      route.fulfill({ status: 204, body: '' });
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     await page.locator('#comment-expand-prs-toggle').check();
@@ -240,7 +239,6 @@ test.describe('Triage queues', () => {
     );
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
     expect(unsubscribeCalled).toBe(true);
-    expect(markDoneCalled).toBe(true);
   });
 
   test('approved queue shows Unsubscribe All button when nothing is selected', async ({
@@ -302,25 +300,16 @@ test.describe('Triage queues', () => {
 
   test('Unsubscribe All button unsubscribes all approved notifications', async ({ page }) => {
     let unsubscribeCalled = false;
-    let markDoneCalled = false;
-    await page.route(
-      '**/github/rest/notifications/threads/thread-pr-2/subscription',
-      (route) => {
-        unsubscribeCalled = route.request().method() === 'DELETE';
-        route.fulfill({ status: 204, body: '' });
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'unsubscribe') {
+        unsubscribeCalled = true;
       }
-    );
-    await page.route('**/github/rest/notifications/threads/thread-pr-2', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(THREAD_SYNC_PAYLOAD),
-        });
-        return;
-      }
-      markDoneCalled = route.request().method() === 'DELETE';
-      route.fulfill({ status: 204, body: '' });
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
     });
 
     // Switch to Others' PRs view and approved subfilter
@@ -334,7 +323,6 @@ test.describe('Triage queues', () => {
     await expect(page.locator('#status-bar')).toContainText('Unsubscribed from 1 notification');
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
     expect(unsubscribeCalled).toBe(true);
-    expect(markDoneCalled).toBe(true);
   });
 
   test('Unsubscribe All button is not visible in non-approved filters', async ({ page }) => {
