@@ -52,6 +52,11 @@
             commentAgeFilter: 'all', // 'all' | '1day' | '3days' | '1week' | '1month'
             commentQueue: [],
             commentQueueRunning: false,
+            commentPrefetchStatusMessage: null,
+            commentPrefetchStatusTimer: null,
+            commentPrefetchStatusLastUpdate: 0,
+            commentPrefetchIdleTimer: null,
+            commentPrefetchStatusActive: false,
             commentCache: { version: 1, threads: {} },
             rateLimit: null,
             rateLimitError: null,
