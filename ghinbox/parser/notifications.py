@@ -21,6 +21,53 @@ from ghinbox.api.models import (
     UIState,
 )
 
+
+class SessionExpiredError(Exception):
+    """Raised when the GitHub session has expired and user needs to re-login."""
+
+    pass
+
+
+def is_login_page(soup: BeautifulSoup) -> bool:
+    """
+    Detect if the HTML is a GitHub login page (session expired).
+
+    Checks for telltale signs that GitHub redirected to the login page:
+    - Body has 'logged-out' class
+    - Route pattern is '/login'
+    - User-login meta tag is empty
+    """
+    # Check for logged-out class on body
+    body = soup.find("body")
+    if body:
+        classes = body.get("class")
+        if classes is None:
+            classes = []
+        if isinstance(classes, list) and "logged-out" in classes:
+            return True
+        elif isinstance(classes, str) and "logged-out" in classes:
+            return True
+
+    # Check route pattern meta tag
+    route_meta = soup.find("meta", {"name": "route-pattern"})
+    if route_meta:
+        content = route_meta.get("content", "")
+        if isinstance(content, str) and "/login" in content:
+            return True
+
+    # Check for empty user-login
+    user_meta = soup.find("meta", {"name": "user-login"})
+    if user_meta:
+        content = user_meta.get("content", "")
+        if content == "":
+            # Also verify this looks like a logged-out page by checking for
+            # authentication-related classes
+            if soup.select_one(".session-authentication, .authentication-header"):
+                return True
+
+    return False
+
+
 # Map octicon classes to (type, state, state_reason)
 ICON_STATE_MAP: dict[str, tuple[str, str | None, str | None]] = {
     "octicon-issue-opened": ("Issue", "open", None),
@@ -54,8 +101,15 @@ def parse_notifications_html(
 
     Returns:
         NotificationsResponse with parsed notifications and pagination
+
+    Raises:
+        SessionExpiredError: If the HTML is a login page (session expired)
     """
     soup = BeautifulSoup(html, "lxml")
+
+    # Check if we got redirected to login page (session expired)
+    if is_login_page(soup):
+        raise SessionExpiredError("GitHub session has expired. Please re-authenticate.")
 
     notifications = _parse_notification_items(soup)
     pagination = _parse_pagination(soup)

@@ -273,8 +273,19 @@
             if (!response.ok) {
                 let detail = '';
                 try {
-                    detail = await response.text();
+                    const errorData = await response.json();
+                    // Check for session expired (401 with session_expired error)
+                    if (response.status === 401 && errorData.detail?.error === 'session_expired') {
+                        showStatus('Session expired. Redirecting to login...', 'error');
+                        // Small delay so user sees the message
+                        await new Promise(resolve => setTimeout(resolve, 1500));
+                        // Use session_refresh=1 to bypass the needs-login check
+                        window.location.href = '/app/login.html?session_refresh=1';
+                        throw new Error('Session expired');
+                    }
+                    detail = JSON.stringify(errorData);
                 } catch (error) {
+                    if (error.message === 'Session expired') throw error;
                     detail = String(error);
                 }
                 throw new Error(`Request failed: ${url} (${response.status}) ${detail}`);
@@ -683,7 +694,19 @@
 
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
-                        throw new Error(errorData.detail || `HTTP ${response.status}`);
+                        // Check for session expired (401 with session_expired error)
+                        if (response.status === 401 && errorData.detail?.error === 'session_expired') {
+                            showStatus('Session expired. Redirecting to login...', 'error');
+                            // Small delay so user sees the message
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                            // Use session_refresh=1 to bypass the needs-login check
+                            window.location.href = '/app/login.html?session_refresh=1';
+                            return;
+                        }
+                        const errorMsg = typeof errorData.detail === 'object'
+                            ? JSON.stringify(errorData.detail)
+                            : (errorData.detail || `HTTP ${response.status}`);
+                        throw new Error(errorMsg);
                     }
 
                     const data = await response.json();

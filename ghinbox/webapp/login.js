@@ -364,17 +364,24 @@
     // Initialize
 
     async function init() {
-        // Check if we actually need to login
-        try {
-            const authStatus = await checkNeedsLogin();
-            if (!authStatus.needs_login) {
-                // Already logged in, redirect
-                window.location.href = '/app/';
-                return;
+        // Check for session_refresh param - if present, we need to refresh the browser
+        // session even if the auth file exists (token valid but cookies expired)
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionRefresh = urlParams.get('session_refresh') === '1';
+
+        // Check if we actually need to login (skip if session_refresh requested)
+        if (!sessionRefresh) {
+            try {
+                const authStatus = await checkNeedsLogin();
+                if (!authStatus.needs_login) {
+                    // Already logged in, redirect
+                    window.location.href = '/app/';
+                    return;
+                }
+                currentAccount = authStatus.account || 'default';
+            } catch (e) {
+                // Proceed with login anyway
             }
-            currentAccount = authStatus.account || 'default';
-        } catch (e) {
-            // Proceed with login anyway
         }
 
         // Set up event listeners

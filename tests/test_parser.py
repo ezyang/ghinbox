@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from ghinbox.parser.notifications import (
+    SessionExpiredError,
     extract_authenticity_token,
+    is_login_page,
     parse_notifications_html,
 )
 
@@ -346,3 +348,74 @@ class TestExtractAuthenticityToken:
         """
         token = extract_authenticity_token(html)
         assert token is None
+
+
+class TestSessionExpired:
+    """Tests for session expired detection."""
+
+    def test_detects_logged_out_class(self) -> None:
+        """Test that logged-out body class triggers detection."""
+        from bs4 import BeautifulSoup
+
+        html = '<html><body class="logged-out"></body></html>'
+        soup = BeautifulSoup(html, "lxml")
+        assert is_login_page(soup) is True
+
+    def test_detects_login_route_pattern(self) -> None:
+        """Test that /login route pattern triggers detection."""
+        from bs4 import BeautifulSoup
+
+        html = '<html><head><meta name="route-pattern" content="/login"></head><body></body></html>'
+        soup = BeautifulSoup(html, "lxml")
+        assert is_login_page(soup) is True
+
+    def test_detects_empty_user_login_with_auth_header(self) -> None:
+        """Test detection via empty user-login + authentication header."""
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html>
+        <head><meta name="user-login" content=""></head>
+        <body>
+            <div class="session-authentication">Login form here</div>
+        </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        assert is_login_page(soup) is True
+
+    def test_does_not_detect_normal_page(self) -> None:
+        """Test that normal logged-in page is not flagged."""
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html>
+        <head><meta name="user-login" content="ezyang"></head>
+        <body class="logged-in">
+            <div class="notifications-list">...</div>
+        </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        assert is_login_page(soup) is False
+
+    def test_parse_notifications_raises_on_login_page(self) -> None:
+        """Test that parse_notifications_html raises SessionExpiredError."""
+        html = '<html><body class="logged-out"></body></html>'
+
+        with pytest.raises(SessionExpiredError) as exc_info:
+            parse_notifications_html(html=html, owner="test", repo="test")
+
+        assert "session has expired" in str(exc_info.value).lower()
+
+    def test_parse_notifications_succeeds_on_normal_page(
+        self, pagination_page1_html: str
+    ) -> None:
+        """Test that parse_notifications_html works for valid pages."""
+        # Should not raise SessionExpiredError
+        result = parse_notifications_html(
+            html=pagination_page1_html,
+            owner="test",
+            repo="test",
+        )
+        assert len(result.notifications) > 0

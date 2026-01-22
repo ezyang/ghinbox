@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
 from ghinbox.api.models import NotificationsResponse
-from ghinbox.parser.notifications import parse_notifications_html
+from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
 
@@ -129,12 +129,21 @@ async def get_repo_notifications(
             },
         )
 
-    return parse_notifications_html(
-        html=html,
-        owner=owner,
-        repo=repo,
-        source_url=source_url,
-    )
+    try:
+        return parse_notifications_html(
+            html=html,
+            owner=owner,
+            repo=repo,
+            source_url=source_url,
+        )
+    except SessionExpiredError as e:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "session_expired",
+                "message": str(e),
+            },
+        )
 
 
 @router.get(
