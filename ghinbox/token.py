@@ -233,21 +233,22 @@ def _create_classic_token(page: Page, token_name: str, scopes: list[str]) -> str
     note_input.wait_for(state="visible", timeout=30000)
     note_input.fill(token_name)
 
-    # Set expiration - select "No expiration" or a long duration
+    # Set expiration - prefer "No expiration" for a permanent token
     # The expiration dropdown has id "oauth_access_token_expires_at"
     expiration_select = page.locator("#oauth_access_token_expires_at")
     if expiration_select.count() > 0:
-        # Try to select 90 days, or no expiration
-        try:
-            expiration_select.select_option("90")
-            print("  Set expiration to 90 days")
-        except Exception:
-            # If 90 days not available, try other options
+        expiration_set = False
+        # Try "No expiration" first with various possible values
+        for value in ["none", "", "no_expiration"]:
             try:
-                expiration_select.select_option("none")
+                expiration_select.select_option(value)
                 print("  Set expiration to no expiration")
+                expiration_set = True
+                break
             except Exception:
-                print("  Could not set expiration, using default")
+                continue
+        if not expiration_set:
+            print("  Warning: Could not set 'No expiration', using default")
 
     # Select scopes
     print("Selecting scopes...")

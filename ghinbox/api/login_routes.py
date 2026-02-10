@@ -717,7 +717,7 @@ async def reload_auth() -> dict:
     import os
 
     from ghinbox.auth import has_valid_auth, DEFAULT_ACCOUNT, get_auth_state_path
-    from ghinbox.token import has_token, provision_token
+    from ghinbox.token import has_token, provision_token, verify_token
 
     account = os.environ.get("GHSIM_ACCOUNT", DEFAULT_ACCOUNT)
     auth_path = get_auth_state_path(account)
@@ -738,16 +738,39 @@ async def reload_auth() -> dict:
 
     success = await _initialize_fetcher_after_login(account)
 
-    # Also provision token if needed
+    # Provision token if missing or invalid
     token_status = "skipped"
+    need_provision = False
     if not has_token(account):
         logger.warning("No token found for account %s, provisioning...", account)
+        need_provision = True
+    else:
+        # Verify existing token is still valid
+        loop = asyncio.get_event_loop()
+        is_valid, login = await loop.run_in_executor(
+            None, lambda: verify_token(account)
+        )
+        if is_valid:
+            logger.warning(
+                "Token already exists and is valid for account %s (login=%s)",
+                account,
+                login,
+            )
+            token_status = "exists"
+        else:
+            logger.warning(
+                "Token exists but is invalid/expired for account %s, re-provisioning...",
+                account,
+            )
+            need_provision = True
+
+    if need_provision:
         try:
             # Run sync provision_token in thread pool
             loop = asyncio.get_event_loop()
             token = await loop.run_in_executor(
                 None,
-                lambda: provision_token(account, headless=True, prod=True),
+                lambda: provision_token(account, headless=True, prod=True, force=True),
             )
             if token:
                 logger.warning("Token provisioned successfully")
@@ -758,9 +781,6 @@ async def reload_auth() -> dict:
         except Exception as e:
             logger.exception("Error provisioning token: %s", e)
             token_status = f"error: {e}"
-    else:
-        logger.warning("Token already exists for account %s", account)
-        token_status = "exists"
 
     if success:
         return {
