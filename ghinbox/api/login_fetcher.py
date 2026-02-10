@@ -248,13 +248,18 @@ class LoginFetcher:
         logger.warning("Detecting page state, current URL: %s", current_url)
 
         try:
-            # Check if logged in (user menu button present)
-            user_menu = page.locator('button[aria-label="Open user navigation menu"]')
-            user_menu_count = await user_menu.count()
-            logger.debug("User menu button count: %d", user_menu_count)
-            if user_menu_count > 0:
-                logger.info("Detected LOGGED_IN state (user menu found)")
-                return PageStateResult(state=PageState.LOGGED_IN)
+            # Check if logged in using multiple indicators
+            logged_in_selectors = [
+                'button[aria-label="Open user navigation menu"]',
+                "img.avatar.circle",  # User avatar in header
+                'meta[name="user-login"][content]:not([content=""])',  # Meta tag with username
+                'a[href*="/settings/profile"]',  # Settings link only visible when logged in
+            ]
+            for selector in logged_in_selectors:
+                count = await page.locator(selector).count()
+                if count > 0:
+                    logger.info("Detected LOGGED_IN state (selector: %s)", selector)
+                    return PageStateResult(state=PageState.LOGGED_IN)
 
             # Check for CAPTCHA
             captcha_indicators = [
@@ -405,6 +410,28 @@ class LoginFetcher:
                 error_msg = (error_text or "").strip()
                 # Only treat as error if there's actual text content
                 if error_msg:
+                    # If we're on the main GitHub page (not login/2FA), the page might
+                    # still be loading after redirect. Wait and re-check for user menu.
+                    is_main_page = current_url.rstrip(
+                        "/"
+                    ) == "https://github.com" or current_url.startswith(
+                        "https://github.com/?"
+                    )
+                    if is_main_page:
+                        logger.warning(
+                            "Flash error on main page, waiting for page to stabilize..."
+                        )
+                        await asyncio.sleep(1.5)
+                        # Re-check for logged-in state using multiple indicators
+                        for selector in logged_in_selectors:
+                            recheck_count = await page.locator(selector).count()
+                            if recheck_count > 0:
+                                logger.info(
+                                    "Logged in after wait (selector: %s) - ignoring flash error",
+                                    selector,
+                                )
+                                return PageStateResult(state=PageState.LOGGED_IN)
+
                     error_html = await flash_error.first.inner_html()
                     logger.warning("Flash error HTML: %s", error_html)
                     logger.warning("Flash error text: '%s'", error_text)
