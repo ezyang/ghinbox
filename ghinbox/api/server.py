@@ -140,11 +140,18 @@ def main() -> int:
         action="store_true",
         help="Test mode: skip account validation (for E2E tests with mocked APIs)",
     )
+    parser.add_argument(
+        "--site-password",
+        help="Require this password to access the site (cookie-based gate)",
+    )
 
     args = parser.parse_args()
 
     # Set env vars so the app can recreate fetcher after reload
     import os
+
+    if args.site_password:
+        os.environ["GHINBOX_SITE_PASSWORD"] = args.site_password
 
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")

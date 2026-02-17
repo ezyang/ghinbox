@@ -357,8 +357,15 @@ test.describe('Remove Reviewer', () => {
     });
 
     test('shows progress status messages', async ({ page }) => {
-      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
-        route.fulfill({ status: 204 });
+      // Use a promise to control when the remove-reviewer request resolves
+      let resolveRemove: () => void;
+      const removePromise = new Promise<void>((r) => {
+        resolveRemove = r;
+      });
+
+      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', async (route) => {
+        await removePromise;
+        await route.fulfill({ status: 204 });
       });
 
       await page.route('**/notifications/html/action', (route) => {
@@ -372,11 +379,14 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      // Should show removing status first
+      // Should show removing status while request is pending
       await expect(page.locator('#status-bar')).toContainText('Removing you as reviewer');
 
-      // Eventually completes
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      // Let the request complete
+      resolveRemove!();
+
+      // Notification should be removed from the list after completion
+      await expect(prNotification).not.toBeVisible();
     });
   });
 });

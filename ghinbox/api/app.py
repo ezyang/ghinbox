@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from ghinbox.api.routes import router as notifications_router
 from ghinbox.api.github_proxy import router as github_proxy_router
 from ghinbox.api.login_routes import router as login_router
+from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
     set_fetcher,
@@ -95,6 +96,7 @@ app = FastAPI(
 app.include_router(notifications_router)
 app.include_router(github_proxy_router)
 app.include_router(login_router)
+app.include_router(site_auth_router)
 
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:
@@ -146,3 +148,9 @@ async def health_test():
             detail="Server is not in test mode. Tests require --test flag.",
         )
     return {"status": "ok", "test_mode": True}
+
+
+# Site-level password gate (wraps the entire ASGI app).
+# This must be the last thing so that all routes/mounts above are registered
+# on the FastAPI instance before we wrap it.
+app = SiteAuthMiddleware(app)  # type: ignore[assignment]
