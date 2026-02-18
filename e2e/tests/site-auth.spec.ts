@@ -10,8 +10,8 @@ test.describe('Site auth warning banner', () => {
     await expect(warning).toContainText('No site password is configured');
   });
 
-  test('does not show warning for localhost', async ({ page }) => {
+  test('shows warning for localhost too', async ({ page }) => {
     await page.goto('/site-auth/login');
-    await expect(page.locator('.warning')).toHaveCount(0);
+    await expect(page.locator('.warning')).toBeVisible();
   });
 });

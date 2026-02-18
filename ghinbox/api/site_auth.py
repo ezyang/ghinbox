@@ -211,10 +211,6 @@ def _warning_banner(request: Request) -> str:
     if site_password:
         return ""
 
-    hostname = request.url.hostname or ""
-    if hostname in {"localhost", "127.0.0.1", "::1"}:
-        return ""
-
     return (
         '<div class="warning">'
         "<strong>Warning:</strong> No site password is configured, so anyone who can "
