@@ -321,7 +321,7 @@ test.describe('Polish', () => {
       await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
     });
 
-    test('select-all checkbox is disabled during Mark Done operation', async ({ page }) => {
+    test('checkboxes remain enabled during Mark Done operation', async ({ page }) => {
       await page.route('**/notifications/html/action', async (route) => {
         await new Promise((r) => setTimeout(r, 300));
         route.fulfill({
@@ -337,42 +337,11 @@ test.describe('Polish', () => {
       // Click Mark Done
       await page.locator('#mark-done-btn').click();
 
-      // Select-all checkbox should be disabled during operation
-      await expect(page.locator('#select-all-checkbox')).toBeDisabled();
+      // Checkboxes and select-all should remain enabled so users can queue more
+      await expect(page.locator('#select-all-checkbox')).toBeEnabled();
 
       // Wait for completion
       await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
-    });
-
-    test('select-all checkbox is re-enabled after Mark Done completes', async ({ page }) => {
-      await page.route('**/notifications/html/action', (route) => {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
-      });
-
-      // Select one item
-      await page.locator('[data-id="notif-1"] .notification-checkbox').click();
-
-      // Click Mark Done
-      await page.locator('#mark-done-btn').click();
-
-      // Wait for completion
-      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
-
-      // Remaining checkboxes should be enabled
-      const checkboxes = page.locator('.notification-item .notification-checkbox');
-      await expect(checkboxes).toHaveCount(2);
-      await expect
-        .poll(async () => {
-          const enabledStates = await checkboxes.evaluateAll((nodes) =>
-            nodes.map((node) => !node.disabled)
-          );
-          return enabledStates.every(Boolean);
-        })
-        .toBe(true);
     });
   });
 });

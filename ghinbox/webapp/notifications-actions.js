@@ -338,10 +338,6 @@
                 if (!confirmed) return;
             }
 
-            // Disable UI during bulk operation
-            elements.markDoneBtn.disabled = true;
-            elements.selectAllCheckbox.disabled = true;
-
             // Remove all selected notifications from UI immediately (optimistic update)
             const notificationsToRestore = selectedIds
                 .map(id => notificationLookup.get(id))
@@ -373,10 +369,6 @@
                 failedNotifications.forEach(notification => state.selected.add(notification.id));
                 persistNotifications();
             }
-
-            // Re-enable UI
-            elements.markDoneBtn.disabled = false;
-            elements.selectAllCheckbox.disabled = false;
 
             // Show final status
             showFinalQueueStatus();

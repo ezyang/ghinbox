@@ -762,7 +762,7 @@ test.describe('Mark Done', () => {
   });
 
   test.describe('UI State During Operation', () => {
-    test('Mark Done button is disabled during operation', async ({ page }) => {
+    test('Mark Done button and checkboxes remain enabled during operation', async ({ page }) => {
       await page.route('**/notifications/html/action', async (route) => {
         await new Promise((r) => setTimeout(r, 200));
         route.fulfill({
@@ -772,33 +772,20 @@ test.describe('Mark Done', () => {
         });
       });
 
+      // Select two items, leave one unselected
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
+      await page.locator('[data-id="notif-3"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#mark-done-btn')).toBeDisabled();
+      // Mark Done button should still be visible and enabled (for remaining items)
+      await expect(page.locator('#mark-done-btn')).toBeEnabled();
+      // Select-all checkbox should remain enabled
+      await expect(page.locator('#select-all-checkbox')).toBeEnabled();
 
-      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
+      await expect(page.locator('#status-bar')).toContainText(/Done/);
     });
 
-    test('Select All checkbox is disabled during operation', async ({ page }) => {
-      await page.route('**/notifications/html/action', async (route) => {
-        await new Promise((r) => setTimeout(r, 200));
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
-      });
-
-      await page.locator('[data-id="notif-1"] .notification-checkbox').click();
-      await page.locator('#mark-done-btn').click();
-
-      await expect(page.locator('#select-all-checkbox')).toBeDisabled();
-
-      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
-    });
-
-    test('buttons are re-enabled after completion', async ({ page }) => {
+    test('buttons work after completion', async ({ page }) => {
       await page.route('**/notifications/html/action', (route) => {
         route.fulfill({
           status: 200,
