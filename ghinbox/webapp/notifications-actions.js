@@ -144,7 +144,7 @@
             active: false,
             _drainResolvers: [],   // Resolvers for waitForDrain()
         };
-        const DONE_CONCURRENCY = 3;
+        const DONE_CONCURRENCY = 8;
 
         // Expose doneQueue on state for UI access
         state.doneQueue = doneQueue;
