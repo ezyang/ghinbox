@@ -192,7 +192,7 @@ test.describe('Comment visibility', () => {
     await bottomDoneButton.click();
 
     await expect(page.locator('#status-bar')).toContainText(
-      'Done 1/1 (0 pending)'
+      'Marked as done'
     );
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });

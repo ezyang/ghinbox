@@ -224,7 +224,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       expect(requestMethod).toBe('POST');
     });
   });
@@ -257,7 +257,7 @@ test.describe('Mark Done', () => {
 
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       await expect(page.locator('.notification-item')).toHaveCount(2);
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
       expect(apiCalls.length).toBe(1);
@@ -345,7 +345,7 @@ test.describe('Mark Done', () => {
 
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
       expect(archiveCalled).toBe(true);
     });
@@ -378,7 +378,7 @@ test.describe('Mark Done', () => {
 
       await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
       expect(archiveCalled).toBe(true);
     });
@@ -399,7 +399,7 @@ test.describe('Mark Done', () => {
 
       await page.locator('[data-id="notif-1"] .notification-done-btn-bottom').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       await expect(page.locator('.notification-item')).toHaveCount(2);
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
     });
@@ -429,12 +429,12 @@ test.describe('Mark Done', () => {
       }
       releaseResponse();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
     });
   });
 
   test.describe('Progress Indicator', () => {
-    test('status bar snapshots pending and done counts during async requests', async ({ page }) => {
+    test('status bar shows progress during bulk mark done', async ({ page }) => {
       let callCount = 0;
       let releaseFirst: (() => void) | null = null;
       let releaseSecond: (() => void) | null = null;
@@ -465,7 +465,8 @@ test.describe('Mark Done', () => {
 
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 0/1 (1 pending)');
+      // With concurrency, both are in-flight at once, so initial status shows 0/2
+      await expect(page.locator('#status-bar')).toContainText('Done 0/2 (2 pending)');
 
       if (!releaseFirst || !releaseSecond) {
         throw new Error('Expected gate release functions to be assigned');
@@ -495,8 +496,7 @@ test.describe('Mark Done', () => {
       await notificationCheckboxes.first().click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(statusBar).toContainText('Done');
-      await expect(statusBar).toContainText('(0 pending)');
+      await expect(statusBar).toContainText('Marked as done');
       await expect(statusBar).toHaveClass(/auto-dismiss/);
       await statusBar.click();
       await expect(statusBar).not.toHaveClass(/auto-dismiss/);
@@ -508,8 +508,7 @@ test.describe('Mark Done', () => {
       await notificationCheckboxes.first().click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(statusBar).toContainText('Done');
-      await expect(statusBar).toContainText('(0 pending)');
+      await expect(statusBar).toContainText('Marked as done');
       await expect(statusBar).toHaveClass(/auto-dismiss/);
       await expect(statusBar).toBeHidden({ timeout: 7000 });
     });
@@ -576,7 +575,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
 
       const progressContainer = page.locator('#progress-container');
       await expect(progressContainer).not.toHaveClass(/visible/);
@@ -600,7 +599,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
 
       await expect(page.locator('.notification-item')).toHaveCount(2);
       await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
@@ -624,7 +623,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Done 2/2');
       await expect(countClosed).toHaveText('1');
     });
 
@@ -640,7 +639,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
 
       const savedNotifications = await readNotificationsCache(page);
       const savedList = savedNotifications as { id: string }[];
@@ -660,7 +659,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+      await expect(page.locator('#status-bar')).toContainText('Marked as done');
       await expect(page.locator('#selection-count')).toHaveText('');
     });
   });
@@ -778,7 +777,7 @@ test.describe('Mark Done', () => {
 
       await expect(page.locator('#mark-done-btn')).toBeDisabled();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
     });
 
     test('Select All checkbox is disabled during operation', async ({ page }) => {
@@ -796,7 +795,7 @@ test.describe('Mark Done', () => {
 
       await expect(page.locator('#select-all-checkbox')).toBeDisabled();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
     });
 
     test('buttons are re-enabled after completion', async ({ page }) => {
@@ -811,7 +810,7 @@ test.describe('Mark Done', () => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
 
       // Select another item to show button again
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
@@ -850,7 +849,7 @@ test.describe('Mark Done', () => {
       await expect(page.locator('#status-bar')).toContainText('Rate limited');
 
       // Should eventually succeed
-      await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)', {
+      await expect(page.locator('#status-bar')).toContainText('Marked as done', {
         timeout: 5000,
       });
 
@@ -951,7 +950,7 @@ test.describe('Mark Done with Node IDs', () => {
     await page.locator('#mark-done-btn').click();
 
     // Should succeed
-    await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+    await expect(page.locator('#status-bar')).toContainText('Marked as done');
 
     // Should have used HTML action endpoint with the node ID directly
     expect(apiCalls.length).toBe(1);
@@ -973,7 +972,7 @@ test.describe('Mark Done with Node IDs', () => {
     await page.locator('.notification-item').first().locator('.notification-checkbox').click();
     await page.locator('#mark-done-btn').click();
 
-    await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+    await expect(page.locator('#status-bar')).toContainText('Marked as done');
     expect(requestMethod).toBe('POST');
   });
 
@@ -1008,7 +1007,7 @@ test.describe('Mark Done with Node IDs', () => {
     await page.locator('.notification-item').first().locator('.notification-checkbox').click();
     await page.locator('#mark-done-btn').click();
 
-    await expect(page.locator('#status-bar')).toContainText('Done 1/1 (0 pending)');
+    await expect(page.locator('#status-bar')).toContainText('Marked as done');
     await expect(page.locator('.notification-item')).toHaveCount(2);
   });
 });

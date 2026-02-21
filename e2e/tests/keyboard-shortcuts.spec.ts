@@ -136,7 +136,7 @@ test.describe('Keyboard Shortcuts', () => {
     await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
 
     const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('Done 1/1 (0 pending)');
+    await expect(statusBar).toContainText('Marked as done');
   });
 
   test('m unsubscribes the active approved notification', async ({ page }) => {

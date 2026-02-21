@@ -292,7 +292,7 @@
             // Ctrl/Cmd + A: Select all (when notifications exist)
             if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
                 const filtered = getFilteredNotifications();
-                if (filtered.length > 0 && !state.markingInProgress) {
+                if (filtered.length > 0) {
                     e.preventDefault();
                     filtered.forEach(n => state.selected.add(n.id));
                     render();
@@ -969,7 +969,6 @@
             // Show/hide empty state with dynamic message
             const showEmpty =
                 !state.loading &&
-                !state.markingInProgress &&
                 filteredNotifications.length === 0;
             elements.emptyState.style.display = showEmpty ? 'block' : 'none';
             if (showEmpty) {
@@ -1057,9 +1056,10 @@
             }
 
             // Show/hide select all row
+            const doneQueue = state.doneQueue;
             const showSelectAll =
                 filteredNotifications.length > 0 ||
-                (state.markingInProgress && state.markProgress.total > 0);
+                (doneQueue && doneQueue.active && doneQueue.totalQueued > 1);
             elements.selectAllRow.style.display = showSelectAll ? 'flex' : 'none';
 
             // Update select all checkbox state
@@ -1105,11 +1105,12 @@
             }
 
             // Update progress bar
-            if (state.markingInProgress) {
+            if (doneQueue && doneQueue.active && doneQueue.totalQueued > 1) {
                 elements.progressContainer.className = 'progress-container visible';
-                const percent = (state.markProgress.current / state.markProgress.total) * 100;
+                const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
+                const percent = (processed / doneQueue.totalQueued) * 100;
                 elements.progressBarFill.style.width = `${percent}%`;
-                elements.progressText.textContent = `Marking ${state.markProgress.current} of ${state.markProgress.total}...`;
+                elements.progressText.textContent = `Marking ${processed} of ${doneQueue.totalQueued}...`;
             } else {
                 elements.progressContainer.className = 'progress-container';
             }
@@ -1182,7 +1183,6 @@
                                     type="button"
                                     class="notification-open-btn notification-open-btn-bottom"
                                     aria-label="Open notification in new tab"
-                                    ${state.markingInProgress ? 'disabled' : ''}
                                 >
                                     ${icons.openInNewTab}
                                     <span>Open in new tab</span>
@@ -1191,7 +1191,6 @@
                                     type="button"
                                     class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
                                     aria-label="Unsubscribe from notification"
-                                    ${state.markingInProgress ? 'disabled' : ''}
                                 >
                                     ${icons.bellSlash}
                                     <span>Unsubscribe</span>
@@ -1201,7 +1200,6 @@
                                     type="button"
                                     class="notification-remove-reviewer-btn notification-remove-reviewer-btn-bottom"
                                     aria-label="Remove me as reviewer"
-                                    ${state.markingInProgress ? 'disabled' : ''}
                                 >
                                     ${icons.personRemove}
                                     <span>Remove me</span>
@@ -1211,7 +1209,6 @@
                                     type="button"
                                     class="notification-done-btn notification-done-btn-bottom"
                                     aria-label="Mark notification as done"
-                                    ${state.markingInProgress ? 'disabled' : ''}
                                 >
                                     ${icons.check}
                                     <span>Done</span>
@@ -1224,7 +1221,6 @@
                             type="button"
                             class="notification-done-btn"
                             aria-label="Mark notification as done"
-                            ${state.markingInProgress ? 'disabled' : ''}
                         >
                             ${icons.check}
                         </button>
@@ -1234,7 +1230,6 @@
                             type="button"
                             class="notification-unsubscribe-btn"
                             aria-label="Unsubscribe from notification"
-                            ${state.markingInProgress ? 'disabled' : ''}
                         >
                             ${icons.bellSlash}
                         </button>
@@ -1244,7 +1239,6 @@
                             type="button"
                             class="notification-remove-reviewer-btn"
                             aria-label="Remove me as reviewer"
-                            ${state.markingInProgress ? 'disabled' : ''}
                         >
                             ${icons.personRemove}
                         </button>
@@ -1265,7 +1259,6 @@
                             type="checkbox"
                             class="notification-checkbox"
                             ${isSelected ? 'checked' : ''}
-                            ${state.markingInProgress ? 'disabled' : ''}
                             aria-label="Select notification: ${escapeHtml(notif.subject.title)}"
                         >
                         <div class="notification-icon ${iconClass}" data-type="${notif.subject.type}">

@@ -130,37 +130,197 @@
             };
         }
 
-        function updateDoneSnapshotStatus() {
-            const pending = state.doneSnapshot.pending;
-            const done = state.doneSnapshot.done;
-            const total = pending + done;
-            if (total === 0) {
-                return;
+        // Shared done queue with bounded concurrency
+        const doneQueue = {
+            pending: [],           // Array of { notifId, notification }
+            inFlight: new Map(),   // notifId -> promise
+            totalQueued: 0,        // Total queued in current session (resets when fully drained)
+            completed: 0,
+            failed: 0,
+            skipped: 0,
+            failedResults: [],     // { id, error }
+            failedNotifications: [],
+            successfulIds: [],
+            active: false,
+            _drainResolvers: [],   // Resolvers for waitForDrain()
+        };
+        const DONE_CONCURRENCY = 3;
+
+        // Expose doneQueue on state for UI access
+        state.doneQueue = doneQueue;
+
+        function enqueueDoneItems(ids, notificationLookup) {
+            if (!doneQueue.active) {
+                // New session - reset counters
+                doneQueue.totalQueued = 0;
+                doneQueue.completed = 0;
+                doneQueue.failed = 0;
+                doneQueue.skipped = 0;
+                doneQueue.failedResults = [];
+                doneQueue.failedNotifications = [];
+                doneQueue.successfulIds = [];
             }
-            showStatus(`Done ${done}/${total} (${pending} pending)`, 'success', {
-                autoDismiss: pending === 0,
+            ids.forEach(id => {
+                const notification = notificationLookup.get(id) || notificationLookup.get(id);
+                doneQueue.pending.push({ notifId: id, notification });
             });
+            doneQueue.totalQueued += ids.length;
         }
 
-        function queueDoneSnapshot(count) {
-            state.doneSnapshot.pending += count;
-            updateDoneSnapshotStatus();
-        }
-
-        function resolveDoneSnapshot(success, options = {}) {
-            state.doneSnapshot.pending = Math.max(0, state.doneSnapshot.pending - 1);
-            if (success) {
-                state.doneSnapshot.done += 1;
-            }
-            if (options.suppressStatus) {
+        function updateQueueProgress() {
+            // For single-item operations, skip intermediate progress to avoid flashing
+            if (doneQueue.totalQueued === 1) {
                 return;
             }
-            updateDoneSnapshotStatus();
+            const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
+            const remaining = doneQueue.totalQueued - processed;
+            showStatus(
+                `Done ${processed}/${doneQueue.totalQueued} (${remaining} pending)`,
+                'success',
+                { autoDismiss: false }
+            );
+            render();
+        }
+
+        function showFinalQueueStatus() {
+            const total = doneQueue.totalQueued;
+            const succeeded = doneQueue.successfulIds.length;
+            const failed = doneQueue.failedResults.length;
+            const skipped = doneQueue.skipped;
+
+            if (total === 1 && failed === 0 && skipped === 0) {
+                showStatus('Marked as done', 'success', { autoDismiss: true });
+                return;
+            }
+
+            if (failed === 0 && skipped === 0) {
+                showStatus(
+                    `Done ${succeeded}/${total} (0 pending)`,
+                    'success',
+                    { autoDismiss: true }
+                );
+                return;
+            }
+
+            if (failed === 0 && skipped > 0) {
+                const skippedSuffix = ` (${skipped} had new comments)`;
+                if (succeeded > 0) {
+                    showStatus(
+                        `Done ${succeeded}/${total}${skippedSuffix}`,
+                        'info',
+                        { autoDismiss: true }
+                    );
+                } else {
+                    showStatus(
+                        `Skipped ${skipped}: new comments detected`,
+                        'info',
+                        { autoDismiss: true }
+                    );
+                }
+                return;
+            }
+
+            if (succeeded === 0) {
+                const firstError = doneQueue.failedResults[0]?.error || 'Unknown error';
+                const skippedSuffix = skipped > 0
+                    ? ` (${skipped} had new comments)`
+                    : '';
+                showStatus(`Failed to mark notifications: ${firstError}${skippedSuffix}`, 'error');
+                console.error('[MarkDone] All failed. Errors:', doneQueue.failedResults);
+                return;
+            }
+
+            // Partial failure
+            const firstError = doneQueue.failedResults[0]?.error || 'Unknown error';
+            const skippedSuffix = skipped > 0
+                ? `, ${skipped} skipped`
+                : '';
+            showStatus(
+                `${succeeded} done, ${failed} failed${skippedSuffix}: ${firstError}`,
+                'error'
+            );
+            console.error('[MarkDone] Partial failure. Errors:', doneQueue.failedResults);
+        }
+
+        async function processOneDoneItem(item) {
+            const { notifId, notification } = item;
+            try {
+                const syncResult = await syncNotificationBeforeDone(notifId, notification);
+                if (syncResult?.status === 'updated') {
+                    doneQueue.skipped++;
+                    return;
+                }
+                if (syncResult?.status === 'error') {
+                    const errorDetail = syncResult.error || 'Failed to sync notification';
+                    doneQueue.failed++;
+                    doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+                    return;
+                }
+
+                const result = await markNotificationDone(notifId, notification);
+
+                if (result.rateLimited) {
+                    // Re-enqueue with delay
+                    const delay = result.retryAfter || 60000;
+                    showStatus(`Rate limited. Waiting ${Math.ceil(delay / 1000)}s...`, 'info');
+                    await sleep(delay);
+                    doneQueue.pending.push(item);
+                    return;
+                }
+
+                if (result.success) {
+                    doneQueue.completed++;
+                    doneQueue.successfulIds.push(notifId);
+                } else {
+                    const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
+                    console.error(`[MarkDone] Failed for ${notifId}:`, errorDetail);
+                    doneQueue.failed++;
+                    doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+                }
+            } catch (e) {
+                const errorDetail = e.message || String(e);
+                console.error(`[MarkDone] Exception for ${notifId}:`, e);
+                doneQueue.failed++;
+                doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+            }
+        }
+
+        async function processDoneQueue() {
+            if (doneQueue.active) {
+                // Already running - the existing processor will pick up newly enqueued items
+                return new Promise(resolve => {
+                    doneQueue._drainResolvers.push(resolve);
+                });
+            }
+
+            doneQueue.active = true;
+            updateQueueProgress();
+
+            try {
+                while (doneQueue.pending.length > 0 || doneQueue.inFlight.size > 0) {
+                    // Fill up to DONE_CONCURRENCY slots
+                    while (doneQueue.pending.length > 0 && doneQueue.inFlight.size < DONE_CONCURRENCY) {
+                        const item = doneQueue.pending.shift();
+                        const promise = processOneDoneItem(item).then(() => {
+                            doneQueue.inFlight.delete(item.notifId);
+                            updateQueueProgress();
+                        });
+                        doneQueue.inFlight.set(item.notifId, promise);
+                    }
+
+                    if (doneQueue.inFlight.size > 0) {
+                        await Promise.race(doneQueue.inFlight.values());
+                    }
+                }
+            } finally {
+                doneQueue.active = false;
+                // Resolve all drain waiters
+                const resolvers = doneQueue._drainResolvers.splice(0);
+                resolvers.forEach(r => r());
+            }
         }
 
         async function handleMarkDone() {
-            if (state.markingInProgress) return;
-
             const filteredNotifications = getFilteredNotifications();
             const { ids, show } = getMarkDoneTargets(filteredNotifications);
             if (!show || ids.length === 0) return;
@@ -178,10 +338,7 @@
                 if (!confirmed) return;
             }
 
-            state.markingInProgress = true;
-            state.markProgress = { current: 0, total: selectedIds.length };
-
-            // Disable UI during operation
+            // Disable UI during bulk operation
             elements.markDoneBtn.disabled = true;
             elements.selectAllCheckbox.disabled = true;
 
@@ -203,77 +360,13 @@
             persistNotifications();
             render();
 
-            const successfulIds = [];
-            const failedResults = []; // Store {id, error} for detailed reporting
-            const skippedCount = { newComments: 0 }; // Track skipped due to new comments
-            const queuedDoneIds = new Set();
-            let rateLimitDelay = 0;
+            // Enqueue and process
+            enqueueDoneItems(selectedIds, notificationLookup);
+            await processDoneQueue();
 
-            for (let i = 0; i < selectedIds.length; i++) {
-                const notifId = selectedIds[i];
-                state.markProgress.current = i + 1;
-                render();
-
-                // If we hit a rate limit, wait before retrying
-                if (rateLimitDelay > 0) {
-                    await sleep(rateLimitDelay);
-                    rateLimitDelay = 0;
-                }
-
-                try {
-                    // Async sync check - if new comments detected, skip DELETE but don't restore
-                    const notification = notificationsToRestore.find(n => n.id === notifId);
-                    const syncResult = await syncNotificationBeforeDone(notifId, notification);
-                    if (syncResult?.status === 'updated') {
-                        // New comments detected - skip DELETE, notification stays removed from UI
-                        // It will reappear on next sync/refresh
-                        skippedCount.newComments++;
-                        continue;
-                    }
-                    if (syncResult?.status === 'error') {
-                        const errorDetail = syncResult.error || 'Failed to sync notification';
-                        failedResults.push({ id: notifId, error: errorDetail });
-                        continue;
-                    }
-
-                    if (!queuedDoneIds.has(notifId)) {
-                        queueDoneSnapshot(1);
-                        queuedDoneIds.add(notifId);
-                    }
-                    const result = await markNotificationDone(notifId, notification);
-
-                    if (result.rateLimited) {
-                        // Rate limited - wait and retry
-                        rateLimitDelay = result.retryAfter || 60000;
-                        showStatus(`Rate limited. Waiting ${Math.ceil(rateLimitDelay / 1000)}s...`, 'info');
-                        i--; // Retry this item
-                        continue;
-                    }
-
-                    if (result.success) {
-                        successfulIds.push(notifId);
-                        resolveDoneSnapshot(true);
-                    } else {
-                        const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
-                        console.error(`[MarkDone] Failed for ${notifId}:`, errorDetail);
-                        failedResults.push({ id: notifId, error: errorDetail });
-                        resolveDoneSnapshot(false);
-                    }
-                } catch (e) {
-                    const errorDetail = e.message || String(e);
-                    console.error(`[MarkDone] Exception for ${notifId}:`, e);
-                    failedResults.push({ id: notifId, error: errorDetail });
-                    resolveDoneSnapshot(false);
-                }
-
-                // Small delay between requests to avoid rate limiting
-                if (i < selectedIds.length - 1) {
-                    await sleep(100);
-                }
-            }
-
-            if (failedResults.length > 0) {
-                const failedNotifications = failedResults
+            // Restore failed items
+            if (doneQueue.failedResults.length > 0) {
+                const failedNotifications = doneQueue.failedResults
                     .map(result => notificationLookup.get(result.id))
                     .filter(Boolean);
                 restoreNotificationsInOrder(failedNotifications);
@@ -281,53 +374,14 @@
                 persistNotifications();
             }
 
-            // Reset marking state
-            state.markingInProgress = false;
-            state.markProgress = { current: 0, total: 0 };
+            // Re-enable UI
             elements.markDoneBtn.disabled = false;
             elements.selectAllCheckbox.disabled = false;
 
-            // Show result message with details
-            if (failedResults.length === 0 && skippedCount.newComments === 0) {
-                updateDoneSnapshotStatus();
-            } else if (failedResults.length === 0 && skippedCount.newComments > 0) {
-                // Some skipped due to new comments, but no errors
-                const skippedSuffix = ` (${skippedCount.newComments} had new comments)`;
-                if (successfulIds.length > 0) {
-                    showStatus(
-                        `Done ${successfulIds.length}/${selectedIds.length}${skippedSuffix}`,
-                        'info',
-                        { autoDismiss: true }
-                    );
-                } else {
-                    showStatus(
-                        `Skipped ${skippedCount.newComments}: new comments detected`,
-                        'info',
-                        { autoDismiss: true }
-                    );
-                }
-            } else if (successfulIds.length === 0) {
-                // All failed - show first error for context
-                const firstError = failedResults[0]?.error || 'Unknown error';
-                const skippedSuffix = skippedCount.newComments > 0
-                    ? ` (${skippedCount.newComments} had new comments)`
-                    : '';
-                showStatus(`Failed to mark notifications: ${firstError}${skippedSuffix}`, 'error');
-                console.error('[MarkDone] All failed. Errors:', failedResults);
-            } else {
-                // Partial failure
-                const firstError = failedResults[0]?.error || 'Unknown error';
-                const skippedSuffix = skippedCount.newComments > 0
-                    ? `, ${skippedCount.newComments} skipped`
-                    : '';
-                showStatus(
-                    `${successfulIds.length} done, ${failedResults.length} failed${skippedSuffix}: ${firstError}`,
-                    'error'
-                );
-                console.error('[MarkDone] Partial failure. Errors:', failedResults);
-            }
+            // Show final status
+            showFinalQueueStatus();
 
-            const notificationsForUndo = successfulIds
+            const notificationsForUndo = doneQueue.successfulIds
                 .map(id => notificationLookup.get(id))
                 .filter(Boolean);
             updateUndoEntry(undoEntry, notificationsForUndo);
@@ -383,7 +437,7 @@
         }
 
         async function handleUnsubscribeAll() {
-            if (state.markingInProgress) return;
+            if (state.unsubscribeInProgress) return;
 
             const filteredNotifications = getFilteredNotifications();
             const { ids, show } = getUnsubscribeAllTargets(filteredNotifications);
@@ -402,8 +456,7 @@
                 if (!confirmed) return;
             }
 
-            state.markingInProgress = true;
-            state.markProgress = { current: 0, total: selectedIds.length };
+            state.unsubscribeInProgress = true;
 
             // Disable UI during operation
             elements.unsubscribeAllBtn.disabled = true;
@@ -416,8 +469,6 @@
 
             for (let i = 0; i < selectedIds.length; i++) {
                 const notifId = selectedIds[i];
-                state.markProgress.current = i + 1;
-                render();
 
                 if (rateLimitDelay > 0) {
                     await sleep(rateLimitDelay);
@@ -436,19 +487,6 @@
                     }
 
                     if (result.success) {
-                        // Also mark as done after unsubscribing
-                        queueDoneSnapshot(1);
-                        const notification = notificationLookup.get(notifId);
-                        const markDoneResult = await markNotificationDone(notifId, notification);
-                        if (markDoneResult.rateLimited) {
-                            rateLimitDelay = markDoneResult.retryAfter || 60000;
-                            showStatus(`Rate limited. Waiting ${Math.ceil(rateLimitDelay / 1000)}s...`, 'info');
-                            resolveDoneSnapshot(false);
-                        } else if (!markDoneResult.success) {
-                            resolveDoneSnapshot(false);
-                        } else {
-                            resolveDoneSnapshot(true);
-                        }
                         successfulIds.push(notifId);
                     } else {
                         const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
@@ -481,9 +519,15 @@
             // Update localStorage
             persistNotifications();
 
-            // Reset marking state
-            state.markingInProgress = false;
-            state.markProgress = { current: 0, total: 0 };
+            // Enqueue successfully unsubscribed notifications for mark-done via the shared queue
+            if (successfulIds.length > 0) {
+                enqueueDoneItems(successfulIds, notificationLookup);
+                // Fire and forget - don't await, let it process in the background
+                processDoneQueue();
+            }
+
+            // Reset unsubscribe state
+            state.unsubscribeInProgress = false;
             elements.unsubscribeAllBtn.disabled = false;
             elements.selectAllCheckbox.disabled = false;
 
@@ -924,13 +968,14 @@
 
         // Handle inline Mark Done button click for a single notification
         async function handleInlineMarkDone(notifId, button) {
-            if (state.markingInProgress) return;
-
             button.disabled = true;
 
             // Find and save the notification for undo before removing
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
-            const wasSelected = state.selected.has(notifId);
+            const notificationLookup = new Map();
+            if (notificationToRemove) {
+                notificationLookup.set(notifId, notificationToRemove);
+            }
 
             // Remove from UI immediately (optimistic update)
             const filteredBeforeRemoval = getFilteredNotifications();
@@ -945,79 +990,18 @@
                 : null;
             render();
 
-            try {
-                // Async sync check - if new comments detected, skip DELETE but don't restore
-                const syncResult = await syncNotificationBeforeDone(notifId, notificationToRemove);
-                if (syncResult?.status === 'updated') {
-                    // New comments detected - skip DELETE, notification stays removed from UI
-                    // It will reappear on next sync/refresh
-                    showStatus('New comments detected. Skipped marking done.', 'info', { autoDismiss: true });
-                    removeUndoEntry(undoEntry);
-                    button.disabled = false;
-                    return;
-                }
-                if (syncResult?.status === 'error') {
-                    const errorDetail = syncResult.error || 'Failed to sync notification';
-                    showStatus(`Failed to sync notification: ${errorDetail}`, 'error');
-                    if (notificationToRemove) {
-                        restoreNotificationsInOrder([notificationToRemove]);
-                        if (wasSelected) {
-                            state.selected.add(notifId);
-                        }
-                        persistNotifications();
-                        render();
-                    }
-                    removeUndoEntry(undoEntry);
-                    button.disabled = false;
-                    return;
-                }
+            // Enqueue and process - fire and forget (don't block UI)
+            enqueueDoneItems([notifId], notificationLookup);
+            await processDoneQueue();
 
-                queueDoneSnapshot(1);
-                const result = await markNotificationDone(notifId, notificationToRemove);
+            // After queue drains, check results for this item
+            const failed = doneQueue.failedResults.find(r => r.id === notifId);
+            const skipped = !failed && !doneQueue.successfulIds.includes(notifId);
 
-                if (result.rateLimited) {
-                    showStatus('Rate limited. Please try again shortly.', 'info');
-                    resolveDoneSnapshot(false, { suppressStatus: true });
-                    if (notificationToRemove) {
-                        restoreNotificationsInOrder([notificationToRemove]);
-                        if (wasSelected) {
-                            state.selected.add(notifId);
-                        }
-                        persistNotifications();
-                        render();
-                    }
-                    removeUndoEntry(undoEntry);
-                    button.disabled = false;
-                    return;
-                }
-
-                if (!result.success) {
-                    const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
-                    showStatus(`Failed to mark notification: ${errorDetail}`, 'error');
-                    resolveDoneSnapshot(false);
-                    if (notificationToRemove) {
-                        restoreNotificationsInOrder([notificationToRemove]);
-                        if (wasSelected) {
-                            state.selected.add(notifId);
-                        }
-                        persistNotifications();
-                        render();
-                    }
-                    removeUndoEntry(undoEntry);
-                    button.disabled = false;
-                    return;
-                }
-
-                resolveDoneSnapshot(true);
-            } catch (e) {
-                const errorDetail = e.message || String(e);
-                showStatus(`Failed to mark notification: ${errorDetail}`, 'error');
-                resolveDoneSnapshot(false);
+            if (failed) {
+                showStatus(`Failed to mark notification: ${failed.error}`, 'error');
                 if (notificationToRemove) {
                     restoreNotificationsInOrder([notificationToRemove]);
-                    if (wasSelected) {
-                        state.selected.add(notifId);
-                    }
                     persistNotifications();
                     render();
                 }
@@ -1026,12 +1010,20 @@
                 return;
             }
 
+            if (skipped) {
+                // Skipped due to new comments
+                showStatus('New comments detected. Skipped marking done.', 'info', { autoDismiss: true });
+                removeUndoEntry(undoEntry);
+                button.disabled = false;
+                return;
+            }
+
+            // Success
+            showFinalQueueStatus();
             await refreshRateLimit();
         }
 
         async function handleInlineUnsubscribe(notifId, button) {
-            if (state.markingInProgress) return;
-
             button.disabled = true;
 
             // Find and save the notification for undo before removing
@@ -1053,22 +1045,14 @@
                     return;
                 }
 
-                queueDoneSnapshot(1);
-                const markDoneResult = await markNotificationDone(notifId, notificationToRemove);
-                if (markDoneResult.rateLimited) {
-                    showStatus(
-                        'Unsubscribed, but rate limited when marking as done. Please try again shortly.',
-                        'info'
-                    );
-                    resolveDoneSnapshot(false, { suppressStatus: true });
-                } else if (!markDoneResult.success) {
-                    const errorDetail =
-                        markDoneResult.error || `HTTP ${markDoneResult.status || 'unknown'}`;
-                    showStatus(`Unsubscribed, but failed to mark as done: ${errorDetail}`, 'error');
-                    resolveDoneSnapshot(false);
-                } else {
-                    resolveDoneSnapshot(true);
+                // Enqueue mark-done into the shared queue
+                const notificationLookup = new Map();
+                if (notificationToRemove) {
+                    notificationLookup.set(notifId, notificationToRemove);
                 }
+                enqueueDoneItems([notifId], notificationLookup);
+                // Fire and forget - don't await
+                processDoneQueue();
 
                 const filteredBeforeRemoval = getFilteredNotifications();
                 advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
@@ -1095,8 +1079,6 @@
 
         // Handle inline Remove Reviewer button click for a single notification
         async function handleInlineRemoveReviewer(notifId, button) {
-            if (state.markingInProgress) return;
-
             button.disabled = true;
 
             try {
@@ -1132,7 +1114,7 @@
                     showStatus(`Failed to remove reviewer: ${errorDetail}. Proceeding with unsubscribe...`, 'info');
                 }
 
-                // Always unsubscribe (this also marks as done per handleInlineUnsubscribe pattern)
+                // Always unsubscribe
                 const unsubResult = await unsubscribeNotification(notifId, notification);
 
                 if (unsubResult.rateLimited) {
@@ -1148,23 +1130,12 @@
                     return;
                 }
 
-                // Mark as done (following handleInlineUnsubscribe pattern)
-                queueDoneSnapshot(1);
-                const markDoneResult = await markNotificationDone(notifId, notification);
-                if (markDoneResult.rateLimited) {
-                    showStatus(
-                        'Removed reviewer and unsubscribed, but rate limited when marking as done. Please try again shortly.',
-                        'info'
-                    );
-                    resolveDoneSnapshot(false, { suppressStatus: true });
-                } else if (!markDoneResult.success) {
-                    const errorDetail =
-                        markDoneResult.error || `HTTP ${markDoneResult.status || 'unknown'}`;
-                    showStatus(`Removed reviewer and unsubscribed, but failed to mark as done: ${errorDetail}`, 'error');
-                    resolveDoneSnapshot(false);
-                } else {
-                    resolveDoneSnapshot(true);
-                }
+                // Enqueue mark-done into the shared queue
+                const notificationLookup = new Map();
+                notificationLookup.set(notifId, notification);
+                enqueueDoneItems([notifId], notificationLookup);
+                // Fire and forget
+                processDoneQueue();
 
                 // Remove from UI
                 const notificationToRemove = state.notifications.find(n => n.id === notifId);

@@ -321,7 +321,7 @@ test.describe('Polish', () => {
       await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
     });
 
-    test('checkboxes are disabled during Mark Done operation', async ({ page }) => {
+    test('select-all checkbox is disabled during Mark Done operation', async ({ page }) => {
       await page.route('**/notifications/html/action', async (route) => {
         await new Promise((r) => setTimeout(r, 300));
         route.fulfill({
@@ -337,22 +337,14 @@ test.describe('Polish', () => {
       // Click Mark Done
       await page.locator('#mark-done-btn').click();
 
-      // All checkboxes should be disabled
-      await expect
-        .poll(async () => {
-          return await page
-            .locator('.notification-checkbox')
-            .evaluateAll((elements) => {
-              return elements.length > 0 && elements.every((el) => el.disabled);
-            });
-        })
-        .toBe(true);
+      // Select-all checkbox should be disabled during operation
+      await expect(page.locator('#select-all-checkbox')).toBeDisabled();
 
       // Wait for completion
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
     });
 
-    test('checkboxes are re-enabled after Mark Done completes', async ({ page }) => {
+    test('select-all checkbox is re-enabled after Mark Done completes', async ({ page }) => {
       await page.route('**/notifications/html/action', (route) => {
         route.fulfill({
           status: 200,
@@ -368,7 +360,7 @@ test.describe('Polish', () => {
       await page.locator('#mark-done-btn').click();
 
       // Wait for completion
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(page.locator('#status-bar')).toContainText(/Marked as done|Done/);
 
       // Remaining checkboxes should be enabled
       const checkboxes = page.locator('.notification-item .notification-checkbox');

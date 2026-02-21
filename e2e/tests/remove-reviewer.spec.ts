@@ -139,16 +139,13 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      // Wait for completion
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      // Notification should be removed from UI
+      await expect(prNotification).toHaveCount(0);
+      await expect(page.locator('.notification-item')).toHaveCount(1);
 
       // Verify all API calls were made
       expect(removeReviewerCalled).toBe(true);
       expect(unsubscribeCalled).toBe(true);
-
-      // Notification should be removed from UI
-      await expect(prNotification).toHaveCount(0);
-      await expect(page.locator('.notification-item')).toHaveCount(1);
     });
 
     test('continues with unsubscribe when reviewer removal fails', async ({ page }) => {
@@ -181,17 +178,14 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      // Wait for operation to complete - status eventually shows Done
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      // Notification should be removed from UI
+      await expect(prNotification).toHaveCount(0);
 
       // Verify remove reviewer was attempted
       expect(removeReviewerCalled).toBe(true);
 
       // Verify unsubscribe was still called despite reviewer removal failure
       expect(unsubscribeCalled).toBe(true);
-
-      // Notification should still be removed from UI
-      await expect(prNotification).toHaveCount(0);
     });
 
     test('sends correct request body when removing reviewer', async ({ page }) => {
@@ -215,7 +209,7 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(prNotification).toHaveCount(0);
 
       // Verify request body contains current user
       expect(requestBody).toEqual({
@@ -247,9 +241,8 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn-bottom').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
-      expect(removeReviewerCalled).toBe(true);
       await expect(prNotification).toHaveCount(0);
+      expect(removeReviewerCalled).toBe(true);
     });
   });
 
@@ -353,7 +346,7 @@ test.describe('Remove Reviewer', () => {
       // Button should be disabled during operation
       await expect(removeBtn).toBeDisabled();
 
-      await expect(page.locator('#status-bar')).toContainText('Done');
+      await expect(prNotification).toHaveCount(0);
     });
 
     test('shows progress status messages', async ({ page }) => {
