@@ -330,14 +330,6 @@
                 state.notifications.map(notification => [notification.id, notification])
             );
 
-            // Confirm if marking many items
-            if (selectedIds.length >= 10) {
-                const confirmed = confirm(
-                    `Are you sure you want to mark ${selectedIds.length} notifications as done?`
-                );
-                if (!confirmed) return;
-            }
-
             // Remove all selected notifications from UI immediately (optimistic update)
             const notificationsToRestore = selectedIds
                 .map(id => notificationLookup.get(id))
