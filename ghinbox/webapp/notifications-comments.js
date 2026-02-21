@@ -977,7 +977,8 @@ function isNotificationApproved(notification) {
     if (notification.subject?.type !== 'PullRequest') {
         return false;
     }
-    if (notification.subject?.state === 'draft') {
+    const prState = notification.subject?.state;
+    if (prState === 'draft' || prState === 'closed' || prState === 'merged') {
         return false;
     }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
