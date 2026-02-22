@@ -1292,6 +1292,53 @@
     </script>
     <script>
         (function () {
+            const CODE_COLLAPSE_THRESHOLD = 400; // px – roughly one mobile screen of code
+            const mobileQuery = window.matchMedia('(max-width: 640px)');
+
+            function collapseCodeBlocks(root) {
+                if (!mobileQuery.matches) return;
+                const pres = (root || document).querySelectorAll('.comment-body pre');
+                pres.forEach((pre) => {
+                    if (pre.dataset.codeCollapsible) return; // already processed
+                    pre.dataset.codeCollapsible = '1';
+                    // Wait for render so scrollHeight is accurate
+                    requestAnimationFrame(() => {
+                        if (pre.scrollHeight <= CODE_COLLAPSE_THRESHOLD) return;
+                        pre.classList.add('code-collapsible', 'code-collapsed');
+                        const btn = document.createElement('button');
+                        btn.className = 'code-expand-btn';
+                        btn.textContent = 'Expand code';
+                        btn.addEventListener('click', () => {
+                            const isCollapsed = pre.classList.toggle('code-collapsed');
+                            btn.textContent = isCollapsed ? 'Expand code' : 'Collapse code';
+                        });
+                        pre.parentNode.insertBefore(btn, pre.nextSibling);
+                    });
+                });
+            }
+
+            // Process code blocks when comments are rendered
+            const observer = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType === 1 && (node.classList?.contains('comment-body') || node.querySelector?.('.comment-body'))) {
+                            collapseCodeBlocks(node.closest?.('.comment-item') || node);
+                        }
+                    }
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+
+            // Also handle existing content on page load
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => collapseCodeBlocks());
+            } else {
+                collapseCodeBlocks();
+            }
+        })();
+    </script>
+    <script>
+        (function () {
             const forceRefreshBtn = document.getElementById('force-refresh-btn');
             if (!forceRefreshBtn) {
                 return;

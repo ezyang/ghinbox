@@ -203,6 +203,43 @@
         .comment-body pre {
             overflow-x: auto;
             max-width: 100%;
+            position: relative;
+        }
+
+        /* Mobile: collapse long code blocks */
+        @media (max-width: 640px) {
+            .comment-body pre.code-collapsible {
+                margin-bottom: 0;
+                border-bottom-left-radius: 0;
+                border-bottom-right-radius: 0;
+            }
+
+            .comment-body pre.code-collapsed {
+                max-height: 60vh;
+                overflow: hidden;
+            }
+
+            .code-expand-btn {
+                display: block;
+                width: 100%;
+                padding: 4px 0;
+                margin: 0;
+                border: 1px solid var(--color-border-muted);
+                border-top: none;
+                border-radius: 0 0 6px 6px;
+                background: var(--color-bg-subtle, #f6f8fa);
+                color: var(--color-fg-muted);
+                font-size: 12px;
+                font-weight: 500;
+                cursor: pointer;
+                text-align: center;
+            }
+        }
+
+        @media (min-width: 641px) {
+            .code-expand-btn {
+                display: none !important;
+            }
         }
 
         .comment-body code {
