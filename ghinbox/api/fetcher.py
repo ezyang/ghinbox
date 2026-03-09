@@ -220,20 +220,40 @@ class NotificationsFetcher:
                     ],
                 ]
             )
-            response = self._context.request.post(
-                url,
-                data=payload,
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": "https://github.com/notifications",
-                },
-            )
-            content = response.text()
 
-            if response.status >= 400:
+            # Use a browser page + fetch() so the request goes through
+            # Chromium's networking stack (which respects proxy settings),
+            # rather than Playwright's APIRequestContext which does not.
+            page = self._context.new_page()
+            try:
+                page.goto(
+                    "https://github.com/notifications",
+                    wait_until="domcontentloaded",
+                )
+                result = page.evaluate(
+                    """async ([url, payload]) => {
+                        const resp = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Referer': 'https://github.com/notifications',
+                            },
+                            body: payload,
+                        });
+                        return { status: resp.status, body: await resp.text() };
+                    }""",
+                    [url, payload],
+                )
+            finally:
+                page.close()
+
+            status_code = result["status"]
+            content = result["body"]
+
+            if status_code >= 400:
                 return ActionResult(
                     status="error",
-                    error=f"HTTP {response.status}",
+                    error=f"HTTP {status_code}",
                     response_html=content,
                 )
 
