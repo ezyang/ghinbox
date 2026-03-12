@@ -227,7 +227,7 @@ class NotificationsFetcher:
             page = self._context.new_page()
             try:
                 page.goto(
-                    "https://github.com/notifications",
+                    "https://github.com",
                     wait_until="domcontentloaded",
                 )
                 result = page.evaluate(
@@ -236,7 +236,6 @@ class NotificationsFetcher:
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/x-www-form-urlencoded',
-                                'Referer': 'https://github.com/notifications',
                             },
                             body: payload,
                         });
