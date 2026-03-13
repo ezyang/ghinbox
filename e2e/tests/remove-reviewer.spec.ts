@@ -149,43 +149,38 @@ test.describe('Remove Reviewer', () => {
     });
 
     test('continues with unsubscribe when reviewer removal fails', async ({ page }) => {
-      let unsubscribeCalled = false;
-      let removeReviewerCalled = false;
-
-      // Mock remove reviewer endpoint to fail
-      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
-        removeReviewerCalled = true;
-        route.fulfill({
-          status: 422,
-          contentType: 'application/json',
-          body: JSON.stringify({ message: 'User not a reviewer' }),
+      const unsubscribePromise = new Promise<void>((resolve) => {
+        // Mock remove reviewer endpoint to fail
+        page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
+          route.fulfill({
+            status: 422,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: 'User not a reviewer' }),
+          });
         });
-      });
 
-      // Mock HTML action endpoint for unsubscribe
-      await page.route('**/notifications/html/action', (route) => {
-        const body = route.request().postDataJSON();
-        if (body.action === 'unsubscribe') {
-          unsubscribeCalled = true;
-        }
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
+        // Mock HTML action endpoint for unsubscribe — resolve when called
+        page.route('**/notifications/html/action', (route) => {
+          const body = route.request().postDataJSON();
+          if (body.action === 'unsubscribe') {
+            resolve();
+          }
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
         });
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      // Notification should be removed from UI
+      // Notification should be removed from UI (optimistic)
       await expect(prNotification).toHaveCount(0);
 
-      // Verify remove reviewer was attempted
-      expect(removeReviewerCalled).toBe(true);
-
-      // Verify unsubscribe was still called despite reviewer removal failure
-      expect(unsubscribeCalled).toBe(true);
+      // Wait for unsubscribe to actually be called despite reviewer removal failure
+      await unsubscribePromise;
     });
 
     test('sends correct request body when removing reviewer', async ({ page }) => {
@@ -324,33 +319,7 @@ test.describe('Remove Reviewer', () => {
   });
 
   test.describe('UI State', () => {
-    test('button is disabled during operation', async ({ page }) => {
-      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', async (route) => {
-        await new Promise((r) => setTimeout(r, 200));
-        route.fulfill({ status: 204 });
-      });
-
-      await page.route('**/notifications/html/action', (route) => {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
-      });
-
-      const prNotification = page.locator('[data-id="notif-2"]');
-      const removeBtn = prNotification.locator('.notification-remove-reviewer-btn');
-
-      await removeBtn.click();
-
-      // Button should be disabled during operation
-      await expect(removeBtn).toBeDisabled();
-
-      await expect(prNotification).toHaveCount(0);
-    });
-
-    test('shows progress status messages', async ({ page }) => {
-      // Use a promise to control when the remove-reviewer request resolves
+    test('notification is removed optimistically before API completes', async ({ page }) => {
       let resolveRemove: () => void;
       const removePromise = new Promise<void>((r) => {
         resolveRemove = r;
@@ -358,7 +327,7 @@ test.describe('Remove Reviewer', () => {
 
       await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', async (route) => {
         await removePromise;
-        await route.fulfill({ status: 204 });
+        route.fulfill({ status: 204 });
       });
 
       await page.route('**/notifications/html/action', (route) => {
@@ -372,14 +341,13 @@ test.describe('Remove Reviewer', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();
 
-      // Should show removing status while request is pending
-      await expect(page.locator('#status-bar')).toContainText('Removing you as reviewer');
+      // Notification should be removed immediately (optimistic update),
+      // even though the API request is still pending
+      await expect(prNotification).toHaveCount(0);
 
       // Let the request complete
       resolveRemove!();
-
-      // Notification should be removed from the list after completion
-      await expect(prNotification).not.toBeVisible();
     });
+
   });
 });
