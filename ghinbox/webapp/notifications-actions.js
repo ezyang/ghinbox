@@ -442,11 +442,24 @@
 
             state.unsubscribeInProgress = true;
 
-            // Disable UI during operation
-            elements.unsubscribeAllBtn.disabled = true;
-            elements.selectAllCheckbox.disabled = true;
+            // Save notifications for potential restoration
+            const notificationsToSave = selectedIds
+                .map(id => notificationLookup.get(id))
+                .filter(Boolean);
+
+            // Remove from UI immediately (optimistic update)
+            const selectedIdSet = new Set(selectedIds);
+            state.notifications = state.notifications.filter(
+                notif => !selectedIdSet.has(notif.id)
+            );
+            selectedIds.forEach(id => state.selected.delete(id));
+            persistNotifications();
+            const undoEntry = notificationsToSave.length > 0
+                ? pushToUndoStack('unsubscribe', notificationsToSave)
+                : null;
             render();
 
+            // Process unsubscribes in background
             const successfulIds = [];
             const failedResults = [];
             let rateLimitDelay = 0;
@@ -489,20 +502,6 @@
                 }
             }
 
-            const successfulIdSet = new Set(successfulIds);
-            const notificationsToRestore = successfulIds
-                .map(id => notificationLookup.get(id))
-                .filter(Boolean);
-            state.notifications = state.notifications.filter(
-                notif => !successfulIdSet.has(notif.id)
-            );
-
-            // Clear selection for successful items
-            successfulIds.forEach(id => state.selected.delete(id));
-
-            // Update localStorage
-            persistNotifications();
-
             // Enqueue successfully unsubscribed notifications for mark-done via the shared queue
             if (successfulIds.length > 0) {
                 enqueueDoneItems(successfulIds, notificationLookup);
@@ -510,10 +509,19 @@
                 processDoneQueue();
             }
 
+            // Restore failed items to UI
+            if (failedResults.length > 0) {
+                const failedIdSet = new Set(failedResults.map(r => r.id));
+                const notificationsToRestore = notificationsToSave.filter(n => failedIdSet.has(n.id));
+                if (notificationsToRestore.length > 0) {
+                    restoreNotificationsInOrder(notificationsToRestore);
+                    persistNotifications();
+                    render();
+                }
+            }
+
             // Reset unsubscribe state
             state.unsubscribeInProgress = false;
-            elements.unsubscribeAllBtn.disabled = false;
-            elements.selectAllCheckbox.disabled = false;
 
             // Show result message with details
             if (failedResults.length === 0) {
@@ -532,12 +540,15 @@
                 console.error('[UnsubscribeAll] Partial failure. Errors:', failedResults);
             }
 
-            if (notificationsToRestore.length > 0) {
-                pushToUndoStack('unsubscribe', notificationsToRestore);
+            // Update undo: remove if all failed, trim to successful if partial
+            if (failedResults.length > 0 && successfulIds.length === 0) {
+                removeUndoEntry(undoEntry);
+            } else if (failedResults.length > 0) {
+                const successfulIdSet2 = new Set(successfulIds);
+                updateUndoEntry(undoEntry, notificationsToSave.filter(n => successfulIdSet2.has(n.id)));
             }
 
             await refreshRateLimit();
-            render();
         }
 
         // Sleep helper for delays
@@ -1013,19 +1024,31 @@
             // Find and save the notification for undo before removing
             const notificationToRemove = state.notifications.find(n => n.id === notifId);
 
+            // Remove from UI immediately (optimistic update)
+            const filteredBeforeRemoval = getFilteredNotifications();
+            advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
+            state.notifications = state.notifications.filter(n => n.id !== notifId);
+            state.selected.delete(notifId);
+            persistNotifications();
+            const undoEntry = notificationToRemove
+                ? pushToUndoStack('unsubscribe', [notificationToRemove])
+                : null;
+            render();
+
             try {
                 const result = await unsubscribeNotification(notifId, notificationToRemove);
 
-                if (result.rateLimited) {
-                    showStatus('Rate limited. Please try again shortly.', 'info');
-                    button.disabled = false;
-                    return;
-                }
-
-                if (!result.success) {
-                    const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
-                    showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
-                    button.disabled = false;
+                if (result.rateLimited || !result.success) {
+                    const msg = result.rateLimited
+                        ? 'Rate limited. Please try again shortly.'
+                        : `Failed to unsubscribe: ${result.error || `HTTP ${result.status || 'unknown'}`}`;
+                    showStatus(msg, result.rateLimited ? 'info' : 'error');
+                    if (notificationToRemove) {
+                        restoreNotificationsInOrder([notificationToRemove]);
+                        persistNotifications();
+                        render();
+                    }
+                    removeUndoEntry(undoEntry);
                     return;
                 }
 
@@ -1037,58 +1060,67 @@
                 enqueueDoneItems([notifId], notificationLookup);
                 // Fire and forget - don't await
                 processDoneQueue();
-
-                const filteredBeforeRemoval = getFilteredNotifications();
-                advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
-                state.notifications = state.notifications.filter(
-                    n => n.id !== notifId
-                );
-                state.selected.delete(notifId);
-                persistNotifications();
-
-                // Save for undo
-                if (notificationToRemove) {
-                    pushToUndoStack('unsubscribe', [notificationToRemove]);
-                }
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
-                button.disabled = false;
+                if (notificationToRemove) {
+                    restoreNotificationsInOrder([notificationToRemove]);
+                    persistNotifications();
+                    render();
+                }
+                removeUndoEntry(undoEntry);
                 return;
             }
 
             await refreshRateLimit();
-            render();
         }
 
         // Handle inline Remove Reviewer button click for a single notification
         async function handleInlineRemoveReviewer(notifId, button) {
             button.disabled = true;
 
+            const notification = state.notifications.find(n => n.id === notifId);
+            if (!notification) {
+                showStatus('Notification not found', 'error');
+                button.disabled = false;
+                return;
+            }
+
+            let owner, repo, prNumber;
             try {
-                const notification = state.notifications.find(n => n.id === notifId);
-                if (!notification) {
-                    showStatus('Notification not found', 'error');
-                    button.disabled = false;
-                    return;
-                }
+                ({ owner, repo, prNumber } = extractPRInfo(notification));
+            } catch (e) {
+                showStatus(`Failed: ${e.message || String(e)}`, 'error');
+                button.disabled = false;
+                return;
+            }
 
-                const { owner, repo, prNumber } = extractPRInfo(notification);
-                const currentUser = ensureCurrentUserLogin();
+            const currentUser = ensureCurrentUserLogin();
+            if (!currentUser) {
+                showStatus('Unable to determine current user. Make sure you are authenticated (check top-left status).', 'error');
+                button.disabled = false;
+                return;
+            }
 
-                if (!currentUser) {
-                    showStatus('Unable to determine current user. Make sure you are authenticated (check top-left status).', 'error');
-                    button.disabled = false;
-                    return;
-                }
+            // Remove from UI immediately (optimistic update)
+            const filteredBeforeRemoval = getFilteredNotifications();
+            advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
+            state.notifications = state.notifications.filter(n => n.id !== notifId);
+            state.selected.delete(notifId);
+            persistNotifications();
+            const undoEntry = pushToUndoStack('remove_reviewer', [notification]);
+            render();
 
+            try {
                 // Remove reviewer
-                showStatus('Removing you as reviewer...', 'info');
                 const removeResult = await removeReviewer(owner, repo, prNumber, currentUser);
 
                 if (removeResult.rateLimited) {
                     showStatus('Rate limited. Please try again shortly.', 'info');
-                    button.disabled = false;
+                    restoreNotificationsInOrder([notification]);
+                    persistNotifications();
+                    removeUndoEntry(undoEntry);
+                    render();
                     return;
                 }
 
@@ -1101,16 +1133,15 @@
                 // Always unsubscribe
                 const unsubResult = await unsubscribeNotification(notifId, notification);
 
-                if (unsubResult.rateLimited) {
-                    showStatus('Rate limited. Please try again shortly.', 'info');
-                    button.disabled = false;
-                    return;
-                }
-
-                if (!unsubResult.success) {
-                    const errorDetail = unsubResult.error || `HTTP ${unsubResult.status || 'unknown'}`;
-                    showStatus(`Failed to unsubscribe: ${errorDetail}`, 'error');
-                    button.disabled = false;
+                if (unsubResult.rateLimited || !unsubResult.success) {
+                    const msg = unsubResult.rateLimited
+                        ? 'Rate limited. Please try again shortly.'
+                        : `Failed to unsubscribe: ${unsubResult.error || `HTTP ${unsubResult.status || 'unknown'}`}`;
+                    showStatus(msg, unsubResult.rateLimited ? 'info' : 'error');
+                    restoreNotificationsInOrder([notification]);
+                    persistNotifications();
+                    removeUndoEntry(undoEntry);
+                    render();
                     return;
                 }
 
@@ -1120,29 +1151,17 @@
                 enqueueDoneItems([notifId], notificationLookup);
                 // Fire and forget
                 processDoneQueue();
-
-                // Remove from UI
-                const notificationToRemove = state.notifications.find(n => n.id === notifId);
-                const filteredBeforeRemoval = getFilteredNotifications();
-                advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
-
-                state.notifications = state.notifications.filter(n => n.id !== notifId);
-                state.selected.delete(notifId);
-                persistNotifications();
-
-                // Save for undo
-                if (notificationToRemove) {
-                    pushToUndoStack('remove_reviewer', [notificationToRemove]);
-                }
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed: ${errorDetail}`, 'error');
-                button.disabled = false;
+                restoreNotificationsInOrder([notification]);
+                persistNotifications();
+                removeUndoEntry(undoEntry);
+                render();
                 return;
             }
 
             await refreshRateLimit();
-            render();
         }
 
         function clearUndoState() {
