@@ -514,7 +514,17 @@
 
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
-                        throw new Error(errorData.detail || `HTTP ${response.status}`);
+                        // Check for session expired (401 with session_expired error)
+                        if (response.status === 401 && errorData.detail?.error === 'session_expired') {
+                            showStatus('Session expired. Redirecting to login...', 'error');
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                            window.location.href = '/app/login.html?session_refresh=1';
+                            return;
+                        }
+                        const errorMsg = typeof errorData.detail === 'object'
+                            ? JSON.stringify(errorData.detail)
+                            : (errorData.detail || `HTTP ${response.status}`);
+                        throw new Error(errorMsg);
                     }
 
                     const data = await response.json();
