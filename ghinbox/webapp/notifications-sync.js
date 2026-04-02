@@ -703,9 +703,12 @@
                             window.location.href = '/app/login.html?session_refresh=1';
                             return;
                         }
-                        const errorMsg = typeof errorData.detail === 'object'
-                            ? JSON.stringify(errorData.detail)
-                            : (errorData.detail || `HTTP ${response.status}`);
+                        const rawDetail = errorData.detail;
+                        const errorMsg = rawDetail == null
+                            ? `HTTP ${response.status}`
+                            : typeof rawDetail === 'string'
+                                ? rawDetail
+                                : JSON.stringify(rawDetail);
                         throw new Error(errorMsg);
                     }
 
@@ -829,8 +832,8 @@
                 state.lastSyncedRepo = repo;
                 localStorage.setItem(LAST_SYNCED_REPO_KEY, repo);
 
-                // Save to localStorage
-                persistNotifications();
+                // Save to localStorage (and server)
+                persistNotifications(syncMode === 'full' ? { clearDone: true } : undefined);
 
                 state.commentQueue = [];
                 scheduleCommentPrefetch(notifications);

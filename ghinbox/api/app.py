@@ -14,6 +14,8 @@ from ghinbox.api.routes import router as notifications_router
 from ghinbox.api.github_proxy import router as github_proxy_router
 from ghinbox.api.login_routes import router as login_router
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
+from ghinbox.api.store import init_db
+from ghinbox.api.store_routes import router as store_router
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
     set_fetcher,
@@ -45,6 +47,8 @@ def _get_webapp_dir() -> Path | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize fetcher on startup if account is configured."""
+    init_db()
+
     account = os.environ.get("GHSIM_ACCOUNT")
     if account:
         headless = os.environ.get("GHSIM_HEADLESS", "1") == "1"
@@ -97,6 +101,7 @@ app.include_router(notifications_router)
 app.include_router(github_proxy_router)
 app.include_router(login_router)
 app.include_router(site_auth_router)
+app.include_router(store_router)
 
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:

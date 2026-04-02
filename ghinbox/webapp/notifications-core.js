@@ -163,10 +163,26 @@
             return normalized;
         }
 
-        function persistNotifications() {
+        function persistNotifications(options) {
+            const opts = options || {};
             saveNotificationsCache(state.notifications).catch((error) => {
                 console.error('Failed to persist notifications cache:', error);
             });
+            // Fire-and-forget server-side persistence
+            const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+            if (repo) {
+                const body = { notifications: state.notifications };
+                if (opts.clearDone) {
+                    body.clear_done = true;
+                }
+                fetch(`/api/store/notifications/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                }).catch((error) => {
+                    console.error('Failed to persist notifications to server:', error);
+                });
+            }
         }
 
         function persistAuthenticityToken(token) {
@@ -426,14 +442,53 @@
 
         // Initialize app
         async function loadNotificationsFromCache() {
+            // Try IndexedDB first (local device cache)
+            let localData = null;
             try {
                 const cached = await loadNotificationsCache();
-                if (Array.isArray(cached)) {
-                    return cached;
+                if (Array.isArray(cached) && cached.length > 0) {
+                    localData = cached;
                 }
             } catch (error) {
                 console.error('Failed to load notifications cache from IndexedDB:', error);
             }
+
+            // If local data exists, use it (same device, most recent state).
+            // Server store is used as fallback for cross-device scenarios
+            // when no local cache is available.
+            if (localData) {
+                return localData;
+            }
+
+            // No local data — try server-side store for cross-device sync
+            const repo = parseRepoInput(
+                state.repo || state.lastSyncedRepo || localStorage.getItem('ghnotif_repo') || ''
+            );
+            if (repo) {
+                try {
+                    const response = await fetch(
+                        `/api/store/notifications/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`
+                    );
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (Array.isArray(data.notifications) && data.notifications.length > 0) {
+                            const doneIds = new Set(data.done_ids || []);
+                            const filtered = doneIds.size > 0
+                                ? data.notifications.filter(n => !doneIds.has(String(n.id)))
+                                : data.notifications;
+                            // Update IndexedDB with server data
+                            saveNotificationsCache(filtered).catch((error) => {
+                                console.error('Failed to update IndexedDB from server:', error);
+                            });
+                            return filtered;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to load from server store:', error);
+                }
+            }
+
+            // Legacy localStorage fallback
             const legacy = localStorage.getItem('ghnotif_notifications');
             if (!legacy) {
                 return [];
@@ -1158,10 +1213,15 @@
         function handleClearCommentCache() {
             state.commentCache = { version: 1, threads: {} };
             state.commentQueue = [];
-            clearCommentCacheStorage().catch((error) => {
-                console.error('Failed to clear comment cache:', error);
-            });
-            localStorage.removeItem(COMMENT_CACHE_KEY);
+            // Clear server-side comment cache
+            const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+            if (repo) {
+                fetch(`/api/store/comments/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`, {
+                    method: 'DELETE',
+                }).catch((error) => {
+                    console.error('Failed to clear server comment cache:', error);
+                });
+            }
             if (state.notifications.length > 0) {
                 scheduleCommentPrefetch(state.notifications);
                 showStatus('Comment cache cleared. Refetching comments...', 'info');

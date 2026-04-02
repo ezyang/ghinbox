@@ -5,7 +5,6 @@
 //   showStatus, refreshRateLimit, updateGraphqlRateLimit, setGraphqlRateLimitError,
 //   render, escapeHtml, renderMarkdown, fetchJson
 
-const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
 const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const COMMENT_CONCURRENCY = 4;
 const REVIEW_DECISION_BATCH_SIZE = 40;
@@ -82,33 +81,41 @@ function scheduleCommentPrefetchIdleClear() {
 }
 
 async function loadCommentCache() {
-    try {
-        const cached = await loadCommentCacheStorage();
-        if (cached && typeof cached === 'object') {
-            return cached;
+    // Load full blob from server (single source of truth)
+    const repo = parseRepoInput(
+        state.repo || state.lastSyncedRepo || localStorage.getItem('ghnotif_repo') || ''
+    );
+    if (repo) {
+        try {
+            const response = await fetch(
+                `/api/store/comments/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`
+            );
+            if (response.ok) {
+                const data = await response.json();
+                if (data.cache && typeof data.cache === 'object') {
+                    return data.cache;
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load comment cache from server store:', error);
         }
-    } catch (e) {
-        console.error('Failed to load comment cache from IndexedDB:', e);
     }
-    const raw = localStorage.getItem(COMMENT_CACHE_KEY);
-    if (!raw) {
-        return { version: 1, threads: {} };
-    }
-    try {
-        const parsed = JSON.parse(raw);
-        await saveCommentCacheStorage(parsed);
-        localStorage.removeItem(COMMENT_CACHE_KEY);
-        return parsed;
-    } catch (e) {
-        console.error('Failed to parse comment cache:', e);
-        return { version: 1, threads: {} };
-    }
+
+    return { version: 1, threads: {} };
 }
 
-function saveCommentCache() {
-    saveCommentCacheStorage(state.commentCache).catch((error) => {
-        console.error('Failed to persist comment cache:', error);
-    });
+function saveCommentCacheThread(threadId, threadData) {
+    // Fire-and-forget per-thread server-side persistence
+    const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+    if (repo) {
+        fetch(`/api/store/comments/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/threads/${encodeURIComponent(threadId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: threadData }),
+        }).catch((error) => {
+            console.error('Failed to persist comment cache thread to server:', error);
+        });
+    }
 }
 
 function isCommentCacheFresh(cached) {
@@ -219,7 +226,6 @@ async function runCommentQueue() {
             `Prefetch: fetching ${batch.length} (remaining ${state.commentQueue.length})`
         );
         await Promise.all(batch.map((task) => task()));
-        saveCommentCache();
         render();
     }
     await refreshRateLimit();
@@ -475,6 +481,7 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
                     deletions: entry.deletions,
                     changedFiles: entry.changedFiles,
                 };
+                saveCommentCacheThread(threadId, state.commentCache.threads[threadId]);
             });
         }
         setGraphqlRateLimitError(null);
@@ -521,7 +528,6 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
         });
         prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
             .then(() => {
-                saveCommentCache();
                 render();
             })
             .catch((error) => {
@@ -580,7 +586,7 @@ async function prefetchNotificationComments(notification) {
 
     const issueNumber = getIssueNumber(notification);
     if (!issueNumber) {
-        state.commentCache.threads[threadId] = {
+        const noIssueData = {
             notificationUpdatedAt: notification.updated_at,
             comments: [],
             error: 'No issue number found.',
@@ -589,6 +595,8 @@ async function prefetchNotificationComments(notification) {
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
             ...existingDiffstat,
         };
+        state.commentCache.threads[threadId] = noIssueData;
+        saveCommentCacheThread(threadId, noIssueData);
         return;
     }
 
@@ -664,6 +672,7 @@ async function prefetchNotificationComments(notification) {
             next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
         }
         state.commentCache.threads[threadId] = next;
+        saveCommentCacheThread(threadId, next);
     } catch (error) {
         const next = {
             notificationUpdatedAt: notification.updated_at,
@@ -684,6 +693,7 @@ async function prefetchNotificationComments(notification) {
             next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
         }
         state.commentCache.threads[threadId] = next;
+        saveCommentCacheThread(threadId, next);
     }
 }
 

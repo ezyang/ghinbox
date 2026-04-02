@@ -32,6 +32,7 @@ test.describe('Comment cache', () => {
   });
 
   test('clear cache button removes stored comments', async ({ page }) => {
+    const repo = 'test/comment-cache-clear';
     await page.goto('notifications.html');
     await clearAppStorage(page);
     await seedCommentCache(page, {
@@ -42,7 +43,11 @@ test.describe('Comment cache', () => {
           comments: [],
         },
       },
-    });
+    }, repo);
+    // Set repo so loadCommentCache can fetch from server
+    await page.evaluate((r) => {
+      localStorage.setItem('ghnotif_repo', r);
+    }, repo);
     await page.reload();
 
     const status = page.locator('#comment-cache-status');
@@ -51,12 +56,14 @@ test.describe('Comment cache', () => {
     await expect(status).toContainText('Comments cached: 1');
     await expect(clearBtn).toBeEnabled();
 
+    // Set repo in the input so handleClearCommentCache can find it
+    await page.locator('#repo-input').fill(repo);
     await clearBtn.click();
 
     await expect(status).toContainText('Comments cached: 0');
     await expect(clearBtn).toBeDisabled();
 
-    const cachedValue = await readCommentCache(page);
+    const cachedValue = await readCommentCache(page, repo);
     expect(cachedValue).toBeNull();
   });
 });

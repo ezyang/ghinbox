@@ -271,6 +271,17 @@
                 if (result.success) {
                     doneQueue.completed++;
                     doneQueue.successfulIds.push(notifId);
+                    // Fire-and-forget server-side done marking
+                    const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+                    if (repo) {
+                        fetch(`/api/store/done/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ notification_ids: [notifId] }),
+                        }).catch((error) => {
+                            console.error('Failed to mark done on server:', error);
+                        });
+                    }
                 } else {
                     const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
                     console.error(`[MarkDone] Failed for ${notifId}:`, errorDetail);
@@ -691,9 +702,6 @@
                     }
                     if (typeof prefetchNotificationComments === 'function') {
                         await prefetchNotificationComments(refreshedNotification);
-                        if (typeof saveCommentCache === 'function') {
-                            saveCommentCache();
-                        }
                     }
                 }
 
@@ -1339,6 +1347,20 @@
                 if (restoredNotifications.length > 0) {
                     restoreNotificationsInOrder(restoredNotifications);
                     persistNotifications();
+                    // Fire-and-forget server-side undo
+                    const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+                    if (repo) {
+                        fetch(`/api/store/done/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                notification_ids: restoredNotifications.map(n => String(n.id)),
+                                notifications: restoredNotifications,
+                            }),
+                        }).catch((error) => {
+                            console.error('Failed to undo done on server:', error);
+                        });
+                    }
                     render();
                 }
 
