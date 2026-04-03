@@ -7,10 +7,9 @@
     - **Important**: Unset proxy environment variables before running tests:
       `unset HTTPS_PROXY HTTP_PROXY X2P_AGENT_PROXY_ADDRESS && npm test`
     - Allow a longer timeout for `npm test` in automation (recommend 5 minutes / 300000 ms).
-    - Playwright auto-starts the API server with `uv run python -m ghinbox.api.server --test --no-reload --port 8001`
-    - Base URL is `http://localhost:8001/app/`
-    - Tests use port 8001 (not 8000) to avoid conflicts with production servers
-    - Override with `TEST_PORT=XXXX npm test` if needed
+    - Playwright auto-starts the API server on a random free port (auto-allocated)
+    - Override with `TEST_PORT=XXXX npm test` to use a fixed port
+    - Multiple test runs can execute concurrently without port conflicts
   - Python tests: `uv run pytest` (only run if you modified Python)
   - There is no root `npm run test:e2e` script; use the `e2e/` package scripts.
 - Fixtures:

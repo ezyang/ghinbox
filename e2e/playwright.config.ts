@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { execSync } from 'child_process';
 
 /**
  * Playwright configuration for GitHub notifications webapp E2E tests.
@@ -9,7 +10,8 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * IMPORTANT: Test Server Architecture
  * -----------------------------------
- * Tests use port 8001 by default (not 8000) to avoid conflicts with production servers.
+ * By default, a random free port is allocated so multiple test runs can execute
+ * concurrently without conflicts. Set TEST_PORT to override with a fixed port.
  * The test server is started with --test flag which:
  * 1. Disables live GitHub fetching (no GHSIM_ACCOUNT set)
  * 2. Enables the /health/test endpoint (returns 200 only in test mode)
@@ -22,8 +24,17 @@ import { defineConfig, devices } from '@playwright/test';
  * might be running, which would consume real GitHub API quota.
  */
 
-// Test server port - use 8001 to avoid conflicts with production servers on 8000
-const TEST_PORT = process.env.TEST_PORT || '8001';
+// Test server port - auto-allocate a free port to allow concurrent test runs.
+// Set TEST_PORT env var to override with a fixed port.
+// We must set process.env.TEST_PORT so worker processes (which re-evaluate this
+// config) use the same port as the main process that starts the webServer.
+if (!process.env.TEST_PORT) {
+  process.env.TEST_PORT = execSync(
+    `node -e "const s=require('net').createServer();s.listen(0,()=>{process.stdout.write(String(s.address().port));s.close()})"`,
+    { encoding: 'utf-8' },
+  ).trim();
+}
+const TEST_PORT = process.env.TEST_PORT;
 
 export default defineConfig({
   testDir: './tests',
