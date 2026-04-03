@@ -138,7 +138,7 @@ test.describe('Login Page Navigation', () => {
     await page.goto('login.html');
 
     // Should redirect to the main app
-    await page.waitForURL('**/app/**', { timeout: 5000 });
+    await expect(page).toHaveURL(/\/app\//);
   });
 
   test('back to login button returns to credentials form', async ({ page }) => {

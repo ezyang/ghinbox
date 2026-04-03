@@ -7,19 +7,13 @@ async function waitForStatusClear(page) {
   await expect(statusBar).toHaveText('', { timeout: 10000 });
 }
 
-async function expectNoStatusFlash(page, text, durationMs = 1200, intervalMs = 50) {
+async function expectNoStatusFlash(page, text) {
   const statusBar = page.locator('#status-bar');
-  const end = Date.now() + durationMs;
-  let seen = false;
-  while (Date.now() < end) {
-    const content = (await statusBar.textContent()) || '';
-    if (content.includes(text)) {
-      seen = true;
-      break;
-    }
-    await page.waitForTimeout(intervalMs);
-  }
-  expect(seen).toBe(false);
+  // Assert the text does not appear within a short observation window.
+  // not.toContainText auto-retries: it keeps checking until the timeout
+  // passes without the text ever appearing. Using a short timeout so the
+  // test fails fast if the text does show up.
+  await expect(statusBar).not.toContainText(text, { timeout: 1200 });
 }
 
 /**

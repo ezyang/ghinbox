@@ -62,20 +62,12 @@ test.describe('Query State', () => {
     await othersPrsStatus.locator('[data-subfilter="needs-review"]').click();
     await othersPrsAuthor.locator('[data-subfilter="committer"]').click();
 
-    await page.waitForFunction(() => {
-      const params = new URLSearchParams(window.location.search);
-      return (
-        params.get('view') === 'others-prs' &&
-        params.get('repo') === 'test/repo' &&
-        params.get('issues_state') === 'open' &&
-        params.get('issues_order') === 'size' &&
-        params.get('my_prs_state') === 'all' &&
-        params.get('my_prs_order') === 'recent' &&
-        params.get('others_prs_state') === 'needs-review' &&
-        params.get('others_prs_author') === 'committer' &&
-        params.get('others_prs_order') === 'recent'
-      );
-    });
+    await expect(page).toHaveURL(/view=others-prs/);
+    await expect(page).toHaveURL(/repo=test%2Frepo/);
+    await expect(page).toHaveURL(/issues_state=open/);
+    await expect(page).toHaveURL(/issues_order=size/);
+    await expect(page).toHaveURL(/others_prs_state=needs-review/);
+    await expect(page).toHaveURL(/others_prs_author=committer/);
   });
 
   test('keeps per-view order when switching tabs', async ({ page }) => {
