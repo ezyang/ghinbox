@@ -112,6 +112,8 @@ test.describe('Scroll Anchoring', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('.notification-item')).toHaveCount(20);
+    // Wait for comment prefetch to finish so re-renders don't detach DOM elements
+    await expect(page.locator('#comment-cache-status')).toHaveText('Comments cached: 20', { timeout: 10000 });
   });
 
   // Helper to get an element's viewport Y position via JS
@@ -140,8 +142,6 @@ test.describe('Scroll Anchoring', () => {
   });
 
   test('bulk mark done preserves scroll position of items below', async ({ page }) => {
-    // Wait for items to be stable, then scroll
-    await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
     await page.locator('[data-id="notif-5"]').scrollIntoViewIfNeeded();
 
     // Select items 5 and 6
@@ -162,8 +162,6 @@ test.describe('Scroll Anchoring', () => {
   });
 
   test('keyboard mark done (e key) preserves scroll position', async ({ page }) => {
-    // Wait for item to be stable, then scroll and click
-    await expect(page.locator('[data-id="notif-10"]')).toBeVisible();
     await page.locator('[data-id="notif-10"]').scrollIntoViewIfNeeded();
     await page.locator('[data-id="notif-10"]').click();
 
