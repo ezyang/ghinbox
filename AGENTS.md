@@ -20,6 +20,19 @@
 - Always add E2E tests for new features.  If I ask you to fix a bug, first make an E2E test that exhibits the bug and fails, and then fix it.
 - There may be multiple coding agents running at the same time; don't worry
   too much about unexpected changes, we are running SCM checkpoints regularly.
+- E2E test authoring rules:
+  - **Never use `waitForTimeout`.**  Wait for a specific condition instead:
+    - Scroll: `page.waitForFunction(() => window.scrollY > 0)`
+    - "Nothing happened": `expect.poll(() => flag, { timeout: 500 }).toBe(false)`
+      or `expect(locator).not.toContainText(text, { timeout: 1200 })`
+  - **Prefer auto-retrying Playwright assertions** (`toContainText`, `toHaveCount`,
+    `toBeVisible`, `toHaveAttribute`, `toHaveClass`, `toHaveJSProperty`, `toHaveURL`)
+    over extracting a value with `evaluate`/`getAttribute`/`textContent` then
+    asserting with `toBe`/`toContain`. The retrying versions handle DOM timing.
+  - **Every test must have at least one explicit `expect()` call.** Do not rely
+    solely on `waitForURL`/`waitForFunction` throwing on timeout.
+  - **Use specific expected values** when fixture data is deterministic.
+    `toBeTruthy()` hides bugs; `toBe('issue-open')` catches them.
 - Troubleshooting E2E tests:
   - **Tests fail with escaped HTML (e.g., `<details>` shown as text)**: The webapp
     loads `marked.js` and `DOMPurify` from CDN (`cdn.jsdelivr.net`). If these fail

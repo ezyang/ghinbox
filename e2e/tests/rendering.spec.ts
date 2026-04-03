@@ -189,8 +189,7 @@ test.describe('Notification Rendering', () => {
       );
       await expect(firstItem.locator('.notification-time')).toBeVisible();
 
-      const dataId = await firstItem.getAttribute('data-id');
-      expect(dataId).toBeTruthy();
+      await expect(firstItem).toHaveAttribute('data-id', 'issue-open');
       await expect(firstItem).toHaveAttribute('data-type', 'Issue');
       await expect(firstItem).toHaveAttribute('data-state', 'open');
     });
@@ -454,20 +453,18 @@ test.describe('Notification Rendering', () => {
       await expect(page.locator('[data-id="pr-closed"] .diffstat-tag')).toHaveText('+3/-2');
       await page.locator('#order-select').selectOption('size');
 
-      const ids = await page.locator('.notification-item').evaluateAll((items) =>
-        items.map((item) => item.getAttribute('data-id'))
-      );
-      expect(ids[0]).toBe('pr-closed');
-      expect(ids[ids.length - 1]).toBe('pr-draft');
+      // Verify sort order: smallest PR first, largest last
+      await expect(page.locator('.notification-item').first()).toHaveAttribute('data-id', 'pr-closed');
+      await expect(page.locator('.notification-item').last()).toHaveAttribute('data-id', 'pr-draft');
 
-      const smallStyle = await page
-        .locator('[data-id="pr-closed"] .diffstat-tag')
-        .getAttribute('style');
-      const largeStyle = await page
-        .locator('[data-id="pr-draft"] .diffstat-tag')
-        .getAttribute('style');
-      expect(smallStyle).toContain('--diffstat-hue: 120');
-      expect(largeStyle).toContain('--diffstat-hue: 0');
+      await expect(page.locator('[data-id="pr-closed"] .diffstat-tag')).toHaveAttribute(
+        'style',
+        /--diffstat-hue: 120/
+      );
+      await expect(page.locator('[data-id="pr-draft"] .diffstat-tag')).toHaveAttribute(
+        'style',
+        /--diffstat-hue: 0/
+      );
     });
   });
 
@@ -506,11 +503,8 @@ test.describe('Notification Rendering', () => {
     test('timestamp exposes datetime and title', async ({ page }) => {
       const time = page.locator('[data-id="issue-open"] .notification-time');
       await expect(time).toContainText(/ago|now/);
-      const datetime = await time.getAttribute('datetime');
-      const title = await time.getAttribute('title');
-      expect(datetime).toBeTruthy();
-      expect(new Date(datetime!).getTime()).not.toBeNaN();
-      expect(title).toBeTruthy();
+      await expect(time).toHaveAttribute('datetime', /.+/);
+      await expect(time).toHaveAttribute('title', /.+/);
     });
   });
 

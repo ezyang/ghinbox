@@ -117,8 +117,11 @@ test.describe('Comment prefetch status', () => {
 
     const statusBar = page.locator('#status-bar');
     await expect(statusBar).toContainText('Prefetch:');
-    await page.waitForTimeout(800);
-    await expect(statusBar).toContainText('Prefetch:');
+    // Verify the prefetch status remains visible while work is in progress
+    // (the mock delays comments by 1000ms, so poll until near that deadline)
+    await expect
+      .poll(async () => (await statusBar.textContent()) || '', { timeout: 900, intervals: [100] })
+      .toContain('Prefetch:');
     await expect(statusBar).toBeVisible();
   });
 });

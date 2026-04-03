@@ -109,10 +109,7 @@ test.describe('Selection', () => {
     test('select all is indeterminate when some are selected', async ({ page }) => {
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       const selectAll = page.locator('#select-all-checkbox');
-      const isIndeterminate = await selectAll.evaluate(
-        (el: HTMLInputElement) => el.indeterminate
-      );
-      expect(isIndeterminate).toBe(true);
+      await expect(selectAll).toHaveJSProperty('indeterminate', true);
     });
   });
 
@@ -153,10 +150,7 @@ test.describe('Selection', () => {
       // Only 1 should be selected (the open one)
       const selectedItems = page.locator('.notification-item.selected');
       await expect(selectedItems).toHaveCount(1);
-      const isIndeterminate = await page
-        .locator('#select-all-checkbox')
-        .evaluate((el: HTMLInputElement) => el.indeterminate);
-      expect(isIndeterminate).toBe(true);
+      await expect(page.locator('#select-all-checkbox')).toHaveJSProperty('indeterminate', true);
     });
   });
 });
