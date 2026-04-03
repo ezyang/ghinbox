@@ -99,6 +99,41 @@
             smoothScrollTo(document.body.scrollHeight);
         }
 
+        // Scroll anchoring: before removing notifications, capture the first
+        // surviving item visible in the viewport so we can restore its position
+        // after render() rebuilds the DOM.
+        function captureScrollAnchor(removedIds) {
+            const removedSet = removedIds instanceof Set ? removedIds : new Set(Array.isArray(removedIds) ? removedIds : [removedIds]);
+            const items = elements.notificationsList.querySelectorAll('.notification-item');
+            // Find the first surviving item that appears AFTER the last removed item.
+            // This ensures we anchor to content below the removal point, which is
+            // what shifts when items are removed.
+            let pastRemoved = false;
+            for (const item of items) {
+                const id = item.getAttribute('data-id');
+                if (removedSet.has(id)) {
+                    pastRemoved = true;
+                    continue;
+                }
+                if (pastRemoved) {
+                    const rect = item.getBoundingClientRect();
+                    return { id, viewportTop: rect.top };
+                }
+            }
+            return null;
+        }
+
+        function restoreScrollAnchor(anchor) {
+            if (!anchor) return;
+            const item = getNotificationElement(anchor.id);
+            if (!item) return;
+            const newTop = item.getBoundingClientRect().top;
+            const drift = newTop - anchor.viewportTop;
+            if (Math.abs(drift) > 1) {
+                window.scrollTo(0, window.scrollY + drift);
+            }
+        }
+
         async function triggerActiveNotificationAction(action) {
             if (!state.activeNotificationId) {
                 return;

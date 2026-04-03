@@ -337,6 +337,7 @@
             const undoEntry = pushToUndoStack('done', notificationsToRestore);
 
             const selectedIdSet = new Set(selectedIds);
+            const scrollAnchor = captureScrollAnchor(selectedIdSet);
             state.notifications = state.notifications.filter(
                 notif => !selectedIdSet.has(notif.id)
             );
@@ -347,6 +348,7 @@
             // Update localStorage
             persistNotifications();
             render();
+            restoreScrollAnchor(scrollAnchor);
 
             // Enqueue and process
             enqueueDoneItems(selectedIds, notificationLookup);
@@ -974,6 +976,7 @@
 
             // Remove from UI immediately (optimistic update)
             const filteredBeforeRemoval = getFilteredNotifications();
+            const scrollAnchor = captureScrollAnchor(notifId);
             advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
             state.notifications = state.notifications.filter(
                 n => n.id !== notifId
@@ -984,6 +987,7 @@
                 ? pushToUndoStack('done', [notificationToRemove])
                 : null;
             render();
+            restoreScrollAnchor(scrollAnchor);
 
             // Enqueue and process - fire and forget (don't block UI)
             enqueueDoneItems([notifId], notificationLookup);
@@ -1026,6 +1030,7 @@
 
             // Remove from UI immediately (optimistic update)
             const filteredBeforeRemoval = getFilteredNotifications();
+            const scrollAnchor = captureScrollAnchor(notifId);
             advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
             state.notifications = state.notifications.filter(n => n.id !== notifId);
             state.selected.delete(notifId);
@@ -1034,6 +1039,7 @@
                 ? pushToUndoStack('unsubscribe', [notificationToRemove])
                 : null;
             render();
+            restoreScrollAnchor(scrollAnchor);
 
             try {
                 const result = await unsubscribeNotification(notifId, notificationToRemove);
@@ -1104,12 +1110,14 @@
 
             // Remove from UI immediately (optimistic update)
             const filteredBeforeRemoval = getFilteredNotifications();
+            const scrollAnchor = captureScrollAnchor(notifId);
             advanceActiveNotificationBeforeRemoval(notifId, filteredBeforeRemoval);
             state.notifications = state.notifications.filter(n => n.id !== notifId);
             state.selected.delete(notifId);
             persistNotifications();
             const undoEntry = pushToUndoStack('remove_reviewer', [notification]);
             render();
+            restoreScrollAnchor(scrollAnchor);
 
             try {
                 // Remove reviewer
