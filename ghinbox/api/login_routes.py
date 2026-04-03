@@ -683,10 +683,15 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
     os.environ["GHSIM_ACCOUNT"] = account
     logger.warning("Set GHSIM_ACCOUNT=%s", account)
 
-    # Check if fetcher already exists
-    if get_fetcher() is not None:
-        logger.warning("Fetcher already exists, skipping initialization")
-        return True
+    # Close existing fetcher so it gets re-created with fresh cookies
+    old_fetcher = get_fetcher()
+    if old_fetcher is not None:
+        logger.warning("Closing existing fetcher to re-create with fresh auth state")
+        try:
+            old_fetcher.stop()
+        except Exception as e:
+            logger.warning("Error closing old fetcher: %s", e)
+        set_fetcher(None)
 
     headless = os.environ.get("GHSIM_HEADLESS", "1") == "1"
     logger.warning("headless=%s", headless)

@@ -604,6 +604,20 @@
                 return { status: 'error', error: error.message || String(error) };
             }
             if (!response.ok) {
+                // Check for session expired (401 with session_expired error)
+                if (response.status === 401) {
+                    try {
+                        const errorData = await response.json();
+                        if (errorData.detail?.error === 'session_expired') {
+                            showStatus('Session expired. Redirecting to login...', 'error');
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                            window.location.href = '/app/login.html?session_refresh=1';
+                            return { status: 'error', error: 'Session expired' };
+                        }
+                    } catch (_) {
+                        // fall through to generic error
+                    }
+                }
                 let detail = '';
                 try {
                     detail = await response.text();
