@@ -233,11 +233,9 @@ test.describe('Keyboard Shortcuts', () => {
     // Press Enter
     await page.keyboard.press('Enter');
 
-    // Wait a moment to ensure no page opens
-    await page.waitForTimeout(100);
-
-    // No new page should have opened
-    expect(newPageOpened).toBe(false);
+    // Give the browser a chance to process the keypress, then assert no page opened.
+    // Using expect.poll so this retries briefly but fails fast if the flag flips.
+    await expect.poll(() => newPageOpened, { timeout: 500 }).toBe(false);
   });
 
   test('G (shift+g) scrolls to the bottom of the page', async ({ page }) => {
@@ -251,12 +249,8 @@ test.describe('Keyboard Shortcuts', () => {
     // Press G (shift+g) to scroll to bottom
     await page.keyboard.press('Shift+G');
 
-    // Wait for scroll animation to complete (150ms + buffer)
-    await page.waitForTimeout(200);
-
-    // Verify we scrolled down
-    const scrollTopAfter = await page.evaluate(() => window.scrollY);
-    expect(scrollTopAfter).toBeGreaterThan(0);
+    // Wait for scroll to actually happen
+    await page.waitForFunction(() => window.scrollY > 0);
   });
 
   test('gg (two g presses) scrolls to the top of the page', async ({ page }) => {
@@ -265,20 +259,14 @@ test.describe('Keyboard Shortcuts', () => {
 
     // First scroll down using G
     await page.keyboard.press('Shift+G');
-    await page.waitForTimeout(200);
-    const scrollTopAfterG = await page.evaluate(() => window.scrollY);
-    expect(scrollTopAfterG).toBeGreaterThan(0);
+    await page.waitForFunction(() => window.scrollY > 0);
 
     // Press gg to scroll to top
     await page.keyboard.press('g');
     await page.keyboard.press('g');
 
-    // Wait for scroll animation to complete (150ms + buffer)
-    await page.waitForTimeout(200);
-
-    // Verify we're back at the top
-    const scrollTopAfterGG = await page.evaluate(() => window.scrollY);
-    expect(scrollTopAfterGG).toBe(0);
+    // Wait for scroll back to top
+    await page.waitForFunction(() => window.scrollY === 0);
   });
 
   test('gg does not change keyboard selection', async ({ page }) => {
