@@ -88,6 +88,27 @@ test.describe('Sync Functionality', () => {
     await expect(page.locator('#notification-count')).toContainText('3 notifications');
   });
 
+  test('session-expired sync response redirects to login refresh', async ({ page }) => {
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: {
+            error: 'session_expired',
+            message: 'GitHub session has expired. Please re-authenticate.',
+          },
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Session expired');
+    await expect(page).toHaveURL(/\/app\/login\.html\?session_refresh=1/);
+  });
+
   test('sync stores notifications in IndexedDB', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
