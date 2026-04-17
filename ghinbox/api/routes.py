@@ -101,6 +101,15 @@ async def get_repo_notifications(
             before=before,
             after=after,
         )
+        if result.status == "session_expired":
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "session_expired",
+                    "message": result.error
+                    or "GitHub session has expired. Please re-authenticate.",
+                },
+            )
         if result.status == "error":
             print(f"[notifications] Fetch error for {owner}/{repo}: {result.error}")
             raise HTTPException(

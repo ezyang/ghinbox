@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ghinbox.api.app import app
+from ghinbox.api.fetcher import FetchResult
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -159,6 +160,35 @@ class TestGetRepoNotifications:
         data = response.json()
 
         assert "after=cursor123" in data["source_url"]
+
+    def test_live_fetch_session_expired_returns_401(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test live fetch login redirects surface as session_expired."""
+
+        class FakeFetcher:
+            def fetch_repo_notifications(
+                self,
+                owner: str,
+                repo: str,
+                before: str | None = None,
+                after: str | None = None,
+            ) -> FetchResult:
+                return FetchResult(
+                    html="<html><title>Unicorn! - GitHub</title></html>",
+                    url=f"https://github.com/notifications?query=repo:{owner}/{repo}",
+                    status="session_expired",
+                    error="GitHub redirected notifications request to login.",
+                )
+
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+
+        response = client.get("/notifications/html/repo/testowner/testrepo")
+
+        assert response.status_code == 401
+        detail = response.json()["detail"]
+        assert detail["error"] == "session_expired"
+        assert "redirected" in detail["message"]
 
 
 class TestParseEndpoint:
