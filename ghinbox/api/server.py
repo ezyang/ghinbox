@@ -144,6 +144,10 @@ def main() -> int:
         "--site-password",
         help="Require this password to access the site (cookie-based gate)",
     )
+    parser.add_argument(
+        "--db-path",
+        help="Path to SQLite database file (overrides default location)",
+    )
 
     args = parser.parse_args()
 
@@ -152,6 +156,9 @@ def main() -> int:
 
     if args.site_password:
         os.environ["GHINBOX_SITE_PASSWORD"] = args.site_password
+
+    if args.db_path:
+        os.environ["GHINBOX_DB_PATH"] = args.db_path
 
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")

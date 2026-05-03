@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { clearAppStorage, readCommentCache, seedCommentCache } from './storage-utils';
 
 test.describe('Comment cache', () => {

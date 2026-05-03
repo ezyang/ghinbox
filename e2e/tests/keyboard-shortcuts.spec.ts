@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { clearAppStorage, seedCommentCache } from './storage-utils';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 

@@ -1,40 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
-import { execSync } from 'child_process';
 
 /**
  * Playwright configuration for GitHub notifications webapp E2E tests.
  *
- * The tests run against the FastAPI server which serves:
- * - API endpoints at /notifications/html/*, /github/*
- * - Static webapp at /app/
+ * Each Playwright worker gets its own server instance (with a unique SQLite DB)
+ * via the worker-scoped fixture in tests/fixtures.ts. This prevents cross-test
+ * state contamination through the server-side store.
  *
- * IMPORTANT: Test Server Architecture
- * -----------------------------------
- * By default, a random free port is allocated so multiple test runs can execute
- * concurrently without conflicts. Set TEST_PORT to override with a fixed port.
- * The test server is started with --test flag which:
+ * The server is started with --test flag which:
  * 1. Disables live GitHub fetching (no GHSIM_ACCOUNT set)
  * 2. Enables the /health/test endpoint (returns 200 only in test mode)
- *
- * The /health/test endpoint is the key safety mechanism:
- * - In test mode: returns 200, allowing server reuse
- * - In production mode: returns 503, forcing Playwright to start a fresh test server
- *
- * This prevents tests from accidentally connecting to a production server that
- * might be running, which would consume real GitHub API quota.
  */
-
-// Test server port - auto-allocate a free port to allow concurrent test runs.
-// Set TEST_PORT env var to override with a fixed port.
-// We must set process.env.TEST_PORT so worker processes (which re-evaluate this
-// config) use the same port as the main process that starts the webServer.
-if (!process.env.TEST_PORT) {
-  process.env.TEST_PORT = execSync(
-    `node -e "const s=require('net').createServer();s.listen(0,()=>{process.stdout.write(String(s.address().port));s.close()})"`,
-    { encoding: 'utf-8' },
-  ).trim();
-}
-const TEST_PORT = process.env.TEST_PORT;
 
 export default defineConfig({
   testDir: './tests',
@@ -60,8 +36,7 @@ export default defineConfig({
 
   // Shared settings for all projects
   use: {
-    // Base URL for the webapp (using test port)
-    baseURL: `http://localhost:${TEST_PORT}/app/`,
+    // baseURL is set per-worker by the workerServer fixture in tests/fixtures.ts
 
     // Collect trace when retrying the failed test
     trace: 'on-first-retry',
@@ -78,15 +53,7 @@ export default defineConfig({
     },
   ],
 
-  // Run local dev server before starting the tests
-  webServer: {
-    command: `cd .. && uv run python -m ghinbox.api.server --test --no-reload --port ${TEST_PORT}`,
-    // CRITICAL: Use /health/test endpoint which returns 503 if server is not in test mode.
-    // This prevents reusing a production server that might be running on this port.
-    url: `http://localhost:${TEST_PORT}/health/test`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
-  },
+  // No webServer config — each worker starts its own server via fixtures.ts
 
   // Output directory for test artifacts
   outputDir: 'test-results',

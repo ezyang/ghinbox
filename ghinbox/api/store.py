@@ -15,6 +15,9 @@ from datetime import datetime, timezone
 
 
 def _default_db_path() -> str:
+    explicit = os.environ.get("GHINBOX_DB_PATH")
+    if explicit:
+        return explicit
     if os.environ.get("GHINBOX_TEST_MODE") == "1":
         # In test mode, use a temp directory so tests don't pollute real data
         return os.path.join(tempfile.gettempdir(), "ghinbox_test.db")

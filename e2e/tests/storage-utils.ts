@@ -11,6 +11,8 @@ export async function clearAppStorage(page: Page) {
   }
   await clearCacheStores(page);
   await page.evaluate(() => localStorage.clear());
+  // Clear server-side store (each worker has its own isolated DB)
+  await page.request.delete('/api/store/all').catch(() => {});
   await page.reload();
 }
 

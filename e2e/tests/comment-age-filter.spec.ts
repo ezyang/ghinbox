@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { clearAppStorage, seedCommentCache } from './storage-utils';
 
 // Create comments with different ages
