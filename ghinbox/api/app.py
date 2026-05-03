@@ -17,6 +17,12 @@ from ghinbox.api.observability import (
     ObservabilityMiddleware,
     router as observability_router,
 )
+from ghinbox.api.snapshot_routes import (
+    router as snapshot_router,
+    start_periodic_snapshot_sync,
+    stop_periodic_snapshot_sync,
+)
+from ghinbox.api.snapshot_store import init_snapshot_db
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
@@ -49,13 +55,21 @@ def _get_webapp_dir() -> Path | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize fetcher on startup if account is configured."""
+    init_snapshot_db()
+
     account = os.environ.get("GHSIM_ACCOUNT")
     if account:
         headless = os.environ.get("GHSIM_HEADLESS", "1") == "1"
         fetcher = NotificationsFetcher(account=account, headless=headless)
         set_fetcher(fetcher)
 
+    sync_interval = int(os.environ.get("GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS", "0"))
+    if sync_interval > 0:
+        start_periodic_snapshot_sync(sync_interval)
+
     yield
+
+    stop_periodic_snapshot_sync()
 
     # Cleanup on shutdown - must run in thread pool because Playwright's
     # sync API cannot be called from a different thread than it started in
@@ -102,6 +116,7 @@ app.include_router(github_proxy_router)
 app.include_router(login_router)
 app.include_router(site_auth_router)
 app.include_router(observability_router)
+app.include_router(snapshot_router)
 
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:

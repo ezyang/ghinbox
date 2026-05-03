@@ -157,6 +157,20 @@ def main() -> int:
         action="store_true",
         help="Disable JSONL request logging. Recent in-memory requests remain enabled.",
     )
+    parser.add_argument(
+        "--snapshot-db-path",
+        default=None,
+        help="Path to SQLite database for server-side notification snapshots.",
+    )
+    parser.add_argument(
+        "--snapshot-sync-interval-minutes",
+        type=float,
+        default=0,
+        help=(
+            "Periodically refresh repos with existing server snapshots. "
+            "Disabled by default."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -165,6 +179,11 @@ def main() -> int:
 
     if args.site_password:
         os.environ["GHINBOX_SITE_PASSWORD"] = args.site_password
+    if args.snapshot_db_path:
+        os.environ["GHINBOX_SNAPSHOT_DB_PATH"] = args.snapshot_db_path
+    if args.snapshot_sync_interval_minutes > 0:
+        interval_seconds = int(args.snapshot_sync_interval_minutes * 60)
+        os.environ["GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS"] = str(interval_seconds)
     if args.no_request_log:
         os.environ["GHINBOX_REQUEST_LOG_ENABLED"] = "0"
     else:

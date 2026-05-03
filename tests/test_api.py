@@ -44,6 +44,30 @@ class TestHealthEndpoint:
         assert "account" in data
 
 
+class TestSnapshotEndpoints:
+    """Tests for server-owned snapshot endpoints."""
+
+    def test_snapshot_returns_empty_without_sync(self, client: TestClient) -> None:
+        """Test that unknown repos return an empty snapshot envelope."""
+        response = client.get("/api/snapshots/testowner/testrepo")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["repository"]["full_name"] == "testowner/testrepo"
+        assert data["snapshot"] is None
+        assert data["sync"]["status"] == "idle"
+
+    def test_start_sync_requires_live_fetcher(self, client: TestClient) -> None:
+        """Test that background sync fails fast without a configured fetcher."""
+        response = client.post(
+            "/api/snapshots/testowner/testrepo/sync",
+            json={"mode": "full"},
+        )
+
+        assert response.status_code == 503
+        assert "No GitHub fetcher configured" in response.json()["detail"]
+
+
 class TestDebugEndpoints:
     """Tests for local observability endpoints."""
 

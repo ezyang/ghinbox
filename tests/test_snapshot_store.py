@@ -1,0 +1,94 @@
+"""Tests for server-owned notification snapshots."""
+
+import os
+import tempfile
+
+import pytest
+
+from ghinbox.api.snapshot_store import (
+    get_snapshot,
+    get_sync_state,
+    init_snapshot_db,
+    save_snapshot,
+    set_sync_state,
+)
+
+
+@pytest.fixture
+def db_path():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    init_snapshot_db(path)
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.unlink(path + suffix)
+        except FileNotFoundError:
+            pass
+
+
+def test_snapshot_round_trip(db_path) -> None:
+    notifications = [
+        {
+            "id": "notif-1",
+            "updated_at": "2024-12-27T10:00:00Z",
+            "subject": {"title": "First", "type": "Issue"},
+        }
+    ]
+
+    save_snapshot(
+        "owner/repo",
+        notifications,
+        authenticity_token="token",
+        source_url="https://github.com/notifications",
+        generated_at="2024-12-27T10:00:01+00:00",
+        db_path=db_path,
+    )
+
+    snapshot = get_snapshot("owner/repo", db_path)
+
+    assert snapshot is not None
+    assert snapshot["notifications"] == notifications
+    assert snapshot["authenticity_token"] == "token"
+    assert snapshot["source_url"] == "https://github.com/notifications"
+    assert snapshot["generated_at"] == "2024-12-27T10:00:01+00:00"
+    assert snapshot["synced_at"]
+
+
+def test_missing_sync_state_is_idle(db_path) -> None:
+    state = get_sync_state("owner/repo", db_path)
+
+    assert state["status"] == "idle"
+    assert state["pages_fetched"] == 0
+    assert state["notifications_count"] == 0
+
+
+def test_sync_state_round_trip(db_path) -> None:
+    state = set_sync_state(
+        "owner/repo",
+        status="running",
+        started_at="2024-12-27T10:00:00+00:00",
+        pages_fetched=2,
+        notifications_count=50,
+        db_path=db_path,
+    )
+
+    assert state["status"] == "running"
+    assert state["started_at"] == "2024-12-27T10:00:00+00:00"
+    assert state["pages_fetched"] == 2
+    assert state["notifications_count"] == 50
+
+    state = set_sync_state(
+        "owner/repo",
+        status="success",
+        started_at="2024-12-27T10:00:00+00:00",
+        finished_at="2024-12-27T10:01:00+00:00",
+        pages_fetched=3,
+        notifications_count=75,
+        db_path=db_path,
+    )
+
+    assert state["status"] == "success"
+    assert state["finished_at"] == "2024-12-27T10:01:00+00:00"
+    assert state["pages_fetched"] == 3
+    assert state["notifications_count"] == 75
