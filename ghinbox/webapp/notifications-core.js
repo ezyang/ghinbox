@@ -986,9 +986,9 @@
                 : false;
         }
 
-        function safeHasNotificationAuthorAssociation(notification) {
-            return typeof hasNotificationAuthorAssociation === 'function'
-                ? hasNotificationAuthorAssociation(notification)
+        function safeHasNotificationAuthorPermission(notification) {
+            return typeof hasNotificationAuthorPermission === 'function'
+                ? hasNotificationAuthorPermission(notification)
                 : false;
         }
 
@@ -996,7 +996,7 @@
             if (notification.subject?.type !== 'PullRequest') {
                 return false;
             }
-            if (!safeHasNotificationAuthorAssociation(notification)) {
+            if (!safeHasNotificationAuthorPermission(notification)) {
                 return false;
             }
             return !safeIsNotificationFromCommitter(notification);

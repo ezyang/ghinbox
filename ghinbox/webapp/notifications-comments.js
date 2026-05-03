@@ -193,6 +193,21 @@ function isAuthorAssociationFresh(cached) {
     return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
 }
 
+function isAuthorPermissionFresh(cached) {
+    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorPermission')) {
+        return false;
+    }
+    const fetchedAt = cached.authorPermissionFetchedAt || cached.fetchedAt;
+    if (!fetchedAt) {
+        return false;
+    }
+    const fetchedAtMs = Date.parse(fetchedAt);
+    if (Number.isNaN(fetchedAtMs)) {
+        return false;
+    }
+    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+}
+
 function isAuthorLoginFresh(cached) {
     if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorLogin')) {
         return false;
@@ -230,7 +245,10 @@ function isDiffstatFresh(cached) {
 function scheduleCommentPrefetch(notifications) {
     // Invariant: comment/review metadata prefetch happens immediately after sync.
     // UI filter changes should not trigger new prefetch work.
-    scheduleReviewDecisionPrefetch(notifications, { includeAuthorAssociation: true });
+    scheduleReviewDecisionPrefetch(notifications, {
+        includeAuthorAssociation: true,
+        includeAuthorPermission: true,
+    });
     const pending = notifications.filter(shouldPrefetchNotificationComments);
     if (!pending.length) {
         return;
@@ -489,8 +507,60 @@ function setReviewDecisionCache(
     state.commentCache.threads[threadId] = next;
 }
 
+function setAuthorPermissionCache(notification, authorPermission) {
+    const threadId = getNotificationKey(notification);
+    const existing = state.commentCache.threads[threadId] || {};
+    state.commentCache.threads[threadId] = {
+        ...existing,
+        notificationUpdatedAt: notification.updated_at || existing.notificationUpdatedAt,
+        authorPermission,
+        authorPermissionFetchedAt: new Date().toISOString(),
+    };
+}
+
+async function fetchAuthorPermission(repo, login) {
+    const url =
+        `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}` +
+        `/collaborators/${encodeURIComponent(login)}/permission`;
+    const payload = await fetchJson(url);
+    return payload?.permission || payload?.role_name || null;
+}
+
+async function prefetchAuthorPermissions(repo, notifications) {
+    const loginToNotifications = new Map();
+    notifications.forEach((notif) => {
+        const cached = state.commentCache.threads[getNotificationKey(notif)];
+        if (!cached || isAuthorPermissionFresh(cached)) {
+            return;
+        }
+        const login = String(cached.authorLogin || '').trim();
+        if (!login) {
+            return;
+        }
+        const existing = loginToNotifications.get(login) || [];
+        existing.push(notif);
+        loginToNotifications.set(login, existing);
+    });
+    if (!loginToNotifications.size) {
+        return;
+    }
+    await Promise.all(
+        Array.from(loginToNotifications.entries()).map(async ([login, loginNotifications]) => {
+            try {
+                const permission = await fetchAuthorPermission(repo, login);
+                loginNotifications.forEach((notif) => {
+                    setAuthorPermissionCache(notif, permission);
+                });
+            } catch (error) {
+                console.error(`Failed to fetch permission for ${login}:`, error);
+            }
+        })
+    );
+}
+
 async function prefetchReviewDecisions(repo, notifications, options = {}) {
     const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
+    const includeAuthorPermission = Boolean(options.includeAuthorPermission);
     const issueNumbers = notifications
         .map((notif) => getIssueNumber(notif))
         .filter((issueNumber) => typeof issueNumber === 'number');
@@ -540,6 +610,9 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
                     changedFiles: entry.changedFiles,
                 };
             });
+            if (includeAuthorPermission) {
+                await prefetchAuthorPermissions(repo, notifications);
+            }
         }
         setGraphqlRateLimitError(null);
     } catch (error) {
@@ -550,6 +623,7 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
 function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     const force = Boolean(options.force);
     const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
+    const includeAuthorPermission = Boolean(options.includeAuthorPermission);
     const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
     if (!repo) {
         return;
@@ -567,11 +641,14 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
             const needsReviewDecision = !isReviewDecisionFresh(cached);
             const needsAuthorAssociation =
                 includeAuthorAssociation && !isAuthorAssociationFresh(cached);
+            const needsAuthorPermission =
+                includeAuthorPermission && !isAuthorPermissionFresh(cached);
             const needsAuthorLogin = !isAuthorLoginFresh(cached);
             const needsDiffstat = !isDiffstatFresh(cached);
             return (
                 needsReviewDecision ||
                 needsAuthorAssociation ||
+                needsAuthorPermission ||
                 needsAuthorLogin ||
                 needsDiffstat
             );
@@ -580,7 +657,7 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
         return;
     }
     if (force) {
-        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
+        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation, includeAuthorPermission })
             .then(() => {
                 saveCommentCache();
                 render();
@@ -591,7 +668,7 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
         return;
     }
     state.commentQueue.push(() =>
-        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
+        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation, includeAuthorPermission })
     );
     runCommentQueue();
 }
@@ -605,6 +682,8 @@ async function prefetchNotificationComments(notification) {
     const existingAuthorLoginFetchedAt = cached?.authorLoginFetchedAt;
     const existingAuthorAssociation = cached?.authorAssociation;
     const existingAuthorAssociationFetchedAt = cached?.authorAssociationFetchedAt;
+    const existingAuthorPermission = cached?.authorPermission;
+    const existingAuthorPermissionFetchedAt = cached?.authorPermissionFetchedAt;
     const existingDiffstat = {
         additions: cached?.additions,
         deletions: cached?.deletions,
@@ -645,6 +724,12 @@ async function prefetchNotificationComments(notification) {
             fetchedAt: new Date().toISOString(),
             reviewDecision: existingReviewDecision,
             reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
+            authorLogin: existingAuthorLogin,
+            authorLoginFetchedAt: existingAuthorLoginFetchedAt,
+            authorAssociation: existingAuthorAssociation,
+            authorAssociationFetchedAt: existingAuthorAssociationFetchedAt,
+            authorPermission: existingAuthorPermission,
+            authorPermissionFetchedAt: existingAuthorPermissionFetchedAt,
             ...existingDiffstat,
         };
         return;
@@ -721,6 +806,10 @@ async function prefetchNotificationComments(notification) {
             next.authorAssociation = existingAuthorAssociation;
             next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
         }
+        if (existingAuthorPermission !== null && existingAuthorPermission !== undefined) {
+            next.authorPermission = existingAuthorPermission;
+            next.authorPermissionFetchedAt = existingAuthorPermissionFetchedAt;
+        }
         state.commentCache.threads[threadId] = next;
     } catch (error) {
         const next = {
@@ -740,6 +829,10 @@ async function prefetchNotificationComments(notification) {
         if (existingAuthorAssociation !== null && existingAuthorAssociation !== undefined) {
             next.authorAssociation = existingAuthorAssociation;
             next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
+        }
+        if (existingAuthorPermission !== null && existingAuthorPermission !== undefined) {
+            next.authorPermission = existingAuthorPermission;
+            next.authorPermissionFetchedAt = existingAuthorPermissionFetchedAt;
         }
         state.commentCache.threads[threadId] = next;
     }
@@ -1055,12 +1148,11 @@ function isNotificationFromCommitter(notification) {
     if (!cached || cached.error) {
         return false;
     }
-    const association = String(cached.authorAssociation || '').toUpperCase();
-    const committerAssociations = new Set(['COLLABORATOR', 'MEMBER', 'OWNER']);
-    return committerAssociations.has(association);
+    const permission = String(cached.authorPermission || '').toLowerCase();
+    return permission === 'write' || permission === 'admin';
 }
 
-function hasNotificationAuthorAssociation(notification) {
+function hasNotificationAuthorPermission(notification) {
     if (notification.subject?.type !== 'PullRequest') {
         return false;
     }
@@ -1068,7 +1160,7 @@ function hasNotificationAuthorAssociation(notification) {
     if (!cached || cached.error) {
         return false;
     }
-    return Object.prototype.hasOwnProperty.call(cached, 'authorAssociation');
+    return Object.prototype.hasOwnProperty.call(cached, 'authorPermission');
 }
 
 function isUninterestingComment(comment) {

@@ -359,11 +359,33 @@ test.describe('Filtering', () => {
                 resetAt: new Date().toISOString(),
               },
               repository: {
-                pr43: { reviewDecision: null, authorAssociation: 'COLLABORATOR' },
-                pr40: { reviewDecision: null, authorAssociation: 'CONTRIBUTOR' },
+                pr43: {
+                  reviewDecision: null,
+                  authorAssociation: 'COLLABORATOR',
+                  author: { login: 'maintainer' },
+                },
+                pr40: {
+                  reviewDecision: null,
+                  authorAssociation: 'MEMBER',
+                  author: { login: 'orgmember' },
+                },
               },
             },
           }),
+        });
+      });
+      await page.route('**/github/rest/repos/test/repo/collaborators/maintainer/permission', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ permission: 'write', role_name: 'write' }),
+        });
+      });
+      await page.route('**/github/rest/repos/test/repo/collaborators/orgmember/permission', (route) => {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ permission: 'read', role_name: 'read' }),
         });
       });
 
