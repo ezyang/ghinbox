@@ -83,16 +83,27 @@
 
         // Handle Mark Done button click
         function getMarkDoneTargets(filteredNotifications = getFilteredNotifications()) {
+            const actionableNotifications = filteredNotifications.filter((notif) =>
+                typeof hasNotificationHtmlAction !== 'function' ||
+                hasNotificationHtmlAction(notif, 'archive')
+            );
             if (state.selected.size > 0) {
+                const actionableSelected = Array.from(state.selected).filter((id) => {
+                    const notif = filteredNotifications.find((item) => item.id === id);
+                    return notif && (
+                        typeof hasNotificationHtmlAction !== 'function' ||
+                        hasNotificationHtmlAction(notif, 'archive')
+                    );
+                });
                 return {
-                    ids: Array.from(state.selected),
+                    ids: actionableSelected,
                     label: 'Mark selected as done',
-                    show: true,
+                    show: actionableSelected.length > 0,
                 };
             }
-            if (filteredNotifications.length > 0) {
+            if (actionableNotifications.length > 0) {
                 return {
-                    ids: filteredNotifications.map((notif) => notif.id),
+                    ids: actionableNotifications.map((notif) => notif.id),
                     label: 'Mark all as done',
                     show: true,
                 };
@@ -1205,27 +1216,35 @@
                     showStatus(`Failed to remove reviewer: ${errorDetail}. Proceeding with unsubscribe...`, 'info');
                 }
 
-                // Always unsubscribe
-                const unsubResult = await unsubscribeNotification(notifId, notification);
+                const canUnsubscribe =
+                    typeof hasNotificationHtmlAction === 'function' &&
+                    hasNotificationHtmlAction(notification, 'unsubscribe');
+                const canMarkDone =
+                    typeof hasNotificationHtmlAction !== 'function' ||
+                    hasNotificationHtmlAction(notification, 'archive');
 
-                if (unsubResult.rateLimited || !unsubResult.success) {
-                    const msg = unsubResult.rateLimited
-                        ? 'Rate limited. Please try again shortly.'
-                        : `Failed to unsubscribe: ${unsubResult.error || `HTTP ${unsubResult.status || 'unknown'}`}`;
-                    showStatus(msg, unsubResult.rateLimited ? 'info' : 'error');
-                    restoreNotificationsInOrder([notification]);
-                    persistNotifications();
-                    removeUndoEntry(undoEntry);
-                    render();
-                    return;
+                if (canUnsubscribe) {
+                    const unsubResult = await unsubscribeNotification(notifId, notification);
+
+                    if (unsubResult.rateLimited || !unsubResult.success) {
+                        const msg = unsubResult.rateLimited
+                            ? 'Rate limited. Please try again shortly.'
+                            : `Failed to unsubscribe: ${unsubResult.error || `HTTP ${unsubResult.status || 'unknown'}`}`;
+                        showStatus(msg, unsubResult.rateLimited ? 'info' : 'error');
+                        restoreNotificationsInOrder([notification]);
+                        persistNotifications();
+                        removeUndoEntry(undoEntry);
+                        render();
+                        return;
+                    }
                 }
 
-                // Enqueue mark-done into the shared queue
-                const notificationLookup = new Map();
-                notificationLookup.set(notifId, notification);
-                enqueueDoneItems([notifId], notificationLookup);
-                // Fire and forget
-                processDoneQueue();
+                if (canMarkDone) {
+                    const notificationLookup = new Map();
+                    notificationLookup.set(notifId, notification);
+                    enqueueDoneItems([notifId], notificationLookup);
+                    processDoneQueue();
+                }
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 showStatus(`Failed: ${errorDetail}`, 'error');

@@ -436,6 +436,98 @@
             return null;
         }
 
+        function buildReviewRequestSearchUrl(repo, login) {
+            const query = [
+                `repo:${repo.owner}/${repo.repo}`,
+                'is:pr',
+                'is:open',
+                `review-requested:${login}`,
+            ].join(' ');
+            return `/github/rest/search/issues?q=${encodeURIComponent(query)}&per_page=100`;
+        }
+
+        function searchItemToResponsibilityNotification(repo, item) {
+            const user = item.user || {};
+            const state = item.draft ? 'draft' : 'open';
+            return {
+                id: `review-request:${repo.owner}/${repo.repo}#${item.number}`,
+                unread: false,
+                reason: 'review_requested',
+                responsibility_source: 'review-requested',
+                updated_at: item.updated_at || item.created_at || new Date().toISOString(),
+                last_read_at: item.updated_at || item.created_at || null,
+                subject: {
+                    title: item.title || `Pull request #${item.number}`,
+                    url: item.html_url || `https://github.com/${repo.owner}/${repo.repo}/pull/${item.number}`,
+                    type: 'PullRequest',
+                    number: item.number,
+                    state,
+                    state_reason: null,
+                },
+                actors: user.login
+                    ? [{
+                        login: user.login,
+                        avatar_url: user.avatar_url || '',
+                    }]
+                    : [],
+                ui: {
+                    saved: false,
+                    done: false,
+                    action_tokens: {},
+                },
+            };
+        }
+
+        async function fetchReviewRequestNotifications(repo) {
+            if (!state.currentUserLogin && typeof checkAuth === 'function') {
+                await checkAuth();
+            }
+            const login = String(state.currentUserLogin || '').trim();
+            if (!login) {
+                return [];
+            }
+            const response = await fetch(buildReviewRequestSearchUrl(repo, login));
+            if (!response.ok) {
+                const detail = await response.text();
+                throw new Error(`Review request search failed (${response.status}): ${detail}`);
+            }
+            const payload = await response.json();
+            const items = Array.isArray(payload?.items) ? payload.items : [];
+            return items
+                .filter((item) => item?.number && item?.pull_request)
+                .map((item) => searchItemToResponsibilityNotification(repo, item));
+        }
+
+        function mergeReviewRequestNotifications(notifications, reviewRequests, repo) {
+            if (!reviewRequests.length) {
+                return notifications;
+            }
+            const merged = notifications.map((notif) => ({ ...notif }));
+            const indexByKey = new Map();
+            merged.forEach((notif, index) => {
+                const key = getNotificationMatchKeyForRepo(notif, repo);
+                if (key) {
+                    indexByKey.set(key, index);
+                }
+            });
+            reviewRequests.forEach((requestNotif) => {
+                const key = getNotificationMatchKeyForRepo(requestNotif, repo);
+                const existingIndex = indexByKey.get(key);
+                if (existingIndex === undefined) {
+                    indexByKey.set(key, merged.length);
+                    merged.push(requestNotif);
+                    return;
+                }
+                const existing = merged[existingIndex];
+                merged[existingIndex] = {
+                    ...existing,
+                    reason: existing.reason || 'review_requested',
+                    responsibility_source: 'review-requested',
+                };
+            });
+            return merged;
+        }
+
         async function fetchGraphqlForSync(query, variables) {
             if (typeof fetchGraphql === 'function') {
                 return fetchGraphql(query, variables);
@@ -925,6 +1017,34 @@
                     showStatus(
                         `${syncLabel}: no overlap found, using fetched pages only`,
                         'info'
+                    );
+                }
+
+                try {
+                    showStatus(
+                        `${syncLabel}: checking review requests assigned to you`,
+                        'info',
+                        { flash: true }
+                    );
+                    const reviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                    mergedNotifications = mergeReviewRequestNotifications(
+                        mergedNotifications,
+                        reviewRequests,
+                        repoInfo
+                    );
+                    if (reviewRequests.length > 0) {
+                        showStatus(
+                            `${syncLabel}: found ${reviewRequests.length} active review requests`,
+                            'info',
+                            { flash: true }
+                        );
+                    }
+                } catch (error) {
+                    console.error('Review request sync failed:', error);
+                    showStatus(
+                        `${syncLabel}: review request check failed: ${error.message || error}`,
+                        'error',
+                        { flash: true }
                     );
                 }
 

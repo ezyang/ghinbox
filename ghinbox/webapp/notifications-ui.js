@@ -597,6 +597,22 @@
                     );
                 }
 
+                try {
+                    const reviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                    mergedNotifications = mergeReviewRequestNotifications(
+                        mergedNotifications,
+                        reviewRequests,
+                        repoInfo
+                    );
+                } catch (error) {
+                    console.error('Review request sync failed:', error);
+                    showStatus(
+                        `${syncLabel}: review request check failed: ${error.message || error}`,
+                        'error',
+                        { flash: true }
+                    );
+                }
+
                 // Sort by updated_at descending
                 const sortedNotifications = mergedNotifications.sort((a, b) =>
                     new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
@@ -1178,6 +1194,12 @@
                     const commentList = commentItems
                         ? `<ul class="comment-list">${commentItems}</ul>`
                         : '';
+                    const canUseNotificationActions =
+                        typeof hasNotificationHtmlAction !== 'function' ||
+                        hasNotificationHtmlAction(notif, 'archive');
+                    const canUnsubscribe =
+                        typeof hasNotificationHtmlAction === 'function' &&
+                        hasNotificationHtmlAction(notif, 'unsubscribe');
                     const bottomActions = commentItems
                         ? `
                             <div class="notification-actions-bottom">
@@ -1189,6 +1211,7 @@
                                     ${icons.openInNewTab}
                                     <span>Open in new tab</span>
                                 </button>
+                                ${canUnsubscribe ? `
                                 <button
                                     type="button"
                                     class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
@@ -1197,6 +1220,7 @@
                                     ${icons.bellSlash}
                                     <span>Unsubscribe</span>
                                 </button>
+                                ` : ''}
                                 ${notif.subject.type === 'PullRequest' ? `
                                 <button
                                     type="button"
@@ -1207,6 +1231,7 @@
                                     <span>Remove me</span>
                                 </button>
                                 ` : ''}
+                                ${canUseNotificationActions ? `
                                 <button
                                     type="button"
                                     class="notification-done-btn notification-done-btn-bottom"
@@ -1215,10 +1240,11 @@
                                     ${icons.check}
                                     <span>Done</span>
                                 </button>
+                                ` : ''}
                             </div>
                         `
                         : '';
-                    const doneButton = `
+                    const doneButton = canUseNotificationActions ? `
                         <button
                             type="button"
                             class="notification-done-btn"
@@ -1226,8 +1252,8 @@
                         >
                             ${icons.check}
                         </button>
-                    `;
-                    const unsubscribeButton = `
+                    ` : '';
+                    const unsubscribeButton = canUnsubscribe ? `
                         <button
                             type="button"
                             class="notification-unsubscribe-btn"
@@ -1235,7 +1261,7 @@
                         >
                             ${icons.bellSlash}
                         </button>
-                    `;
+                    ` : '';
                     const removeReviewerButton = notif.subject.type === 'PullRequest' ? `
                         <button
                             type="button"

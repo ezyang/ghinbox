@@ -968,7 +968,13 @@
             if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
                 return false;
             }
+            if (!safeIsNotificationReviewResponsibility(notification)) {
+                return false;
+            }
             if (safeIsNotificationApproved(notification)) {
+                return false;
+            }
+            if (safeIsNotificationChangesRequested(notification)) {
                 return false;
             }
             return true;
@@ -978,6 +984,30 @@
             return typeof isNotificationApproved === 'function'
                 ? isNotificationApproved(notification)
                 : false;
+        }
+
+        function safeIsNotificationChangesRequested(notification) {
+            return typeof isNotificationChangesRequested === 'function'
+                ? isNotificationChangesRequested(notification)
+                : false;
+        }
+
+        function safeIsNotificationReviewResponsibility(notification) {
+            return typeof isNotificationReviewResponsibility === 'function'
+                ? isNotificationReviewResponsibility(notification)
+                : String(notification.reason || '').toLowerCase() === 'review_requested';
+        }
+
+        function isSyntheticResponsibilityNotification(notification) {
+            return notification?.responsibility_source === 'review-requested' &&
+                String(notification?.id || '').startsWith('review-request:');
+        }
+
+        function hasNotificationHtmlAction(notification, action) {
+            if (isSyntheticResponsibilityNotification(notification)) {
+                return false;
+            }
+            return Boolean(notification?.ui?.action_tokens?.[action] || state.authenticity_token);
         }
 
         function safeIsNotificationFromCommitter(notification) {

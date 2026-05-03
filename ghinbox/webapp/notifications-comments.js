@@ -855,6 +855,13 @@ function getCommentStatus(notification) {
     if (isNotificationApproved(notification)) {
         return { label: 'Approved', className: 'approved' };
     }
+    const directReplies = getDirectReviewThreadReplies(unreadComments);
+    if (directReplies.length > 0) {
+        return {
+            label: directReplies.length === 1 ? 'Reply to you' : `Replies to you (${directReplies.length})`,
+            className: 'interesting',
+        };
+    }
     if (isNotificationNeedsReview(notification)) {
         return { label: 'Needs review', className: 'needs-review' };
     }
@@ -979,7 +986,7 @@ function getCommentItems(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const unreadComments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
-    const comments = filterCommentsAfterOwnComment(unreadComments);
+    const comments = filterRelevantCommentsForNotification(notification, unreadComments);
     const hasFilter = Boolean(anchor || cached.lastReadAt);
     if (comments.length === 0) {
         const label = hasFilter ? 'No unread comments found.' : 'No comments found.';
@@ -1042,6 +1049,69 @@ function filterCommentsAfterOwnComment(comments) {
     return lastOwnIndex === -1 ? comments : comments.slice(lastOwnIndex + 1);
 }
 
+function getReviewThreadKey(comment) {
+    if (!comment?.isReviewComment) {
+        return null;
+    }
+    const rootId = comment.in_reply_to_id || comment.id;
+    if (rootId === null || rootId === undefined) {
+        return null;
+    }
+    return String(rootId);
+}
+
+function getDirectReviewThreadReplies(comments) {
+    const login = (state.currentUserLogin || '').toLowerCase();
+    if (!login || !Array.isArray(comments) || comments.length === 0) {
+        return [];
+    }
+    const byThread = new Map();
+    comments.forEach((comment, index) => {
+        const key = getReviewThreadKey(comment);
+        if (!key) {
+            return;
+        }
+        const thread = byThread.get(key) || [];
+        thread.push({ comment, index });
+        byThread.set(key, thread);
+    });
+    const replies = [];
+    byThread.forEach((thread) => {
+        let lastOwnIndex = -1;
+        thread.forEach(({ comment }, index) => {
+            const author = String(comment?.user?.login || '').toLowerCase();
+            if (author === login) {
+                lastOwnIndex = index;
+            }
+        });
+        if (lastOwnIndex === -1) {
+            return;
+        }
+        thread.slice(lastOwnIndex + 1).forEach(({ comment }) => {
+            const author = String(comment?.user?.login || '').toLowerCase();
+            if (author && author !== login) {
+                replies.push(comment);
+            }
+        });
+    });
+    replies.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.updated_at || 0);
+        const dateB = new Date(b.created_at || b.updated_at || 0);
+        return dateA - dateB;
+    });
+    return replies;
+}
+
+function filterRelevantCommentsForNotification(notification, comments) {
+    if (notification.subject?.type === 'PullRequest') {
+        const directReplies = getDirectReviewThreadReplies(comments);
+        if (directReplies.length > 0) {
+            return directReplies;
+        }
+    }
+    return filterCommentsAfterOwnComment(comments);
+}
+
 function isNotificationUninteresting(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     if (!cached || cached.error) {
@@ -1052,6 +1122,9 @@ function isNotificationUninteresting(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
+        return false;
+    }
     if (notification.subject?.type === 'PullRequest') {
         if (isNotificationApproved(notification)) {
             return false;
@@ -1073,7 +1146,10 @@ function getUninterestingReason(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
-    const filteredComments = filterCommentsAfterOwnComment(comments);
+    if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
+        return null;
+    }
+    const filteredComments = filterRelevantCommentsForNotification(notification, comments);
 
     // Check PR-specific conditions
     if (notification.subject?.type === 'PullRequest') {
@@ -1118,10 +1194,26 @@ function isNotificationNeedsReview(notification) {
     if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
         return false;
     }
+    if (!isNotificationReviewResponsibility(notification)) {
+        return false;
+    }
     if (isNotificationApproved(notification)) {
         return false;
     }
+    if (isNotificationChangesRequested(notification)) {
+        return false;
+    }
     return true;
+}
+
+function isNotificationReviewResponsibility(notification) {
+    if (notification.subject?.type !== 'PullRequest') {
+        return false;
+    }
+    if (notification.responsibility_source === 'review-requested') {
+        return true;
+    }
+    return String(notification.reason || '').toLowerCase() === 'review_requested';
 }
 
 function isNotificationApproved(notification) {
@@ -1138,6 +1230,22 @@ function isNotificationApproved(notification) {
     }
     const decision = String(cached.reviewDecision || '').toUpperCase();
     return decision === 'APPROVED';
+}
+
+function isNotificationChangesRequested(notification) {
+    if (notification.subject?.type !== 'PullRequest') {
+        return false;
+    }
+    const prState = notification.subject?.state;
+    if (prState === 'draft' || prState === 'closed' || prState === 'merged') {
+        return false;
+    }
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    if (!cached || cached.error) {
+        return false;
+    }
+    const decision = String(cached.reviewDecision || '').toUpperCase();
+    return decision === 'CHANGES_REQUESTED';
 }
 
 function isNotificationFromCommitter(notification) {
