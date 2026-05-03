@@ -517,6 +517,8 @@
             state.error = null;
             state.notifications = [];
             state.selected.clear();
+            state.commentQueue = [];
+            state.commentQueueKeys.clear();
             state.authenticity_token = null;
             persistAuthenticityToken(null);
             clearUndoState();
@@ -590,6 +592,9 @@
                         'info'
                     );
                     render();
+                    if (syncMode === 'full') {
+                        scheduleSyncPageCommentPrefetch(data.notifications);
+                    }
 
                 } while (afterCursor);
 
@@ -685,7 +690,6 @@
                 // Save to localStorage
                 persistNotifications();
 
-                state.commentQueue = [];
                 scheduleCommentPrefetch(notifications);
 
                 showStatus(`Synced ${notifications.length} notifications`, 'success', {

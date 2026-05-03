@@ -199,9 +199,30 @@ function scheduleCommentPrefetch(notifications) {
         { force: true }
     );
     pending.forEach((notif) => {
-        state.commentQueue.push(() => prefetchNotificationComments(notif));
+        const key = getNotificationKey(notif);
+        if (state.commentQueueKeys.has(key)) {
+            return;
+        }
+        state.commentQueueKeys.add(key);
+        state.commentQueue.push(async () => {
+            try {
+                await prefetchNotificationComments(notif);
+            } finally {
+                state.commentQueueKeys.delete(key);
+            }
+        });
     });
     runCommentQueue();
+}
+
+function scheduleSyncPageCommentPrefetch(notifications) {
+    const stableNotifications = notifications.filter(
+        (notif) => notif.subject?.anchor || notif.last_read_at
+    );
+    if (!stableNotifications.length) {
+        return;
+    }
+    scheduleCommentPrefetch(stableNotifications);
 }
 
 async function runCommentQueue() {

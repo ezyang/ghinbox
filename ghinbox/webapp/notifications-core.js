@@ -49,6 +49,7 @@
             commentHideUninteresting: true,
             commentAgeFilter: 'all', // 'all' | '1day' | '3days' | '1week' | '1month'
             commentQueue: [],
+            commentQueueKeys: new Set(),
             commentQueueRunning: false,
             commentPrefetchStatusMessage: null,
             commentPrefetchStatusTimer: null,
