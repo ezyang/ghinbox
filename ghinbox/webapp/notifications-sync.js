@@ -557,6 +557,164 @@
                 };
             });
         }
+
+        function getServerSnapshotSyncedAtKey(repo) {
+            return `ghnotif_server_snapshot_synced_at:${repo.owner}/${repo.repo}`;
+        }
+
+        function applyServerSnapshot(repo, snapshot) {
+            if (!snapshot || !Array.isArray(snapshot.notifications)) {
+                return false;
+            }
+            state.repo = `${repo.owner}/${repo.repo}`;
+            state.notifications = snapshot.notifications;
+            state.lastSyncedRepo = state.repo;
+            localStorage.setItem(LAST_SYNCED_REPO_KEY, state.repo);
+            if (snapshot.authenticity_token) {
+                state.authenticity_token = snapshot.authenticity_token;
+                persistAuthenticityToken(snapshot.authenticity_token);
+            }
+            if (snapshot.synced_at) {
+                localStorage.setItem(getServerSnapshotSyncedAtKey(repo), snapshot.synced_at);
+            }
+            persistNotifications();
+            scheduleCommentPrefetch(state.notifications);
+            return true;
+        }
+
+        async function fetchServerSnapshot(repo) {
+            const response = await fetch(
+                `/api/snapshots/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`
+            );
+            if (!response.ok) {
+                return null;
+            }
+            return response.json();
+        }
+
+        function formatSnapshotTimestamp(value) {
+            if (!value) {
+                return 'server';
+            }
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return 'server';
+            }
+            return date.toLocaleString();
+        }
+
+        async function loadServerSnapshotOnInit() {
+            const repo = parseRepoInput(state.repo || localStorage.getItem('ghnotif_repo') || '');
+            if (!repo) {
+                return;
+            }
+            try {
+                const data = await fetchServerSnapshot(repo);
+                const snapshot = data?.snapshot;
+                if (snapshot && Array.isArray(snapshot.notifications)) {
+                    const localSyncedAt = localStorage.getItem(getServerSnapshotSyncedAtKey(repo));
+                    const shouldApply =
+                        state.notifications.length === 0 ||
+                        (snapshot.synced_at && snapshot.synced_at !== localSyncedAt);
+                    if (shouldApply && applyServerSnapshot(repo, snapshot)) {
+                        showStatus(
+                            `Loaded server snapshot from ${formatSnapshotTimestamp(snapshot.synced_at)}`,
+                            'info',
+                            { flash: true }
+                        );
+                    }
+                }
+                if (data?.sync?.status === 'running') {
+                    pollServerSync(repo).catch((error) => {
+                        showStatus(`Full Sync failed: ${error.message || error}`, 'error');
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load server snapshot:', error);
+            }
+        }
+
+        async function pollServerSync(repo) {
+            while (true) {
+                const response = await fetch(
+                    `/api/snapshots/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/sync`
+                );
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    const detail = typeof errorData.detail === 'string'
+                        ? errorData.detail
+                        : `HTTP ${response.status}`;
+                    throw new Error(detail);
+                }
+                const data = await response.json();
+                const sync = data.sync || {};
+                if (sync.status === 'running') {
+                    showStatus(
+                        `Full Sync running on server: ${sync.pages_fetched || 0} pages, ${sync.notifications_count || 0} notifications`,
+                        'info'
+                    );
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    continue;
+                }
+                if (sync.status === 'success') {
+                    if (applyServerSnapshot(repo, data.snapshot)) {
+                        showStatus(`Synced ${state.notifications.length} notifications`, 'success');
+                        render();
+                    }
+                    return sync;
+                }
+                if (sync.status === 'error') {
+                    throw new Error(sync.error || 'Server sync failed');
+                }
+                return sync;
+            }
+        }
+
+        async function handleServerFullSync() {
+            const repo = elements.repoInput.value.trim();
+            const parsed = parseRepoInput(repo);
+            if (!parsed) {
+                showStatus(repo ? 'Invalid format. Use owner/repo' : 'Please enter a repository (owner/repo)', 'error');
+                return;
+            }
+            if (state.loading) {
+                return;
+            }
+
+            state.repo = repo;
+            localStorage.setItem('ghnotif_repo', repo);
+            state.loading = true;
+            state.error = null;
+            render();
+            showStatus(`Full Sync starting on server for ${repo}...`, 'info', { flash: true });
+
+            try {
+                const response = await fetch(
+                    `/api/snapshots/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/sync`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'full' }),
+                    }
+                );
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await pollServerSync(parsed);
+            } catch (error) {
+                const message = error.message || String(error);
+                if (message.includes('No GitHub fetcher configured') || message.includes('HTTP 503')) {
+                    state.loading = false;
+                    await handleSync({ mode: 'full' });
+                    return;
+                }
+                state.error = message;
+                showStatus(`Full Sync failed: ${message}`, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
         // Check authentication status
         const AUTH_CACHE_KEY = 'ghnotif_auth_cache';
         const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -664,6 +822,7 @@
             state.selected.clear();
             state.commentQueue = [];
             state.commentQueueKeys.clear();
+            state.commentPrefetchProgress.active = false;
             state.authenticity_token = null;
             persistAuthenticityToken(null);
             clearUndoState();

@@ -102,7 +102,7 @@ test.describe('Comment prefetch status', () => {
     });
   });
 
-  test('keeps the prefetch status visible during background work', async ({
+  test('shows compact prefetch progress during background work', async ({
     page,
   }) => {
     await page.waitForFunction(
@@ -115,13 +115,16 @@ test.describe('Comment prefetch status', () => {
       scheduleCommentPrefetch(pending);
     }, notifications);
 
-    const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('Prefetch:');
-    // Verify the prefetch status remains visible while work is in progress
+    const progressContainer = page.locator('#progress-container');
+    const progressText = page.locator('#progress-text');
+    await expect(progressContainer).toHaveClass(/visible/);
+    await expect(progressText).toContainText('Fetching comments');
+    await expect(page.locator('#status-bar')).not.toContainText('Prefetch:', { timeout: 1200 });
+    // Verify the progress remains visible while work is in progress
     // (the mock delays comments by 1000ms, so poll until near that deadline)
     await expect
-      .poll(async () => (await statusBar.textContent()) || '', { timeout: 900, intervals: [100] })
-      .toContain('Prefetch:');
-    await expect(statusBar).toBeVisible();
+      .poll(async () => (await progressText.textContent()) || '', { timeout: 900, intervals: [100] })
+      .toContain('Fetching comments');
+    await expect(progressContainer).toHaveClass(/visible/);
   });
 });

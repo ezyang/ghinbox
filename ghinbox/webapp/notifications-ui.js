@@ -519,13 +519,13 @@
             state.selected.clear();
             state.commentQueue = [];
             state.commentQueueKeys.clear();
+            state.commentPrefetchProgress.active = false;
             state.authenticity_token = null;
             persistAuthenticityToken(null);
             clearUndoState();
             render();
 
-            showStatus(`${syncLabel} starting for ${repo}...`, 'info', { flash: true });
-            showStatus(`${syncLabel} in progress...`, 'info');
+            showStatus(`${syncLabel} in progress...`, 'info', { autoDismiss: true });
 
             try {
                 const allNotifications = [];
@@ -536,12 +536,6 @@
                 // Fetch all pages
                 do {
                     pageCount++;
-                    showStatus(
-                        `${syncLabel}: requesting page ${pageCount} (${formatCursorLabel(afterCursor)})`,
-                        'info',
-                        { flash: true }
-                    );
-
                     let url = `/notifications/html/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`;
                     if (afterCursor) {
                         url += `?after=${encodeURIComponent(afterCursor)}`;
@@ -587,10 +581,6 @@
                         }
                     }
                     state.notifications = allNotifications.slice();
-                    showStatus(
-                        `${syncLabel}: received page ${pageCount} (${data.notifications.length} notifications, total ${allNotifications.length})`,
-                        'info'
-                    );
                     render();
                     if (syncMode === 'full') {
                         scheduleSyncPageCommentPrefetch(data.notifications);
@@ -600,34 +590,14 @@
 
                 let mergedNotifications = allNotifications;
                 if (previousMatchMap && overlapIndex !== null) {
-                    showStatus(
-                        `${syncLabel}: merging fetched results with cached list`,
-                        'info',
-                        { flash: true }
-                    );
                     mergedNotifications = mergeIncrementalNotifications(
                         allNotifications,
                         previousNotifications,
                         overlapIndex + 1
                     );
-                    const carriedCount = mergedNotifications.length - allNotifications.length;
-                    showStatus(
-                        `${syncLabel}: merged ${allNotifications.length} fetched + ${carriedCount} cached`,
-                        'info'
-                    );
-                } else if (previousMatchMap) {
-                    showStatus(
-                        `${syncLabel}: no overlap found, using fetched pages only`,
-                        'info'
-                    );
                 }
 
                 // Sort by updated_at descending
-                showStatus(
-                    `${syncLabel}: sorting ${mergedNotifications.length} notifications`,
-                    'info',
-                    { flash: true }
-                );
                 const sortedNotifications = mergedNotifications.sort((a, b) =>
                     new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
                 );
@@ -636,36 +606,9 @@
                     syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
                         ? buildIncrementalRestLookupKeys(allNotifications, previousMatchMap)
                         : null;
-                const missingCount = countMissingLastReadAt(sortedNotifications);
-                const restMissingCount = countMissingLastReadAtForKeys(
-                    sortedNotifications,
-                    restLookupKeys
-                );
-                if (missingCount > 0) {
-                    showStatus(
-                        restLookupKeys && restMissingCount !== missingCount
-                            ? `${syncLabel}: fetching last_read_at for ${restMissingCount}/${missingCount} notifications`
-                            : `${syncLabel}: fetching last_read_at for ${missingCount} notifications`,
-                        'info',
-                        { flash: true }
-                    );
-                } else {
-                    showStatus(
-                        `${syncLabel}: last_read_at already present`,
-                        'info'
-                    );
-                }
                 let notifications = await ensureLastReadAtData(sortedNotifications, {
                     restLookupKeys,
                 });
-                const remainingMissing = countMissingLastReadAt(notifications);
-                const filledCount = Math.max(missingCount - remainingMissing, 0);
-                if (missingCount > 0) {
-                    showStatus(
-                        `${syncLabel}: filled last_read_at for ${filledCount}/${missingCount} notifications`,
-                        'info'
-                    );
-                }
 
                 if (syncMode === 'incremental' && overlapIndex !== null) {
                     const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
@@ -1154,12 +1097,22 @@
             }
 
             // Update progress bar
+            const prefetchProgress = state.commentPrefetchProgress;
             if (doneQueue && doneQueue.active && doneQueue.totalQueued > 1) {
                 elements.progressContainer.className = 'progress-container visible';
                 const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
                 const percent = (processed / doneQueue.totalQueued) * 100;
                 elements.progressBarFill.style.width = `${percent}%`;
                 elements.progressText.textContent = `Marking ${processed} of ${doneQueue.totalQueued}...`;
+            } else if (prefetchProgress?.active && prefetchProgress.total > 0) {
+                elements.progressContainer.className = 'progress-container visible';
+                const processed = prefetchProgress.completed + prefetchProgress.failed;
+                const percent = Math.min(100, (processed / prefetchProgress.total) * 100);
+                const active = prefetchProgress.inFlight;
+                elements.progressBarFill.style.width = `${percent}%`;
+                elements.progressText.textContent =
+                    `Fetching comments ${processed}/${prefetchProgress.total}` +
+                    (active > 0 ? ` (${active} active)` : '');
             } else {
                 elements.progressContainer.className = 'progress-container';
             }

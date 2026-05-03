@@ -51,6 +51,14 @@
             commentQueue: [],
             commentQueueKeys: new Set(),
             commentQueueRunning: false,
+            commentPrefetchProgress: {
+                active: false,
+                total: 0,
+                completed: 0,
+                failed: 0,
+                inFlight: 0,
+                concurrency: 0,
+            },
             commentPrefetchStatusMessage: null,
             commentPrefetchStatusTimer: null,
             commentPrefetchStatusLastUpdate: 0,
@@ -548,7 +556,7 @@
                 withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
             });
             elements.fullSyncBtn.addEventListener('click', () => {
-                withActionContext('Full Sync', () => handleSync({ mode: 'full' }));
+                withActionContext('Full Sync', handleServerFullSync);
             });
             elements.repoInput.addEventListener('input', handleRepoInput);
             elements.repoInput.addEventListener('keydown', (e) => {
@@ -674,6 +682,13 @@
 
             // Initial render
             render();
+            if (typeof loadServerSnapshotOnInit === 'function') {
+                loadServerSnapshotOnInit()
+                    .then(() => render())
+                    .catch((error) => {
+                        console.error('Failed to load server snapshot:', error);
+                    });
+            }
         }
 
         // Handle repo input changes
@@ -1159,6 +1174,8 @@
         function handleClearCommentCache() {
             state.commentCache = { version: 1, threads: {} };
             state.commentQueue = [];
+            state.commentQueueKeys.clear();
+            state.commentPrefetchProgress.active = false;
             clearCommentCacheStorage().catch((error) => {
                 console.error('Failed to clear comment cache:', error);
             });

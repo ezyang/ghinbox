@@ -1105,6 +1105,131 @@ test.describe('Sync Functionality', () => {
     expect(commentRequestCount).toBeGreaterThan(0);
   });
 
+  test('full sync runs on server and applies returned snapshot', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Server snapshot notification',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let syncStarted = false;
+    let htmlFetchCalled = false;
+
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      htmlFetchCalled = true;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(emptyResponse),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      if (route.request().method() === 'POST') {
+        syncStarted = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              pages_fetched: 0,
+              notifications_count: 0,
+            },
+          }),
+        });
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: 'success',
+            mode: 'full',
+            pages_fetched: 1,
+            notifications_count: 1,
+          },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('[data-id="server-1"]')).toBeVisible();
+    expect(syncStarted).toBe(true);
+    expect(htmlFetchCalled).toBe(false);
+  });
+
+  test('loads server snapshot on startup when local cache is empty', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-startup-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Loaded from server on startup',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+    });
+    await page.reload();
+
+    await expect(page.locator('[data-id="server-startup-1"]')).toBeVisible();
+    await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
+  });
+
   test('notifications persist across page reload', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
@@ -1176,7 +1301,7 @@ test.describe('Sync Functionality', () => {
     await expect(page.locator('#status-bar')).toBeVisible();
   });
 
-  test('sync shows detailed request status while loading', async ({ page }) => {
+  test('sync avoids detailed request log status while loading', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       route.fulfill({
@@ -1190,8 +1315,8 @@ test.describe('Sync Functionality', () => {
     await page.locator('#sync-btn').click();
 
     const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('requesting page 1');
-    await expect(statusBar).not.toHaveClass(/auto-dismiss/);
+    await expect(statusBar).toContainText('Quick Sync in progress');
+    await expect(statusBar).not.toContainText('requesting page 1');
     await expect(statusBar).toContainText('Synced');
     await expect(statusBar).toHaveClass(/auto-dismiss/);
   });

@@ -267,6 +267,8 @@ test.describe('Mark Done', () => {
     test('skips archive when new comments are detected but removes from UI', async ({ page }) => {
       let archiveCalled = false;
 
+      await expect(page.locator('#progress-container')).not.toHaveClass(/visible/);
+
       // Mock HTML action (should not be called)
       await page.route('**/notifications/html/action', (route) => {
         archiveCalled = true;
@@ -478,6 +480,39 @@ test.describe('Mark Done', () => {
       releaseSecond();
 
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
+    });
+
+    test('bulk mark done shares one notification reload across selected items', async ({ page }) => {
+      await page.unroute('**/notifications/html/repo/**');
+
+      let reloadCount = 0;
+      let archiveCount = 0;
+
+      await page.route('**/notifications/html/repo/**', (route) => {
+        reloadCount++;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(mixedFixture),
+        });
+      });
+
+      await page.route('**/notifications/html/action', (route) => {
+        archiveCount++;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'ok' }),
+        });
+      });
+
+      await page.locator('[data-id="notif-1"] .notification-checkbox').click();
+      await page.locator('[data-id="notif-3"] .notification-checkbox').click();
+      await page.locator('#mark-done-btn').click();
+
+      await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
+      expect(reloadCount).toBe(1);
+      expect(archiveCount).toBe(2);
     });
 
     test('done status can be dismissed and auto-dismisses after completion', async ({ page }) => {

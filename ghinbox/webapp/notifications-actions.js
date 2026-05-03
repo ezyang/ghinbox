@@ -149,7 +149,20 @@
         // Expose doneQueue on state for UI access
         state.doneQueue = doneQueue;
 
-        function enqueueDoneItems(ids, notificationLookup) {
+        function getCachedCommentIdSet(notification) {
+            const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
+            const ids = new Set();
+            if (Array.isArray(cached?.comments)) {
+                cached.comments.forEach((comment) => {
+                    if (comment.id != null) {
+                        ids.add(Number(comment.id));
+                    }
+                });
+            }
+            return ids;
+        }
+
+        function enqueueDoneItems(ids, notificationLookup, options = {}) {
             if (!doneQueue.active) {
                 // New session - reset counters
                 doneQueue.totalQueued = 0;
@@ -162,7 +175,12 @@
             }
             ids.forEach(id => {
                 const notification = notificationLookup.get(id) || notificationLookup.get(id);
-                doneQueue.pending.push({ notifId: id, notification });
+                doneQueue.pending.push({
+                    notifId: id,
+                    notification,
+                    reloadedNotifications: options.reloadedNotifications || null,
+                    cachedCommentIds: getCachedCommentIdSet(notification),
+                });
             });
             doneQueue.totalQueued += ids.length;
         }
@@ -243,9 +261,12 @@
         }
 
         async function processOneDoneItem(item) {
-            const { notifId, notification } = item;
+            const { notifId, notification, reloadedNotifications, cachedCommentIds } = item;
             try {
-                const syncResult = await syncNotificationBeforeDone(notifId, notification);
+                const syncResult = await syncNotificationBeforeDone(notifId, notification, {
+                    reloadedNotifications,
+                    cachedCommentIds,
+                });
                 if (syncResult?.status === 'updated') {
                     doneQueue.skipped++;
                     return;
@@ -257,7 +278,10 @@
                     return;
                 }
 
-                const result = await markNotificationDone(notifId, notification);
+                const result = await markNotificationDone(
+                    notifId,
+                    syncResult.updatedNotification || notification
+                );
 
                 if (result.rateLimited) {
                     // Re-enqueue with delay
@@ -350,8 +374,24 @@
             render();
             restoreScrollAnchor(scrollAnchor);
 
+            const reloadResult = await reloadNotificationsFromServer();
+            const reloadedNotifications =
+                reloadResult.status === 'ok' ? reloadResult.notifications : null;
+            if (reloadResult.status === 'error') {
+                restoreNotificationsInOrder(notificationsToRestore);
+                notificationsToRestore.forEach(notification => state.selected.add(notification.id));
+                persistNotifications();
+                removeUndoEntry(undoEntry);
+                showStatus(
+                    `Failed to mark notifications: ${reloadResult.error || 'Failed to reload notifications.'}`,
+                    'error'
+                );
+                render();
+                return;
+            }
+
             // Enqueue and process
-            enqueueDoneItems(selectedIds, notificationLookup);
+            enqueueDoneItems(selectedIds, notificationLookup, { reloadedNotifications });
             await processDoneQueue();
 
             // Restore failed items
@@ -591,10 +631,10 @@
             return state.currentUserLogin;
         }
 
-        async function reloadNotificationFromServer(notification) {
+        async function reloadNotificationsFromServer() {
             const repo = parseRepoInput(state.repo || '');
-            if (!repo || !notification) {
-                return { status: 'error', error: 'Missing repository or notification.' };
+            if (!repo) {
+                return { status: 'error', error: 'Missing repository.' };
             }
             let response;
             try {
@@ -640,6 +680,21 @@
                 persistAuthenticityToken(payload.authenticity_token);
             }
             const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
+            return { status: 'ok', notifications };
+        }
+
+        async function reloadNotificationFromServer(notification, options = {}) {
+            if (!notification) {
+                return { status: 'error', error: 'Missing notification.' };
+            }
+            let notifications = options.reloadedNotifications;
+            if (!Array.isArray(notifications)) {
+                const result = await reloadNotificationsFromServer();
+                if (result.status !== 'ok') {
+                    return result;
+                }
+                notifications = result.notifications;
+            }
             let updated = notifications.find((candidate) => candidate.id === notification.id);
             if (!updated && typeof getNotificationMatchKey === 'function') {
                 const matchKey = getNotificationMatchKey(notification);
@@ -655,10 +710,12 @@
             return { status: 'ok', notification: updated };
         }
 
-        async function syncNotificationBeforeDone(notifId, notification) {
+        async function syncNotificationBeforeDone(notifId, notification, options = {}) {
             try {
                 // First, do HTML pull to check if notification is already Done on GitHub
-                const reloadResult = await reloadNotificationFromServer(notification);
+                const reloadResult = await reloadNotificationFromServer(notification, {
+                    reloadedNotifications: options.reloadedNotifications,
+                });
 
                 // If notification is missing from HTML response, it's already Done on GitHub
                 if (reloadResult?.status === 'missing') {
@@ -675,7 +732,9 @@
 
                 // Notification is still present - check for new comments by comparing IDs
                 const refreshedNotification = reloadResult?.notification || notification;
-                const commentCheck = await hasNewCommentsRelativeToCache(notification);
+                const commentCheck = await hasNewCommentsRelativeToCache(refreshedNotification, {
+                    cachedCommentIds: options.cachedCommentIds,
+                });
 
                 if (!commentCheck || commentCheck.status !== 'ok') {
                     return {
@@ -721,7 +780,7 @@
             }
         }
 
-        async function hasNewCommentsRelativeToCache(notification) {
+        async function hasNewCommentsRelativeToCache(notification, options = {}) {
             const repo = parseRepoInput(state.repo || '');
             const issueNumber = getIssueNumber(notification);
             if (!repo || !issueNumber) {
@@ -742,16 +801,10 @@
                     };
                 }
 
-                // Get cached comment IDs (use optional chaining to handle undefined state)
-                const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
-                const cachedCommentIds = new Set();
-                if (cached?.comments && Array.isArray(cached.comments)) {
-                    cached.comments.forEach(comment => {
-                        if (comment.id != null) {
-                            cachedCommentIds.add(Number(comment.id));
-                        }
-                    });
-                }
+                const cachedCommentIds =
+                    options.cachedCommentIds instanceof Set
+                        ? options.cachedCommentIds
+                        : getCachedCommentIdSet(notification);
 
                 // Find truly new comments (IDs we haven't seen)
                 const newComments = allComments.filter(comment => {

@@ -7,7 +7,7 @@
 
 const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
 const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-const COMMENT_CONCURRENCY = 4;
+const COMMENT_CONCURRENCY = 8;
 const REVIEW_DECISION_BATCH_SIZE = 40;
 const COMMENT_EXPAND_ISSUES_KEY = 'ghnotif_comment_expand_issues';
 const COMMENT_EXPAND_PRS_KEY = 'ghnotif_comment_expand_prs';
@@ -64,7 +64,8 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
 }
 
 function scheduleCommentPrefetchIdleClear() {
-    if (!state.commentPrefetchStatusActive || !canUpdateCommentPrefetchStatus()) {
+    const progress = state.commentPrefetchProgress;
+    if (!progress?.active) {
         return;
     }
     clearCommentPrefetchStatusTimers();
@@ -74,11 +75,51 @@ function scheduleCommentPrefetchIdleClear() {
         state.commentPrefetchStatusActive = false;
         state.commentPrefetchStatusMessage = null;
         state.commentPrefetchStatusLastUpdate = 0;
-        showStatus('Prefetch: idle', 'info', {
-            autoDismiss: true,
-            autoDismissMs: PREFETCH_STATUS_IDLE_CLEAR_MS,
-        });
+        state.commentPrefetchProgress = {
+            active: false,
+            total: 0,
+            completed: 0,
+            failed: 0,
+            inFlight: 0,
+            concurrency: COMMENT_CONCURRENCY,
+        };
+        render();
     }, PREFETCH_STATUS_REFRESH_MS);
+}
+
+function ensureCommentPrefetchProgress() {
+    const existing = state.commentPrefetchProgress;
+    if (existing?.active) {
+        existing.concurrency = COMMENT_CONCURRENCY;
+        return existing;
+    }
+    state.commentPrefetchProgress = {
+        active: true,
+        total: 0,
+        completed: 0,
+        failed: 0,
+        inFlight: 0,
+        concurrency: COMMENT_CONCURRENCY,
+    };
+    return state.commentPrefetchProgress;
+}
+
+function addCommentPrefetchWork(count) {
+    if (count <= 0) {
+        return;
+    }
+    clearCommentPrefetchIdleTimer();
+    const progress = ensureCommentPrefetchProgress();
+    progress.total += count;
+    render();
+}
+
+function updateCommentPrefetchWork({ completed = 0, failed = 0, inFlight = 0 } = {}) {
+    const progress = ensureCommentPrefetchProgress();
+    progress.completed += completed;
+    progress.failed += failed;
+    progress.inFlight = Math.max(0, progress.inFlight + inFlight);
+    render();
 }
 
 async function loadCommentCache() {
@@ -194,24 +235,33 @@ function scheduleCommentPrefetch(notifications) {
     if (!pending.length) {
         return;
     }
-    updateCommentPrefetchStatus(
-        `Prefetch: queued ${pending.length} notifications (concurrency ${COMMENT_CONCURRENCY})`,
-        { force: true }
-    );
+    let queuedCount = 0;
     pending.forEach((notif) => {
         const key = getNotificationKey(notif);
         if (state.commentQueueKeys.has(key)) {
             return;
         }
+        queuedCount += 1;
         state.commentQueueKeys.add(key);
         state.commentQueue.push(async () => {
+            let failed = false;
             try {
+                updateCommentPrefetchWork({ inFlight: 1 });
                 await prefetchNotificationComments(notif);
+            } catch (error) {
+                failed = true;
+                console.error('Comment prefetch failed:', error);
             } finally {
+                updateCommentPrefetchWork({
+                    completed: 1,
+                    failed: failed ? 1 : 0,
+                    inFlight: -1,
+                });
                 state.commentQueueKeys.delete(key);
             }
         });
     });
+    addCommentPrefetchWork(queuedCount);
     runCommentQueue();
 }
 
@@ -230,15 +280,8 @@ async function runCommentQueue() {
         return;
     }
     state.commentQueueRunning = true;
-    updateCommentPrefetchStatus(
-        `Prefetch: starting ${state.commentQueue.length} requests`,
-        { force: true }
-    );
     while (state.commentQueue.length) {
         const batch = state.commentQueue.splice(0, COMMENT_CONCURRENCY);
-        updateCommentPrefetchStatus(
-            `Prefetch: fetching ${batch.length} (remaining ${state.commentQueue.length})`
-        );
         await Promise.all(batch.map((task) => task()));
         saveCommentCache();
         render();
@@ -537,9 +580,6 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
         return;
     }
     if (force) {
-        showStatus(`Review metadata prefetch: fetching ${pending.length} PRs`, 'info', {
-            autoDismiss: true,
-        });
         prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
             .then(() => {
                 saveCommentCache();
@@ -547,12 +587,9 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
             })
             .catch((error) => {
                 console.error('Review metadata prefetch failed:', error);
-            });
+        });
         return;
     }
-    showStatus(`Review metadata prefetch: queued ${pending.length} PRs`, 'info', {
-        autoDismiss: true,
-    });
     state.commentQueue.push(() =>
         prefetchReviewDecisions(repo, pending, { includeAuthorAssociation })
     );
