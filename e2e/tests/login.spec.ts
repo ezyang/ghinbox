@@ -141,6 +141,122 @@ test.describe('Login Page Navigation', () => {
     await expect(page).toHaveURL(/\/app\//);
   });
 
+  test('stays on login page when auth file exists but GitHub user is unavailable', async ({
+    page,
+  }) => {
+    await page.route('**/auth/needs-login', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          needs_login: false,
+          account: 'default',
+        }),
+      });
+    });
+
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Not authenticated' }),
+      });
+    });
+
+    await page.goto('login.html');
+
+    await expect(page).toHaveURL(/\/app\/login\.html$/);
+    await expect(page.locator('#credentials-form')).toBeVisible();
+  });
+
+  test('successful login clears stale not-authenticated cache before returning to notifications', async ({
+    page,
+  }) => {
+    let needsLogin = true;
+
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: null, timestamp: Date.now() })
+      );
+    });
+
+    await page.route('**/auth/needs-login', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          needs_login: needsLogin,
+          account: 'default',
+        }),
+      });
+    });
+
+    await page.route('**/auth/login/start', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'initialized',
+          session_id: 'test-session',
+        }),
+      });
+    });
+
+    await page.route('**/auth/login/credentials', (route) => {
+      needsLogin = false;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'success',
+          username: 'testuser',
+        }),
+      });
+    });
+
+    await page.route('**/auth/reload', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+
+    await page.route('**/github/rest/rate_limit', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          resources: {
+            core: {
+              remaining: 42,
+              limit: 60,
+              reset: Math.floor(Date.now() / 1000) + 3600,
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('login.html');
+    await page.locator('#username').fill('testuser');
+    await page.locator('#password').fill('password');
+    await page.locator('#credentials-form button[type="submit"]').click();
+
+    await expect(page).toHaveURL(/\/app\/notifications\.html$/);
+    await expect(page.locator('#auth-status')).toContainText('Signed in as testuser');
+    await expect(page.locator('#auth-status')).toHaveClass(/authenticated/);
+  });
+
   test('back to login button returns to credentials form', async ({ page }) => {
     // Mock needs-login to keep login page visible
     await page.route('**/auth/needs-login', (route) => {

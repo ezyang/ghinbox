@@ -7,6 +7,8 @@
 (function() {
     'use strict';
 
+    const NOTIFICATIONS_AUTH_CACHE_KEY = 'ghnotif_auth_cache';
+
     // State
     let sessionId = null;
     let currentAccount = 'default';
@@ -56,6 +58,14 @@
 
     function hideLoading() {
         elements.loading.hidden = true;
+    }
+
+    function clearNotificationsAuthCache() {
+        try {
+            localStorage.removeItem(NOTIFICATIONS_AUTH_CACHE_KEY);
+        } catch (e) {
+            // Ignore storage errors; login should still complete.
+        }
     }
 
     function showCredentialsForm() {
@@ -118,6 +128,8 @@
             console.warn('Failed to reload auth:', e);
             // Continue with redirect anyway
         }
+
+        clearNotificationsAuthCache();
 
         // Redirect after a short delay
         setTimeout(() => {
@@ -210,6 +222,16 @@
             return response;
         } catch (e) {
             return { needs_login: true, account: 'default' };
+        }
+    }
+
+    async function checkCurrentUser() {
+        try {
+            const response = await fetch('/github/rest/user');
+            const data = await response.json().catch(() => ({}));
+            return response.ok && Boolean(data.login);
+        } catch (e) {
+            return false;
         }
     }
 
@@ -374,9 +396,12 @@
             try {
                 const authStatus = await checkNeedsLogin();
                 if (!authStatus.needs_login) {
-                    // Already logged in, redirect
-                    window.location.href = '/app/';
-                    return;
+                    const hasCurrentUser = await checkCurrentUser();
+                    if (hasCurrentUser) {
+                        // Already logged in, redirect
+                        window.location.href = '/app/';
+                        return;
+                    }
                 }
                 currentAccount = authStatus.account || 'default';
             } catch (e) {
