@@ -44,6 +44,47 @@ class TestHealthEndpoint:
         assert "account" in data
 
 
+class TestDebugEndpoints:
+    """Tests for local observability endpoints."""
+
+    def test_debug_state_returns_non_secret_state(self, client: TestClient) -> None:
+        """Test that debug state exposes safe server metadata."""
+        response = client.get("/debug/state")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert "live_fetching" in data
+        assert "site_auth_enabled" in data
+        assert "request_log_enabled" in data
+        assert "GHINBOX_SITE_PASSWORD" not in data
+
+    def test_recent_requests_records_request_metadata(self, client: TestClient) -> None:
+        """Test that recent requests include method, path, status, and request ID."""
+        clear_response = client.post("/debug/requests/clear")
+        assert clear_response.status_code == 200
+
+        health_response = client.get("/health")
+        assert health_response.status_code == 200
+        assert health_response.headers["x-ghinbox-request-id"]
+
+        response = client.get("/debug/requests")
+        assert response.status_code == 200
+        data = response.json()
+
+        health_entries = [
+            entry for entry in data["requests"] if entry["path"] == "/health"
+        ]
+        assert health_entries
+        assert health_entries[-1]["method"] == "GET"
+        assert health_entries[-1]["status_code"] == 200
+        assert (
+            health_entries[-1]["request_id"]
+            == health_response.headers["x-ghinbox-request-id"]
+        )
+        assert "duration_ms" in health_entries[-1]
+
+
 class TestRootEndpoint:
     """Tests for the root endpoint."""
 

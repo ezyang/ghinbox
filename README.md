@@ -48,6 +48,16 @@ uv run playwright install chromium
 uv run ghinbox
 ```
 
+## Observability
+
+When started through the CLI, ghinbox writes JSONL request metadata to
+`logs/ghinbox.log` and exposes authenticated debug endpoints under `/debug/*`.
+Every response includes an `x-ghinbox-request-id` header that can be correlated
+with recent requests or log lines.
+
+See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for curl examples, log
+format, and the current scope of captured data.
+
 ## Contributing
 
 See CONTRIBUTING.md

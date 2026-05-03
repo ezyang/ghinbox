@@ -144,6 +144,19 @@ def main() -> int:
         "--site-password",
         help="Require this password to access the site (cookie-based gate)",
     )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help=(
+            "Write JSONL request logs to this file "
+            "(default: logs/ghinbox.log outside --test)."
+        ),
+    )
+    parser.add_argument(
+        "--no-request-log",
+        action="store_true",
+        help="Disable JSONL request logging. Recent in-memory requests remain enabled.",
+    )
 
     args = parser.parse_args()
 
@@ -152,6 +165,15 @@ def main() -> int:
 
     if args.site_password:
         os.environ["GHINBOX_SITE_PASSWORD"] = args.site_password
+    if args.no_request_log:
+        os.environ["GHINBOX_REQUEST_LOG_ENABLED"] = "0"
+    else:
+        os.environ["GHINBOX_REQUEST_LOG_ENABLED"] = "1"
+        request_log_file = args.log_file
+        if request_log_file is None and not args.test:
+            request_log_file = "logs/ghinbox.log"
+        if request_log_file is not None:
+            os.environ["GHINBOX_REQUEST_LOG_FILE"] = request_log_file
 
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")
@@ -265,6 +287,9 @@ def main() -> int:
     display_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
     print(f"Server: http://{display_host}:{args.port}")
     print(f"API docs: http://{display_host}:{args.port}/docs")
+    request_log_file = os.environ.get("GHINBOX_REQUEST_LOG_FILE")
+    if not args.no_request_log and request_log_file:
+        print(f"Request log: {request_log_file}")
     print()
 
     # Determine reload behavior:
