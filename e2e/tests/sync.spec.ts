@@ -1124,6 +1124,11 @@ test.describe('Sync Functionality', () => {
     };
     let syncStarted = false;
     let htmlFetchCalled = false;
+    let runningStatusPolled = false;
+    let finishSync: () => void;
+    const syncCanFinish = new Promise<void>((resolve) => {
+      finishSync = resolve;
+    });
 
     await page.route('**/notifications/html/repo/test/repo**', (route) => {
       htmlFetchCalled = true;
@@ -1133,7 +1138,7 @@ test.describe('Sync Functionality', () => {
         body: JSON.stringify(emptyResponse),
       });
     });
-    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+    await page.route('**/api/snapshots/test/repo/sync', async (route) => {
       if (route.request().method() === 'POST') {
         syncStarted = true;
         route.fulfill({
@@ -1151,6 +1156,24 @@ test.describe('Sync Functionality', () => {
         });
         return;
       }
+      if (!runningStatusPolled) {
+        runningStatusPolled = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              pages_fetched: 1,
+              notifications_count: 1,
+            },
+          }),
+        });
+        return;
+      }
+      await syncCanFinish;
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1174,6 +1197,9 @@ test.describe('Sync Functionality', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
+    await expect.poll(() => runningStatusPolled).toBe(true);
+    await expect(page.locator('#status-bar')).not.toContainText('Full Sync running on server', { timeout: 1200 });
+    finishSync!();
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
     await expect(page.locator('[data-id="server-1"]')).toBeVisible();
     expect(syncStarted).toBe(true);

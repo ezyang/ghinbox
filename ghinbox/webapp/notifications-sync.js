@@ -741,10 +741,6 @@
                 const data = await response.json();
                 const sync = data.sync || {};
                 if (sync.status === 'running') {
-                    showStatus(
-                        `Full Sync running on server: ${sync.pages_fetched || 0} pages, ${sync.notifications_count || 0} notifications`,
-                        'info'
-                    );
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     continue;
                 }
