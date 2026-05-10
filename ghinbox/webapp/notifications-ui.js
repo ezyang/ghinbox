@@ -350,7 +350,14 @@
 
         // Get appropriate empty state message
         function getEmptyStateMessage() {
-            if (state.notifications.length === 0) {
+            if (state.view === 'trash' && state.trashNotifications.length === 0) {
+                return {
+                    title: 'No trash notifications',
+                    message: 'Auto-marked trash notifications will appear here until the next sync.',
+                };
+            }
+
+            if (state.notifications.length === 0 && state.trashNotifications.length === 0) {
                 return {
                     title: 'No notifications',
                     message: 'Enter a repository and click Quick Sync to load notifications.',
@@ -362,6 +369,7 @@
                 'my-prs': 'PR',
                 'pr-notifications': 'PR',
                 'others-prs': 'PR',
+                'trash': 'trash',
             };
             const viewLabel = viewLabels[state.view];
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
@@ -374,6 +382,7 @@
             const viewCount = state.view === 'issues' ? viewCounts.issues :
                               state.view === 'my-prs' ? viewCounts.myPrs :
                               state.view === 'pr-notifications' ? viewCounts.prNotifications :
+                              state.view === 'trash' ? viewCounts.trash :
                               viewCounts.othersPrs;
 
             if (viewCount === 0) {
@@ -399,6 +408,12 @@
                     return {
                         title: 'No PR notifications',
                         message: 'No pull request notifications are pending.',
+                    };
+                }
+                if (state.view === 'trash') {
+                    return {
+                        title: 'No trash notifications',
+                        message: 'Auto-marked trash notifications will appear here until the next sync.',
                     };
                 }
             }
@@ -539,6 +554,7 @@
             state.loading = true;
             state.error = null;
             state.notifications = [];
+            state.trashNotifications = [];
             state.selected.clear();
             state.commentQueue = [];
             state.commentQueueKeys.clear();
@@ -1027,6 +1043,7 @@
                     else if (view === 'my-prs') countSpan.textContent = viewCounts.myPrs;
                     else if (view === 'pr-notifications') countSpan.textContent = viewCounts.prNotifications;
                     else if (view === 'others-prs') countSpan.textContent = viewCounts.othersPrs;
+                    else if (view === 'trash') countSpan.textContent = viewCounts.trash;
                 }
             });
 
@@ -1229,11 +1246,16 @@
                         ? `<ul class="comment-list">${commentItems}</ul>`
                         : '';
                     const canUseNotificationActions =
-                        typeof hasNotificationHtmlAction !== 'function' ||
-                        hasNotificationHtmlAction(notif, 'archive');
+                        state.view !== 'trash' && (
+                            typeof hasNotificationHtmlAction !== 'function' ||
+                            hasNotificationHtmlAction(notif, 'archive')
+                        );
                     const canUnsubscribe =
+                        state.view !== 'trash' &&
                         typeof hasNotificationHtmlAction === 'function' &&
                         hasNotificationHtmlAction(notif, 'unsubscribe');
+                    const canRemoveReviewer =
+                        state.view !== 'trash' && notif.subject.type === 'PullRequest';
                     const bottomActions = commentItems
                         ? `
                             <div class="notification-actions-bottom">
@@ -1255,7 +1277,7 @@
                                     <span>Unsubscribe</span>
                                 </button>
                                 ` : ''}
-                                ${notif.subject.type === 'PullRequest' ? `
+                                ${canRemoveReviewer ? `
                                 <button
                                     type="button"
                                     class="notification-remove-reviewer-btn notification-remove-reviewer-btn-bottom"
@@ -1296,7 +1318,7 @@
                             ${icons.bellSlash}
                         </button>
                     ` : '';
-                    const removeReviewerButton = notif.subject.type === 'PullRequest' ? `
+                    const removeReviewerButton = canRemoveReviewer ? `
                         <button
                             type="button"
                             class="notification-remove-reviewer-btn"

@@ -63,6 +63,7 @@ const notificationsResponse = {
     has_next: false,
   },
 };
+let currentNotificationsResponse = notificationsResponse;
 
 const freshIso = new Date().toISOString();
 const commentCache = {
@@ -164,6 +165,8 @@ const commentCache = {
 
 test.describe('Auto mark trash done', () => {
   test.beforeEach(async ({ page }) => {
+    currentNotificationsResponse = notificationsResponse;
+
     await page.addInitScript(() => {
       localStorage.setItem(
         'ghnotif_auth_cache',
@@ -210,7 +213,7 @@ test.describe('Auto mark trash done', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
+        body: JSON.stringify(currentNotificationsResponse),
       });
     });
 
@@ -247,6 +250,14 @@ test.describe('Auto mark trash done', () => {
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="needs-review"]')).toBeVisible();
+    await expect(page.locator('#view-trash .count')).toHaveText('5');
+    await page.locator('#view-trash').click();
+    await expect(page.locator('.notification-item')).toHaveCount(5);
+    await expect(page.locator('[data-id="my-pr-no-new"]')).toBeVisible();
+    await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
+    await expect(page.locator('[data-id="others-approved"]')).toBeVisible();
+    await expect(page.locator('[data-id="others-draft"]')).toBeVisible();
+    await expect(page.locator('[data-id="others-closed"]')).toBeVisible();
 
     expect(archivedIds.sort()).toEqual([
       'my-pr-no-new',
@@ -261,5 +272,19 @@ test.describe('Auto mark trash done', () => {
     if (Array.isArray(stored)) {
       expect(stored.map((item) => item.id)).toEqual(['needs-review']);
     }
+
+    currentNotificationsResponse = {
+      ...notificationsResponse,
+      notifications: [],
+    };
+    await page.locator('#sync-btn').click();
+    await expect
+      .poll(async () => {
+        const nextStored = await readNotificationsCache(page);
+        return Array.isArray(nextStored) ? nextStored.length : -1;
+      })
+      .toBe(0);
+    await expect(page.locator('#view-trash .count')).toHaveText('0');
+    await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 });

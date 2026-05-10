@@ -19,18 +19,21 @@
                 author: 'all', // 'all' | 'committer' | 'external'
                 interest: 'all', // 'all' | 'has-new' | 'no-new'
             },
+            'trash': { state: 'all' },
         };
         const DEFAULT_VIEW_ORDERS = {
             'issues': 'recent',
             'my-prs': 'recent',
             'pr-notifications': 'recent',
             'others-prs': 'recent',
+            'trash': 'recent',
         };
 
         // Application state
         const state = {
             repo: null,
             notifications: [],
+            trashNotifications: [],
             loading: false,
             error: null,
             statusState: null,
@@ -39,7 +42,7 @@
             statusAutoDismissTimer: null,
             statusAutoDismissId: 0,
             lastPersistentStatus: null,
-            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs'
+            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
             orderBy: 'recent',
@@ -147,7 +150,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string') {
                     normalized[view].state = value;
@@ -168,7 +171,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string' && VALID_ORDERS.has(value)) {
                     normalized[view] = value;
@@ -492,7 +495,7 @@
             const savedView = localStorage.getItem(VIEW_KEY);
             if (
                 savedView &&
-                ['issues', 'my-prs', 'pr-notifications', 'others-prs'].includes(savedView)
+                ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].includes(savedView)
             ) {
                 state.view = savedView;
             }
@@ -513,6 +516,7 @@
                         'my-prs': savedOrder,
                         'pr-notifications': savedOrder,
                         'others-prs': savedOrder,
+                        'trash': savedOrder,
                     };
                 }
             }
@@ -745,7 +749,7 @@
 
         // Set the current view
         function setView(view) {
-            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs'].includes(view)) {
+            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].includes(view)) {
                 return;
             }
             state.view = view;
@@ -945,6 +949,9 @@
                 return notification.subject.type === 'PullRequest' &&
                     !isMyPr(notification);
             }
+            if (state.view === 'trash') {
+                return false;
+            }
             return true;
         }
 
@@ -1097,6 +1104,7 @@
             const archivedNotifications = trashNotifications.filter(notification =>
                 successfulIds.has(notification.id)
             );
+            state.trashNotifications = archivedNotifications;
             pushToUndoStack('done', archivedNotifications);
             showStatus(
                 `${syncLabel}: marked ${successfulIds.size} trash notification${successfulIds.size === 1 ? '' : 's'} done`,
@@ -1200,7 +1208,13 @@
         // Get filtered notifications based on current view and subfilter
         function getFilteredNotifications() {
             // Step 1: Filter by view (primary category)
-            let filtered = state.notifications.filter(matchesView);
+            let filtered = state.view === 'trash'
+                ? state.trashNotifications.slice()
+                : state.notifications.filter(matchesView);
+
+            if (state.view === 'trash') {
+                return filtered;
+            }
 
             // Step 2: Apply view-specific state filter
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
@@ -1251,6 +1265,7 @@
             let myPrs = 0;
             let prNotifications = 0;
             let othersPrs = 0;
+            const trash = state.trashNotifications.length;
 
             state.notifications.forEach(notif => {
                 if (notif.subject.type === 'Issue') {
@@ -1271,11 +1286,30 @@
                 }
             });
 
-            return { issues, myPrs, prNotifications, othersPrs };
+            return { issues, myPrs, prNotifications, othersPrs, trash };
         }
 
         // Count notifications by subfilter for the current view
         function getSubfilterCounts() {
+            if (state.view === 'trash') {
+                return {
+                    state: {
+                        all: state.trashNotifications.length,
+                        open: 0,
+                        closed: 0,
+                        draft: 0,
+                        needsReview: 0,
+                        approved: 0,
+                    },
+                    author: { all: 0, committer: 0, external: 0 },
+                    audience: { all: 0, 'for-you': 0, 'for-others': 0 },
+                    interest: {
+                        all: state.trashNotifications.length,
+                        hasNew: 0,
+                        noNew: 0,
+                    },
+                };
+            }
             const viewNotifications = state.notifications.filter(matchesView);
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
             const stateFilter = viewFilters.state || 'all';

@@ -83,6 +83,13 @@
 
         // Handle Mark Done button click
         function getMarkDoneTargets(filteredNotifications = getFilteredNotifications()) {
+            if (state.view === 'trash') {
+                return {
+                    ids: [],
+                    label: 'Mark selected as done',
+                    show: false,
+                };
+            }
             const actionableNotifications = filteredNotifications.filter((notif) =>
                 typeof hasNotificationHtmlAction !== 'function' ||
                 hasNotificationHtmlAction(notif, 'archive')
@@ -116,6 +123,9 @@
         }
 
         function getUnsubscribeAllTargets(filteredNotifications = getFilteredNotifications()) {
+            if (state.view === 'trash') {
+                return { ids: [], show: false };
+            }
             // Only show when nothing is selected and we're in the approved filter
             if (state.selected.size > 0) {
                 return { ids: [], show: false };
@@ -1382,6 +1392,20 @@
             });
         }
 
+        function removeTrashNotifications(notifications) {
+            const ids = new Set(
+                notifications
+                    .map(notification => notification?.id)
+                    .filter(Boolean)
+            );
+            if (ids.size === 0 || !Array.isArray(state.trashNotifications)) {
+                return;
+            }
+            state.trashNotifications = state.trashNotifications.filter(
+                notification => !ids.has(notification.id)
+            );
+        }
+
         function pushToUndoStack(action, notifications) {
             const normalizedNotifications = Array.isArray(notifications)
                 ? notifications
@@ -1523,6 +1547,7 @@
                 }
 
                 if (restoredNotifications.length > 0) {
+                    removeTrashNotifications(restoredNotifications);
                     restoreNotificationsInOrder(restoredNotifications);
                     persistNotifications();
                     render();

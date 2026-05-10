@@ -905,6 +905,7 @@
             state.loading = true;
             state.error = null;
             state.notifications = [];
+            state.trashNotifications = [];
             state.selected.clear();
             state.commentQueue = [];
             state.commentQueueKeys.clear();
