@@ -108,6 +108,7 @@
             commentExpandPrsToggle: document.getElementById('comment-expand-prs-toggle'),
             commentHideUninterestingToggle: document.getElementById('comment-hide-uninteresting-toggle'),
             autoMarkTrashToggle: document.getElementById('auto-mark-trash-toggle'),
+            manualTrashBtn: document.getElementById('manual-trash-btn'),
             commentAgeFilterSelect: document.getElementById('comment-age-filter-select'),
             commentCacheStatus: document.getElementById('comment-cache-status'),
             clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
@@ -628,6 +629,9 @@
             elements.autoMarkTrashToggle.addEventListener('change', (event) => {
                 setAutoMarkTrashDone(event.target.checked);
             });
+            elements.manualTrashBtn.addEventListener('click', () => {
+                withActionContext('Trash', handleManualTrash);
+            });
             elements.commentAgeFilterSelect.addEventListener('change', (event) => {
                 setCommentAgeFilter(event.target.value);
             });
@@ -1065,8 +1069,20 @@
             );
         }
 
-        async function autoMarkTrashNotificationsDone(notifications, syncLabel) {
-            if (!state.autoMarkTrashDone) {
+        function addTrashNotifications(notifications) {
+            const existingIds = new Set(
+                state.trashNotifications.map(notification => notification.id)
+            );
+            const additions = notifications.filter(notification => !existingIds.has(notification.id));
+            state.trashNotifications = state.trashNotifications.concat(additions);
+        }
+
+        async function autoMarkTrashNotificationsDone(
+            notifications,
+            syncLabel,
+            { force = false } = {}
+        ) {
+            if (!state.autoMarkTrashDone && !force) {
                 return notifications;
             }
             if (typeof processDoneBatch !== 'function') {
@@ -1076,6 +1092,11 @@
 
             const trashNotifications = notifications.filter(isTrashNotification);
             if (trashNotifications.length === 0) {
+                if (force) {
+                    showStatus(`${syncLabel}: no trash notifications found`, 'info', {
+                        autoDismiss: true,
+                    });
+                }
                 return notifications;
             }
 
@@ -1104,7 +1125,7 @@
             const archivedNotifications = trashNotifications.filter(notification =>
                 successfulIds.has(notification.id)
             );
-            state.trashNotifications = archivedNotifications;
+            addTrashNotifications(archivedNotifications);
             pushToUndoStack('done', archivedNotifications);
             showStatus(
                 `${syncLabel}: marked ${successfulIds.size} trash notification${successfulIds.size === 1 ? '' : 's'} done`,
@@ -1112,6 +1133,31 @@
                 { flash: true }
             );
             return notifications.filter(notification => !successfulIds.has(notification.id));
+        }
+
+        async function handleManualTrash() {
+            if (state.loading) {
+                return;
+            }
+            if (state.notifications.length === 0) {
+                showStatus('Trash: no notifications loaded', 'info', { autoDismiss: true });
+                return;
+            }
+
+            state.loading = true;
+            render();
+            try {
+                const notifications = await autoMarkTrashNotificationsDone(
+                    state.notifications,
+                    'Trash',
+                    { force: true }
+                );
+                state.notifications = notifications;
+                persistNotifications();
+            } finally {
+                state.loading = false;
+                render();
+            }
         }
 
         function safeIsNotificationNeedsReview(notification) {

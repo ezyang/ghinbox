@@ -287,4 +287,51 @@ test.describe('Auto mark trash done', () => {
     await expect(page.locator('#view-trash .count')).toHaveText('0');
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
+
+  test('manual Trash button archives trash when auto mode is disabled', async ({ page }) => {
+    let archivedIds: string[] = [];
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'archive') {
+        archivedIds = body.notification_ids;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
+    });
+
+    await expect(page.locator('#auto-mark-trash-toggle')).not.toBeChecked();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.length : 0;
+      })
+      .toBe(6);
+    await expect(page.locator('#view-trash .count')).toHaveText('0');
+
+    await page.locator('#manual-trash-btn').click();
+
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.length : 0;
+      })
+      .toBe(1);
+    await expect(page.locator('#view-trash .count')).toHaveText('5');
+    await page.locator('#view-trash').click();
+    await expect(page.locator('.notification-item')).toHaveCount(5);
+
+    expect(archivedIds.sort()).toEqual([
+      'my-pr-no-new',
+      'others-approved',
+      'others-closed',
+      'others-draft',
+      'pr-for-others',
+    ]);
+  });
 });
