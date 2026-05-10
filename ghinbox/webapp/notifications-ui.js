@@ -350,10 +350,10 @@
 
         // Get appropriate empty state message
         function getEmptyStateMessage() {
-            if (state.view === 'trash' && state.trashNotifications.length === 0) {
+            if (state.view === 'cleaned' && state.trashNotifications.length === 0) {
                 return {
-                    title: 'No trash notifications',
-                    message: 'Auto-marked trash notifications will appear here until the next sync.',
+                    title: 'No cleaned notifications',
+                    message: 'Cleaned low-priority notifications will appear here until the next sync.',
                 };
             }
 
@@ -369,7 +369,7 @@
                 'my-prs': 'PR',
                 'pr-notifications': 'PR',
                 'others-prs': 'PR',
-                'trash': 'trash',
+                'cleaned': 'cleaned',
             };
             const viewLabel = viewLabels[state.view];
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
@@ -382,7 +382,7 @@
             const viewCount = state.view === 'issues' ? viewCounts.issues :
                               state.view === 'my-prs' ? viewCounts.myPrs :
                               state.view === 'pr-notifications' ? viewCounts.prNotifications :
-                              state.view === 'trash' ? viewCounts.trash :
+                              state.view === 'cleaned' ? viewCounts.trash :
                               viewCounts.othersPrs;
 
             if (viewCount === 0) {
@@ -410,10 +410,10 @@
                         message: 'No pull request notifications are pending.',
                     };
                 }
-                if (state.view === 'trash') {
+                if (state.view === 'cleaned') {
                     return {
-                        title: 'No trash notifications',
-                        message: 'Auto-marked trash notifications will appear here until the next sync.',
+                        title: 'No cleaned notifications',
+                        message: 'Cleaned low-priority notifications will appear here until the next sync.',
                     };
                 }
             }
@@ -1043,7 +1043,7 @@
                     else if (view === 'my-prs') countSpan.textContent = viewCounts.myPrs;
                     else if (view === 'pr-notifications') countSpan.textContent = viewCounts.prNotifications;
                     else if (view === 'others-prs') countSpan.textContent = viewCounts.othersPrs;
-                    else if (view === 'trash') countSpan.textContent = viewCounts.trash;
+                    else if (view === 'cleaned') countSpan.textContent = viewCounts.trash;
                 }
             });
 
@@ -1246,16 +1246,16 @@
                         ? `<ul class="comment-list">${commentItems}</ul>`
                         : '';
                     const canUseNotificationActions =
-                        state.view !== 'trash' && (
+                        state.view !== 'cleaned' && (
                             typeof hasNotificationHtmlAction !== 'function' ||
                             hasNotificationHtmlAction(notif, 'archive')
                         );
                     const canUnsubscribe =
-                        state.view !== 'trash' &&
+                        state.view !== 'cleaned' &&
                         typeof hasNotificationHtmlAction === 'function' &&
                         hasNotificationHtmlAction(notif, 'unsubscribe');
                     const canRemoveReviewer =
-                        state.view !== 'trash' && notif.subject.type === 'PullRequest';
+                        state.view !== 'cleaned' && notif.subject.type === 'PullRequest';
                     const bottomActions = commentItems
                         ? `
                             <div class="notification-actions-bottom">

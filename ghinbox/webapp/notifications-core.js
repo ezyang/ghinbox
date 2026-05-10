@@ -19,14 +19,14 @@
                 author: 'all', // 'all' | 'committer' | 'external'
                 interest: 'all', // 'all' | 'has-new' | 'no-new'
             },
-            'trash': { state: 'all' },
+            'cleaned': { state: 'all' },
         };
         const DEFAULT_VIEW_ORDERS = {
             'issues': 'recent',
             'my-prs': 'recent',
             'pr-notifications': 'recent',
             'others-prs': 'recent',
-            'trash': 'recent',
+            'cleaned': 'recent',
         };
 
         // Application state
@@ -42,7 +42,7 @@
             statusAutoDismissTimer: null,
             statusAutoDismissId: 0,
             lastPersistentStatus: null,
-            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'
+            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
             orderBy: 'recent',
@@ -107,8 +107,8 @@
             commentExpandIssuesToggle: document.getElementById('comment-expand-issues-toggle'),
             commentExpandPrsToggle: document.getElementById('comment-expand-prs-toggle'),
             commentHideUninterestingToggle: document.getElementById('comment-hide-uninteresting-toggle'),
-            autoMarkTrashToggle: document.getElementById('auto-mark-trash-toggle'),
-            manualTrashBtn: document.getElementById('manual-trash-btn'),
+            autoMarkTrashToggle: document.getElementById('auto-clean-low-priority-toggle'),
+            manualTrashBtn: document.getElementById('clean-now-btn'),
             commentAgeFilterSelect: document.getElementById('comment-age-filter-select'),
             commentCacheStatus: document.getElementById('comment-cache-status'),
             clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
@@ -151,7 +151,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string') {
                     normalized[view].state = value;
@@ -172,7 +172,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string' && VALID_ORDERS.has(value)) {
                     normalized[view] = value;
@@ -496,9 +496,9 @@
             const savedView = localStorage.getItem(VIEW_KEY);
             if (
                 savedView &&
-                ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].includes(savedView)
+                ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash', 'cleaned'].includes(savedView)
             ) {
-                state.view = savedView;
+                state.view = savedView === 'trash' ? 'cleaned' : savedView;
             }
 
             const savedViewOrders = localStorage.getItem(ORDER_BY_VIEW_KEY);
@@ -517,7 +517,7 @@
                         'my-prs': savedOrder,
                         'pr-notifications': savedOrder,
                         'others-prs': savedOrder,
-                        'trash': savedOrder,
+                        'cleaned': savedOrder,
                     };
                 }
             }
@@ -630,7 +630,7 @@
                 setAutoMarkTrashDone(event.target.checked);
             });
             elements.manualTrashBtn.addEventListener('click', () => {
-                withActionContext('Trash', handleManualTrash);
+                withActionContext('Clean now', handleManualTrash);
             });
             elements.commentAgeFilterSelect.addEventListener('change', (event) => {
                 setCommentAgeFilter(event.target.value);
@@ -753,7 +753,7 @@
 
         // Set the current view
         function setView(view) {
-            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash'].includes(view)) {
+            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].includes(view)) {
                 return;
             }
             state.view = view;
@@ -953,7 +953,7 @@
                 return notification.subject.type === 'PullRequest' &&
                     !isMyPr(notification);
             }
-            if (state.view === 'trash') {
+            if (state.view === 'cleaned') {
                 return false;
             }
             return true;
@@ -1086,14 +1086,14 @@
                 return notifications;
             }
             if (typeof processDoneBatch !== 'function') {
-                showStatus(`${syncLabel}: auto trash cleanup unavailable`, 'error');
+                showStatus(`${syncLabel}: low-priority cleanup unavailable`, 'error');
                 return notifications;
             }
 
             const trashNotifications = notifications.filter(isTrashNotification);
             if (trashNotifications.length === 0) {
                 if (force) {
-                    showStatus(`${syncLabel}: no trash notifications found`, 'info', {
+                    showStatus(`${syncLabel}: no low-priority notifications found`, 'info', {
                         autoDismiss: true,
                     });
                 }
@@ -1101,7 +1101,7 @@
             }
 
             showStatus(
-                `${syncLabel}: marking ${trashNotifications.length} trash notification${trashNotifications.length === 1 ? '' : 's'} done`,
+                `${syncLabel}: marking ${trashNotifications.length} low-priority notification${trashNotifications.length === 1 ? '' : 's'} done`,
                 'info',
                 { flash: true }
             );
@@ -1115,7 +1115,7 @@
             const successfulIds = new Set(doneQueue.successfulIds || []);
             if (successfulIds.size === 0) {
                 showStatus(
-                    `${syncLabel}: failed to mark trash done`,
+                    `${syncLabel}: failed to clean low-priority notifications`,
                     'error',
                     { flash: true }
                 );
@@ -1128,7 +1128,7 @@
             addTrashNotifications(archivedNotifications);
             pushToUndoStack('done', archivedNotifications);
             showStatus(
-                `${syncLabel}: marked ${successfulIds.size} trash notification${successfulIds.size === 1 ? '' : 's'} done`,
+                `${syncLabel}: marked ${successfulIds.size} low-priority notification${successfulIds.size === 1 ? '' : 's'} done`,
                 'success',
                 { flash: true }
             );
@@ -1140,7 +1140,7 @@
                 return;
             }
             if (state.notifications.length === 0) {
-                showStatus('Trash: no notifications loaded', 'info', { autoDismiss: true });
+                showStatus('Clean now: no notifications loaded', 'info', { autoDismiss: true });
                 return;
             }
 
@@ -1149,7 +1149,7 @@
             try {
                 const notifications = await autoMarkTrashNotificationsDone(
                     state.notifications,
-                    'Trash',
+                    'Clean now',
                     { force: true }
                 );
                 state.notifications = notifications;
@@ -1254,11 +1254,11 @@
         // Get filtered notifications based on current view and subfilter
         function getFilteredNotifications() {
             // Step 1: Filter by view (primary category)
-            let filtered = state.view === 'trash'
+            let filtered = state.view === 'cleaned'
                 ? state.trashNotifications.slice()
                 : state.notifications.filter(matchesView);
 
-            if (state.view === 'trash') {
+            if (state.view === 'cleaned') {
                 return filtered;
             }
 
@@ -1337,7 +1337,7 @@
 
         // Count notifications by subfilter for the current view
         function getSubfilterCounts() {
-            if (state.view === 'trash') {
+            if (state.view === 'cleaned') {
                 return {
                     state: {
                         all: state.trashNotifications.length,

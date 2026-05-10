@@ -607,12 +607,12 @@
                     <input type="checkbox" id="comment-hide-uninteresting-toggle">
                     Hide uninteresting comments
                 </label>
-                <label class="comment-hide" for="auto-mark-trash-toggle">
-                    <input type="checkbox" id="auto-mark-trash-toggle">
-                    Auto mark trash done
+                <label class="comment-hide" for="auto-clean-low-priority-toggle">
+                    <input type="checkbox" id="auto-clean-low-priority-toggle">
+                    Auto-clean low-priority
                 </label>
-                <button id="manual-trash-btn" class="btn btn-small" type="button">
-                    Trash
+                <button id="clean-now-btn" class="btn btn-small" type="button">
+                    Clean now
                 </button>
                 <div class="comment-age-filter">
                     <label for="comment-age-filter-select">Comments from:</label>
@@ -693,10 +693,10 @@
                     class="view-tab"
                     role="tab"
                     aria-selected="false"
-                    data-view="trash"
-                    id="view-trash"
+                    data-view="cleaned"
+                    id="view-cleaned"
                 >
-                    Trash <span class="count">0</span>
+                    Cleaned <span class="count">0</span>
                 </button>
             </nav>
 
@@ -980,19 +980,22 @@
                 'my-prs': { state: 'all' },
                 'pr-notifications': { state: 'all' },
                 'others-prs': { state: 'all', author: 'all' },
+                'cleaned': { state: 'all' },
             };
             const DEFAULT_VIEW_ORDERS = {
                 'issues': 'recent',
                 'my-prs': 'recent',
                 'pr-notifications': 'recent',
                 'others-prs': 'recent',
+                'cleaned': 'recent',
             };
-            const VALID_VIEWS = new Set(['issues', 'my-prs', 'pr-notifications', 'others-prs']);
+            const VALID_VIEWS = new Set(['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned']);
             const VALID_STATE_BY_VIEW = {
                 'issues': new Set(['all', 'open', 'closed']),
                 'my-prs': new Set(['all']),
                 'pr-notifications': new Set(['all']),
                 'others-prs': new Set(['all', 'needs-review', 'approved', 'draft', 'closed']),
+                'cleaned': new Set(['all']),
             };
             const VALID_AUTHOR = new Set(['all', 'committer', 'external']);
             const VALID_ORDERS = new Set(['recent', 'size']);
@@ -1008,6 +1011,7 @@
                     author: 'others_prs_author',
                     order: 'others_prs_order',
                 },
+                'cleaned': { state: 'cleaned_state', order: 'cleaned_order' },
             };
 
             function cloneDefaults() {
@@ -1019,7 +1023,7 @@
                 if (!raw || typeof raw !== 'object') {
                     return normalized;
                 }
-                ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
+                ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
                     const value = raw[view];
                     if (typeof value === 'string') {
                         normalized[view].state = value;
@@ -1044,7 +1048,7 @@
                 if (!raw || typeof raw !== 'object') {
                     return normalized;
                 }
-                ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
+                ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
                     const value = raw[view];
                     if (typeof value === 'string' && VALID_ORDERS.has(value)) {
                         normalized[view] = value;
@@ -1081,6 +1085,7 @@
                         'my-prs': legacy,
                         'pr-notifications': legacy,
                         'others-prs': legacy,
+                        'cleaned': legacy,
                     };
                 }
                 return cloneDefaultOrders();
@@ -1088,6 +1093,9 @@
 
             function getStoredView() {
                 const view = localStorage.getItem(VIEW_KEY);
+                if (view === 'trash') {
+                    return 'cleaned';
+                }
                 return VALID_VIEWS.has(view) ? view : 'issues';
             }
 
@@ -1137,8 +1145,9 @@
                     applied = true;
                 }
 
-                if (view && VALID_VIEWS.has(view)) {
-                    localStorage.setItem(VIEW_KEY, view);
+                const normalizedView = view === 'trash' ? 'cleaned' : view;
+                if (normalizedView && VALID_VIEWS.has(normalizedView)) {
+                    localStorage.setItem(VIEW_KEY, normalizedView);
                     applied = true;
                 }
 
@@ -1152,7 +1161,7 @@
                 Object.keys(VIEW_QUERY_KEYS).forEach((viewName) => {
                     const config = VIEW_QUERY_KEYS[viewName];
                     const stateParam = params.get(config.state) ||
-                        (viewName === view ? legacyState : null);
+                        (viewName === normalizedView ? legacyState : null);
                     if (stateParam && VALID_STATE_BY_VIEW[viewName]?.has(stateParam)) {
                         filters[viewName].state = stateParam;
                         hasFilterParams = true;
@@ -1160,7 +1169,7 @@
 
                     if (config.author) {
                         const authorParam = params.get(config.author) ||
-                            (viewName === view ? legacyAuthor : null);
+                            (viewName === normalizedView ? legacyAuthor : null);
                         if (authorParam && VALID_AUTHOR.has(authorParam)) {
                             filters[viewName].author = authorParam;
                             hasFilterParams = true;

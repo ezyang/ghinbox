@@ -163,7 +163,7 @@ const commentCache = {
   },
 };
 
-test.describe('Auto mark trash done', () => {
+test.describe('Low-priority cleanup', () => {
   test.beforeEach(async ({ page }) => {
     currentNotificationsResponse = notificationsResponse;
 
@@ -223,7 +223,7 @@ test.describe('Auto mark trash done', () => {
     await page.reload();
   });
 
-  test('archives trash notifications after sync when enabled', async ({ page }) => {
+  test('cleans low-priority notifications after sync when enabled', async ({ page }) => {
     let archivedIds: string[] = [];
     await page.route('**/notifications/html/action', (route) => {
       const body = route.request().postDataJSON();
@@ -237,7 +237,7 @@ test.describe('Auto mark trash done', () => {
       });
     });
 
-    await page.locator('#auto-mark-trash-toggle').check();
+    await page.locator('#auto-clean-low-priority-toggle').check();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -250,8 +250,8 @@ test.describe('Auto mark trash done', () => {
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="needs-review"]')).toBeVisible();
-    await expect(page.locator('#view-trash .count')).toHaveText('5');
-    await page.locator('#view-trash').click();
+    await expect(page.locator('#view-cleaned .count')).toHaveText('5');
+    await page.locator('#view-cleaned').click();
     await expect(page.locator('.notification-item')).toHaveCount(5);
     await expect(page.locator('[data-id="my-pr-no-new"]')).toBeVisible();
     await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
@@ -284,11 +284,11 @@ test.describe('Auto mark trash done', () => {
         return Array.isArray(nextStored) ? nextStored.length : -1;
       })
       .toBe(0);
-    await expect(page.locator('#view-trash .count')).toHaveText('0');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('0');
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
-  test('manual Trash button archives trash when auto mode is disabled', async ({ page }) => {
+  test('Clean now button cleans low-priority notifications when auto mode is disabled', async ({ page }) => {
     let archivedIds: string[] = [];
     await page.route('**/notifications/html/action', (route) => {
       const body = route.request().postDataJSON();
@@ -302,7 +302,7 @@ test.describe('Auto mark trash done', () => {
       });
     });
 
-    await expect(page.locator('#auto-mark-trash-toggle')).not.toBeChecked();
+    await expect(page.locator('#auto-clean-low-priority-toggle')).not.toBeChecked();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -312,9 +312,9 @@ test.describe('Auto mark trash done', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(6);
-    await expect(page.locator('#view-trash .count')).toHaveText('0');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('0');
 
-    await page.locator('#manual-trash-btn').click();
+    await page.locator('#clean-now-btn').click();
 
     await expect
       .poll(async () => {
@@ -322,8 +322,8 @@ test.describe('Auto mark trash done', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(1);
-    await expect(page.locator('#view-trash .count')).toHaveText('5');
-    await page.locator('#view-trash').click();
+    await expect(page.locator('#view-cleaned .count')).toHaveText('5');
+    await page.locator('#view-cleaned').click();
     await expect(page.locator('.notification-item')).toHaveCount(5);
 
     expect(archivedIds.sort()).toEqual([

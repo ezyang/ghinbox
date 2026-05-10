@@ -83,7 +83,7 @@
 
         // Handle Mark Done button click
         function getMarkDoneTargets(filteredNotifications = getFilteredNotifications()) {
-            if (state.view === 'trash') {
+            if (state.view === 'cleaned') {
                 return {
                     ids: [],
                     label: 'Mark selected as done',
@@ -123,7 +123,7 @@
         }
 
         function getUnsubscribeAllTargets(filteredNotifications = getFilteredNotifications()) {
-            if (state.view === 'trash') {
+            if (state.view === 'cleaned') {
                 return { ids: [], show: false };
             }
             // Only show when nothing is selected and we're in the approved filter
