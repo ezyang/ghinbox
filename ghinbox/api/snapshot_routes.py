@@ -3,11 +3,13 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
+from ghinbox.api.github_proxy import GITHUB_API_BASE, get_client, get_token
 from ghinbox.api.snapshot_store import (
     clear_snapshot_store,
     get_snapshot,
@@ -19,6 +21,8 @@ from ghinbox.api.snapshot_store import (
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
+
+REVIEW_REQUEST_SEARCH_PER_PAGE = 100
 
 _running_tasks: dict[str, asyncio.Task] = {}
 _periodic_task: asyncio.Task | None = None
@@ -34,6 +38,128 @@ def _repo_key(owner: str, repo: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _build_review_request_search_query(owner: str, repo: str) -> str:
+    return " ".join(
+        [
+            f"repo:{owner}/{repo}",
+            "is:pr",
+            "is:open",
+            "user-review-requested:@me",
+            "-review:approved",
+        ]
+    )
+
+
+def _search_item_to_review_request_notification(
+    owner: str,
+    repo: str,
+    item: dict,
+) -> dict | None:
+    number = item.get("number")
+    if not number or item.get("pull_request") is None:
+        return None
+    user = item.get("user") or {}
+    state = "draft" if item.get("draft") else "open"
+    updated_at = item.get("updated_at") or item.get("created_at") or _now()
+    return {
+        "id": f"review-request:{owner}/{repo}#{number}",
+        "unread": False,
+        "reason": "review_requested",
+        "responsibility_source": "review-requested",
+        "updated_at": updated_at,
+        "last_read_at": item.get("updated_at") or item.get("created_at"),
+        "subject": {
+            "title": item.get("title") or f"Pull request #{number}",
+            "url": item.get("html_url")
+            or f"https://github.com/{owner}/{repo}/pull/{number}",
+            "type": "PullRequest",
+            "number": number,
+            "state": state,
+            "state_reason": None,
+        },
+        "actors": (
+            [
+                {
+                    "login": user["login"],
+                    "avatar_url": user.get("avatar_url") or "",
+                }
+            ]
+            if user.get("login")
+            else []
+        ),
+        "ui": {
+            "saved": False,
+            "done": False,
+            "action_tokens": {},
+        },
+    }
+
+
+def _merge_review_request_notifications(
+    notifications: list[dict],
+    review_requests: list[dict],
+) -> list[dict]:
+    if not review_requests:
+        return notifications
+    merged = [dict(notification) for notification in notifications]
+    index_by_id = {
+        str(notification.get("id")): index
+        for index, notification in enumerate(merged)
+        if notification.get("id")
+    }
+    for request_notification in review_requests:
+        request_id = str(request_notification.get("id") or "")
+        existing_index = index_by_id.get(request_id)
+        if existing_index is None:
+            index_by_id[request_id] = len(merged)
+            merged.append(request_notification)
+            continue
+        existing = merged[existing_index]
+        merged[existing_index] = {
+            **existing,
+            **request_notification,
+            "ui": existing.get("ui") or request_notification.get("ui"),
+            "responsibility_source": "review-requested",
+        }
+    return merged
+
+
+async def _fetch_review_request_notifications(owner: str, repo: str) -> list[dict]:
+    token = get_token()
+    if not token:
+        return []
+
+    query = _build_review_request_search_query(owner, repo)
+    url = (
+        f"{GITHUB_API_BASE}/search/issues?"
+        f"{urlencode({'q': query, 'per_page': REVIEW_REQUEST_SEARCH_PER_PAGE})}"
+    )
+    response = await get_client().get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Review request search failed ({response.status_code}): {response.text}"
+        )
+    payload = response.json()
+    items = payload.get("items") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return []
+    notifications = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        notification = _search_item_to_review_request_notification(owner, repo, item)
+        if notification is not None:
+            notifications.append(notification)
+    return notifications
 
 
 async def _fetch_snapshot(owner: str, repo: str) -> None:
@@ -104,6 +230,11 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             if not after:
                 break
 
+        review_requests = await _fetch_review_request_notifications(owner, repo)
+        all_notifications = _merge_review_request_notifications(
+            all_notifications,
+            review_requests,
+        )
         all_notifications.sort(
             key=lambda notification: notification.get("updated_at", ""),
             reverse=True,

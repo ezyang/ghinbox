@@ -1256,6 +1256,91 @@ test.describe('Sync Functionality', () => {
     await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
   });
 
+  test('loads review-request entries from server snapshot into others PRs', async ({ page }) => {
+    const reviewRequestNotification = {
+      id: 'review-request:test/repo#10',
+      unread: false,
+      reason: 'review_requested',
+      responsibility_source: 'review-requested',
+      updated_at: '2025-01-05T12:00:00Z',
+      last_read_at: '2025-01-05T12:00:00Z',
+      subject: {
+        title: 'Snapshot review request',
+        url: 'https://github.com/test/repo/pull/10',
+        type: 'PullRequest',
+        number: 10,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+      ui: { saved: false, done: false, action_tokens: {} },
+    };
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: {
+            notifications: [reviewRequestNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2025-01-05T12:01:00+00:00',
+          },
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/10/comments*', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.route('**/github/rest/repos/test/repo/pulls/10/comments*', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.route('**/github/rest/repos/test/repo/collaborators/alice/permission', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ permission: 'write', role_name: 'write' }),
+      });
+    });
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: {
+              limit: 5000,
+              remaining: 4999,
+              resetAt: '2025-01-05T00:00:00Z',
+            },
+            repository: {
+              pr10: {
+                reviewDecision: null,
+                authorAssociation: 'MEMBER',
+                additions: 5,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'alice' },
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+    });
+    await page.reload();
+
+    await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
+    await page.locator('#view-others-prs').click();
+    await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
+    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+  });
+
   test('notifications persist across page reload', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
