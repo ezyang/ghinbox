@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ghinbox.api.app import app
-from ghinbox.api.fetcher import FetchResult
+from ghinbox.api.fetcher import ActionResult, FetchResult
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -254,6 +254,53 @@ class TestGetRepoNotifications:
         detail = response.json()["detail"]
         assert detail["error"] == "session_expired"
         assert "redirected" in detail["message"]
+
+
+class TestNotificationActions:
+    """Tests for POST /notifications/html/action."""
+
+    def test_submit_action_accepts_batched_notification_ids(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that batched Mark done requests are passed to the fetcher intact."""
+        calls: list[dict[str, object]] = []
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                calls.append(
+                    {
+                        "action": action,
+                        "notification_ids": notification_ids,
+                        "authenticity_token": authenticity_token,
+                    }
+                )
+                return ActionResult(status="ok")
+
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": ["notif-1", "notif-3", "notif-5"],
+                "authenticity_token": "token-123",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [
+            {
+                "action": "archive",
+                "notification_ids": ["notif-1", "notif-3", "notif-5"],
+                "authenticity_token": "token-123",
+            }
+        ]
 
 
 class TestParseEndpoint:

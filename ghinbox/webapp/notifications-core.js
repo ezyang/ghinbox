@@ -12,6 +12,7 @@
         const DEFAULT_VIEW_FILTERS = {
             'issues': { state: 'all', interest: 'all' }, // state: 'all' | 'open' | 'closed', interest: 'all' | 'has-new' | 'no-new'
             'my-prs': { state: 'all', interest: 'all' }, // 'all'
+            'pr-notifications': { state: 'all', audience: 'all', interest: 'all' },
             'others-prs': {
                 state: 'all', // 'all' | 'needs-review' | 'approved' | 'draft' | 'closed'
                 author: 'all', // 'all' | 'committer' | 'external'
@@ -21,6 +22,7 @@
         const DEFAULT_VIEW_ORDERS = {
             'issues': 'recent',
             'my-prs': 'recent',
+            'pr-notifications': 'recent',
             'others-prs': 'recent',
         };
 
@@ -36,7 +38,7 @@
             statusAutoDismissTimer: null,
             statusAutoDismissId: 0,
             lastPersistentStatus: null,
-            view: 'issues', // 'issues', 'my-prs', 'others-prs'
+            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs'
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
             orderBy: 'recent',
@@ -142,7 +144,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'others-prs'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string') {
                     normalized[view].state = value;
@@ -163,7 +165,7 @@
             if (!raw || typeof raw !== 'object') {
                 return normalized;
             }
-            ['issues', 'my-prs', 'others-prs'].forEach((view) => {
+            ['issues', 'my-prs', 'pr-notifications', 'others-prs'].forEach((view) => {
                 const value = raw[view];
                 if (typeof value === 'string' && VALID_ORDERS.has(value)) {
                     normalized[view] = value;
@@ -485,7 +487,10 @@
 
             // Load saved view from localStorage
             const savedView = localStorage.getItem(VIEW_KEY);
-            if (savedView && ['issues', 'my-prs', 'others-prs'].includes(savedView)) {
+            if (
+                savedView &&
+                ['issues', 'my-prs', 'pr-notifications', 'others-prs'].includes(savedView)
+            ) {
                 state.view = savedView;
             }
 
@@ -503,6 +508,7 @@
                     state.viewOrders = {
                         'issues': savedOrder,
                         'my-prs': savedOrder,
+                        'pr-notifications': savedOrder,
                         'others-prs': savedOrder,
                     };
                 }
@@ -724,7 +730,7 @@
 
         // Set the current view
         function setView(view) {
-            if (!['issues', 'my-prs', 'others-prs'].includes(view)) {
+            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs'].includes(view)) {
                 return;
             }
             state.view = view;
@@ -819,10 +825,30 @@
                 elements.mobileOrderSelect.value = state.orderBy;
             }
 
-            // Sync author select (only visible for others-prs view via CSS)
+            // Sync secondary select (author for others-prs, audience for PR notifications)
             if (elements.mobileAuthorSelect) {
-                const currentAuthor = viewFilters.author || 'all';
-                elements.mobileAuthorSelect.value = currentAuthor;
+                elements.mobileAuthorSelect.innerHTML = '';
+                const secondaryOptions = state.view === 'pr-notifications'
+                    ? [
+                        { value: 'all', label: 'All audiences' },
+                        { value: 'for-you', label: 'For you' },
+                        { value: 'for-others', label: 'For others' },
+                    ]
+                    : [
+                        { value: 'all', label: 'All authors' },
+                        { value: 'committer', label: 'Committers' },
+                        { value: 'external', label: 'External' },
+                    ];
+                secondaryOptions.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.label;
+                    elements.mobileAuthorSelect.appendChild(option);
+                });
+                const currentSecondary = state.view === 'pr-notifications'
+                    ? (viewFilters.audience || 'all')
+                    : (viewFilters.author || 'all');
+                elements.mobileAuthorSelect.value = currentSecondary;
             }
         }
 
@@ -862,7 +888,8 @@
                     ...DEFAULT_VIEW_FILTERS[state.view],
                 };
             }
-            state.viewFilters[state.view].author = value;
+            const group = state.view === 'pr-notifications' ? 'audience' : 'author';
+            state.viewFilters[state.view][group] = value;
             localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(state.viewFilters));
             render();
         }
@@ -894,6 +921,9 @@
             }
             if (state.view === 'my-prs') {
                 return isMyPr(notification);
+            }
+            if (state.view === 'pr-notifications') {
+                return isNotificationOriginPullRequest(notification);
             }
             if (state.view === 'others-prs') {
                 return notification.subject.type === 'PullRequest' &&
@@ -938,6 +968,29 @@
                 }
                 if (authorFilter === 'external') {
                     return safeIsNotificationFromExternal(notif);
+                }
+                return true;
+            });
+        }
+
+        function safeIsNotificationForCurrentUser(notification) {
+            return typeof isNotificationForCurrentUser === 'function'
+                ? isNotificationForCurrentUser(notification)
+                : isMyPr(notification) ||
+                    String(notification.reason || '').toLowerCase() === 'mention';
+        }
+
+        function applyAudienceFilter(notifications, audienceFilter) {
+            if (audienceFilter === 'all') {
+                return notifications;
+            }
+            return notifications.filter(notif => {
+                const forCurrentUser = safeIsNotificationForCurrentUser(notif);
+                if (audienceFilter === 'for-you') {
+                    return forCurrentUser;
+                }
+                if (audienceFilter === 'for-others') {
+                    return !forCurrentUser;
                 }
                 return true;
             });
@@ -1003,6 +1056,11 @@
                 String(notification?.id || '').startsWith('review-request:');
         }
 
+        function isNotificationOriginPullRequest(notification) {
+            return notification?.subject?.type === 'PullRequest' &&
+                !isSyntheticResponsibilityNotification(notification);
+        }
+
         function hasNotificationHtmlAction(notification, action) {
             if (isSyntheticResponsibilityNotification(notification)) {
                 return false;
@@ -1058,6 +1116,9 @@
             if (state.view === 'others-prs') {
                 filtered = applyAuthorFilter(filtered, viewFilters.author || 'all');
             }
+            if (state.view === 'pr-notifications') {
+                filtered = applyAudienceFilter(filtered, viewFilters.audience || 'all');
+            }
 
             // Step 3: Apply interest filter (all views)
             filtered = applyInterestFilter(filtered, viewFilters.interest || 'all');
@@ -1095,21 +1156,29 @@
         function getViewCounts() {
             let issues = 0;
             let myPrs = 0;
+            let prNotifications = 0;
             let othersPrs = 0;
 
             state.notifications.forEach(notif => {
                 if (notif.subject.type === 'Issue') {
                     issues++;
                 } else if (notif.subject.type === 'PullRequest') {
-                    if (isMyPr(notif)) {
-                        myPrs++;
+                    if (isSyntheticResponsibilityNotification(notif)) {
+                        if (!isMyPr(notif)) {
+                            othersPrs++;
+                        }
                     } else {
-                        othersPrs++;
+                        prNotifications++;
+                        if (isMyPr(notif)) {
+                            myPrs++;
+                        } else {
+                            othersPrs++;
+                        }
                     }
                 }
             });
 
-            return { issues, myPrs, othersPrs };
+            return { issues, myPrs, prNotifications, othersPrs };
         }
 
         // Count notifications by subfilter for the current view
@@ -1118,6 +1187,7 @@
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
             const stateFilter = viewFilters.state || 'all';
             const authorFilter = viewFilters.author || 'all';
+            const audienceFilter = viewFilters.audience || 'all';
 
             const stateCounts = {
                 all: 0,
@@ -1132,13 +1202,24 @@
                 committer: 0,
                 external: 0,
             };
+            const audienceCounts = {
+                all: 0,
+                'for-you': 0,
+                'for-others': 0,
+            };
 
             const baseForStateCounts =
                 state.view === 'others-prs'
                     ? applyAuthorFilter(viewNotifications, authorFilter)
+                    : state.view === 'pr-notifications'
+                    ? applyAudienceFilter(viewNotifications, audienceFilter)
                     : viewNotifications;
             const baseForAuthorCounts =
                 state.view === 'others-prs'
+                    ? applyStateFilter(viewNotifications, stateFilter)
+                    : [];
+            const baseForAudienceCounts =
+                state.view === 'pr-notifications'
                     ? applyStateFilter(viewNotifications, stateFilter)
                     : [];
 
@@ -1172,6 +1253,16 @@
                     }
                 });
             }
+            if (state.view === 'pr-notifications') {
+                audienceCounts.all = baseForAudienceCounts.length;
+                baseForAudienceCounts.forEach(notif => {
+                    if (safeIsNotificationForCurrentUser(notif)) {
+                        audienceCounts['for-you']++;
+                    } else {
+                        audienceCounts['for-others']++;
+                    }
+                });
+            }
 
             // Interest filter counts
             const interestCounts = { all: 0, hasNew: 0, noNew: 0 };
@@ -1180,6 +1271,9 @@
             let baseForInterestCounts = applyStateFilter(viewNotifications, stateFilter);
             if (state.view === 'others-prs') {
                 baseForInterestCounts = applyAuthorFilter(baseForInterestCounts, authorFilter);
+            }
+            if (state.view === 'pr-notifications') {
+                baseForInterestCounts = applyAudienceFilter(baseForInterestCounts, audienceFilter);
             }
 
             interestCounts.all = baseForInterestCounts.length;
@@ -1192,7 +1286,12 @@
                 }
             });
 
-            return { state: stateCounts, author: authorCounts, interest: interestCounts };
+            return {
+                state: stateCounts,
+                author: authorCounts,
+                audience: audienceCounts,
+                interest: interestCounts,
+            };
         }
 
         function updateCommentCacheStatus() {

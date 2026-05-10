@@ -360,17 +360,20 @@
             const viewLabels = {
                 'issues': 'issue',
                 'my-prs': 'PR',
-                'others-prs': 'PR'
+                'pr-notifications': 'PR',
+                'others-prs': 'PR',
             };
             const viewLabel = viewLabels[state.view];
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
             const stateFilter = viewFilters.state || 'all';
             const authorFilter = viewFilters.author || 'all';
+            const audienceFilter = viewFilters.audience || 'all';
 
             // Check if view has no notifications at all
             const viewCounts = getViewCounts();
             const viewCount = state.view === 'issues' ? viewCounts.issues :
                               state.view === 'my-prs' ? viewCounts.myPrs :
+                              state.view === 'pr-notifications' ? viewCounts.prNotifications :
                               viewCounts.othersPrs;
 
             if (viewCount === 0) {
@@ -389,7 +392,13 @@
                 if (state.view === 'others-prs') {
                     return {
                         title: "No notifications for others' PRs",
-                        message: 'No notifications for pull requests authored by others.',
+                        message: 'No pull requests need your review right now.',
+                    };
+                }
+                if (state.view === 'pr-notifications') {
+                    return {
+                        title: 'No PR notifications',
+                        message: 'No pull request notifications are pending.',
                     };
                 }
             }
@@ -441,6 +450,20 @@
                 return {
                     title: 'No external PRs',
                     message: 'No pull requests from external contributors match this view.',
+                };
+            }
+
+            if (audienceFilter === 'for-you') {
+                return {
+                    title: 'No PR notifications for you',
+                    message: 'No pull request notifications match your participation.',
+                };
+            }
+
+            if (audienceFilter === 'for-others') {
+                return {
+                    title: 'No PR notifications for others',
+                    message: 'All matching pull request notifications are for you.',
                 };
             }
 
@@ -1000,6 +1023,7 @@
                 if (countSpan) {
                     if (view === 'issues') countSpan.textContent = viewCounts.issues;
                     else if (view === 'my-prs') countSpan.textContent = viewCounts.myPrs;
+                    else if (view === 'pr-notifications') countSpan.textContent = viewCounts.prNotifications;
                     else if (view === 'others-prs') countSpan.textContent = viewCounts.othersPrs;
                 }
             });
@@ -1009,6 +1033,7 @@
             const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
             const currentStateFilter = viewFilters.state || 'all';
             const currentAuthorFilter = viewFilters.author || 'all';
+            const currentAudienceFilter = viewFilters.audience || 'all';
             const currentInterestFilter = viewFilters.interest || 'all';
             elements.subfilterTabs.forEach(tab => {
                 const subfilter = tab.dataset.subfilter;
@@ -1016,6 +1041,7 @@
                 const group = tab.closest('.subfilter-tabs')?.dataset.subfilterGroup || 'state';
                 const currentSubfilter =
                     group === 'author' ? currentAuthorFilter :
+                    group === 'audience' ? currentAudienceFilter :
                     group === 'interest' ? currentInterestFilter :
                     currentStateFilter;
                 const isActive =
@@ -1034,6 +1060,7 @@
                         } else {
                             const countMap =
                                 group === 'author' ? subfilterCounts.author :
+                                group === 'audience' ? subfilterCounts.audience :
                                 group === 'interest' ? subfilterCounts.interest :
                                 subfilterCounts.state;
                             const countKey =

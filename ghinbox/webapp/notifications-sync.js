@@ -441,7 +441,8 @@
                 `repo:${repo.owner}/${repo.repo}`,
                 'is:pr',
                 'is:open',
-                `review-requested:${login}`,
+                'user-review-requested:@me',
+                '-review:approved',
             ].join(' ');
             return `/github/rest/search/issues?q=${encodeURIComponent(query)}&per_page=100`;
         }
@@ -503,25 +504,22 @@
                 return notifications;
             }
             const merged = notifications.map((notif) => ({ ...notif }));
-            const indexByKey = new Map();
+            const indexById = new Map();
             merged.forEach((notif, index) => {
-                const key = getNotificationMatchKeyForRepo(notif, repo);
-                if (key) {
-                    indexByKey.set(key, index);
-                }
+                indexById.set(notif.id, index);
             });
             reviewRequests.forEach((requestNotif) => {
-                const key = getNotificationMatchKeyForRepo(requestNotif, repo);
-                const existingIndex = indexByKey.get(key);
+                const existingIndex = indexById.get(requestNotif.id);
                 if (existingIndex === undefined) {
-                    indexByKey.set(key, merged.length);
+                    indexById.set(requestNotif.id, merged.length);
                     merged.push(requestNotif);
                     return;
                 }
                 const existing = merged[existingIndex];
                 merged[existingIndex] = {
                     ...existing,
-                    reason: existing.reason || 'review_requested',
+                    ...requestNotif,
+                    ui: existing.ui || requestNotif.ui,
                     responsibility_source: 'review-requested',
                 };
             });

@@ -18,6 +18,39 @@ const emptyNotifications = {
   },
 };
 
+const notificationBackedReviewRequest = {
+  ...emptyNotifications,
+  notifications: [
+    {
+      id: 'notif-review-10',
+      unread: true,
+      reason: 'review_requested',
+      updated_at: '2025-01-05T12:30:00Z',
+      subject: {
+        title: 'Needs my review',
+        url: 'https://github.com/test/repo/pull/10',
+        type: 'PullRequest',
+        number: 10,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [
+        { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+      ],
+      ui: {
+        saved: false,
+        done: false,
+        action_tokens: {
+          archive: 'test-csrf-token-12345',
+          unarchive: 'test-csrf-token-12345',
+          subscribe: 'test-csrf-token-12345',
+          unsubscribe: 'test-csrf-token-12345',
+        },
+      },
+    },
+  ],
+};
+
 const reviewRequestSearch = {
   total_count: 3,
   incomplete_results: false,
@@ -59,7 +92,11 @@ const reviewRequestSearch = {
 };
 
 test.describe('PR responsibility queue', () => {
+  let notificationsPayload = emptyNotifications;
+
   test.beforeEach(async ({ page }) => {
+    notificationsPayload = emptyNotifications;
+
     await page.addInitScript(() => {
       localStorage.setItem(
         'ghnotif_auth_cache',
@@ -90,13 +127,16 @@ test.describe('PR responsibility queue', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(emptyNotifications),
+        body: JSON.stringify(notificationsPayload),
       });
     });
 
     await page.route(/\/github\/rest\/search\/issues.*/, (route) => {
       expect(decodeURIComponent(route.request().url())).toContain(
-        'review-requested:testuser'
+        'user-review-requested:@me'
+      );
+      expect(decodeURIComponent(route.request().url())).toContain(
+        '-review:approved'
       );
       route.fulfill({
         status: 200,
@@ -182,6 +222,43 @@ test.describe('PR responsibility queue', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+  });
+
+  test('keeps notification-backed PRs in a clearable PR notifications tab', async ({
+    page,
+  }) => {
+    notificationsPayload = notificationBackedReviewRequest;
+    let actionBody: { action?: string; notification_ids?: string[] } | null = null;
+
+    await page.route('**/notifications/html/action', (route) => {
+      actionBody = route.request().postDataJSON();
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('4');
+
+    await page.locator('#view-others-prs').click();
+    await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="notif-review-10"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#10"]')).not.toBeAttached();
+
+    await expect(page.locator('#mark-done-btn')).toBeVisible();
+    await page.locator('#mark-done-btn').click();
+    await expect(page.locator('[data-id="notif-review-10"]')).not.toBeAttached();
+    await expect.poll(() => actionBody?.action).toBe('archive');
+    expect(actionBody?.action).toBe('archive');
+    expect(actionBody?.notification_ids).toEqual(['notif-review-10']);
   });
 
   test('shows review-requested PRs without notifications and excludes approved or changes-requested PRs', async ({

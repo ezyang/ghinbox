@@ -1060,6 +1060,117 @@ function getReviewThreadKey(comment) {
     return String(rootId);
 }
 
+function getCommentTimestampMs(comment) {
+    const timestamp = comment?.created_at || comment?.updated_at;
+    if (!timestamp) {
+        return 0;
+    }
+    const parsed = Date.parse(timestamp);
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function mentionsCurrentUser(text) {
+    const login = String(state.currentUserLogin || '').trim();
+    if (!login || !text) {
+        return false;
+    }
+    const escaped = login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(^|[^A-Za-z0-9-])@${escaped}(?![A-Za-z0-9-])`, 'i');
+    return pattern.test(String(text));
+}
+
+function getParticipationThreadKey(comment) {
+    if (comment?.isReviewComment) {
+        return `review:${getReviewThreadKey(comment) || comment.id || 'unknown'}`;
+    }
+    return 'conversation';
+}
+
+function getSortedNotificationComments(notification) {
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    if (!cached || cached.error || !Array.isArray(cached.comments)) {
+        return [];
+    }
+    return [...cached.comments].sort((a, b) => {
+        const timeA = getCommentTimestampMs(a);
+        const timeB = getCommentTimestampMs(b);
+        if (timeA === timeB) {
+            const idA = Number(a?.id) || 0;
+            const idB = Number(b?.id) || 0;
+            return idA - idB;
+        }
+        return timeA - timeB;
+    });
+}
+
+function isNotificationForCurrentUser(notification) {
+    if (notification.subject?.type !== 'PullRequest') {
+        return false;
+    }
+
+    const currentUser = String(state.currentUserLogin || '').toLowerCase();
+    if (!currentUser) {
+        return String(notification.reason || '').toLowerCase() === 'mention';
+    }
+
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    const authorLogin = String(cached?.authorLogin || '').toLowerCase();
+    if (
+        authorLogin === currentUser ||
+        String(notification.reason || '').toLowerCase() === 'author'
+    ) {
+        return true;
+    }
+
+    if (String(notification.reason || '').toLowerCase() === 'mention') {
+        return true;
+    }
+
+    const comments = getSortedNotificationComments(notification);
+    if (!comments.length) {
+        return false;
+    }
+
+    let latestOwnIndex = -1;
+    comments.forEach((comment, index) => {
+        const author = String(comment?.user?.login || '').toLowerCase();
+        if (author === currentUser) {
+            latestOwnIndex = index;
+        }
+    });
+
+    const threadParticipation = new Map();
+    comments.forEach((comment, index) => {
+        const key = getParticipationThreadKey(comment);
+        const stateForThread = threadParticipation.get(key) || {
+            own: false,
+            mentioned: false,
+        };
+        if (index <= latestOwnIndex) {
+            const author = String(comment?.user?.login || '').toLowerCase();
+            if (author === currentUser) {
+                stateForThread.own = true;
+            }
+            if (mentionsCurrentUser(comment?.body || '')) {
+                stateForThread.mentioned = true;
+            }
+        }
+        threadParticipation.set(key, stateForThread);
+    });
+
+    const newComments = latestOwnIndex === -1
+        ? comments
+        : comments.slice(latestOwnIndex + 1);
+    return newComments.some((comment) => {
+        if (mentionsCurrentUser(comment?.body || '')) {
+            return true;
+        }
+        const key = getParticipationThreadKey(comment);
+        const participation = threadParticipation.get(key);
+        return Boolean(participation?.own || participation?.mentioned);
+    });
+}
+
 function getDirectReviewThreadReplies(comments) {
     const login = (state.currentUserLogin || '').toLowerCase();
     if (!login || !Array.isArray(comments) || comments.length === 0) {

@@ -355,6 +355,122 @@
             }
         }
 
+        function resetDoneQueueForBatch(total) {
+            doneQueue.pending = [];
+            doneQueue.inFlight.clear();
+            doneQueue.totalQueued = total;
+            doneQueue.completed = 0;
+            doneQueue.failed = 0;
+            doneQueue.skipped = 0;
+            doneQueue.failedResults = [];
+            doneQueue.failedNotifications = [];
+            doneQueue.successfulIds = [];
+            doneQueue.active = true;
+        }
+
+        async function markNotificationsDoneBatch(notifIds, notificationLookup) {
+            const firstNotification = notifIds
+                .map(id => notificationLookup.get(id))
+                .find(Boolean);
+            const archiveToken =
+                firstNotification?.ui?.action_tokens?.archive || state.authenticity_token;
+
+            if (!archiveToken) {
+                return {
+                    success: false,
+                    error: 'No authenticity token available for archive action',
+                };
+            }
+
+            try {
+                const response = await fetch('/notifications/html/action', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'archive',
+                        notification_ids: notifIds,
+                        authenticity_token: archiveToken,
+                    }),
+                });
+
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    return {
+                        success: false,
+                        rateLimited: true,
+                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000,
+                    };
+                }
+
+                if (!response.ok) {
+                    const responseText = await response.text();
+                    return {
+                        success: false,
+                        error: `HTTP ${response.status} ${response.statusText}`,
+                        status: response.status,
+                        responseBody: responseText,
+                    };
+                }
+
+                const result = await response.json();
+                if (result.status !== 'ok') {
+                    return {
+                        success: false,
+                        error: result.error || 'Unknown error from server',
+                    };
+                }
+
+                return { success: true };
+            } catch (e) {
+                return {
+                    success: false,
+                    error: e.message || String(e),
+                };
+            }
+        }
+
+        async function processDoneBatch(selectedIds, notificationLookup) {
+            resetDoneQueueForBatch(selectedIds.length);
+            updateQueueProgress();
+
+            try {
+                while (true) {
+                    const result = await markNotificationsDoneBatch(
+                        selectedIds,
+                        notificationLookup
+                    );
+
+                    if (result.rateLimited) {
+                        const delay = result.retryAfter || 60000;
+                        showStatus(
+                            `Rate limited. Waiting ${Math.ceil(delay / 1000)}s...`,
+                            'info'
+                        );
+                        await sleep(delay);
+                        continue;
+                    }
+
+                    if (result.success) {
+                        doneQueue.completed = selectedIds.length;
+                        doneQueue.successfulIds = [...selectedIds];
+                    } else {
+                        const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
+                        doneQueue.failed = selectedIds.length;
+                        doneQueue.failedResults = selectedIds.map(id => ({
+                            id,
+                            error: errorDetail,
+                        }));
+                    }
+                    break;
+                }
+            } finally {
+                doneQueue.active = false;
+                updateQueueProgress();
+            }
+        }
+
         async function handleMarkDone() {
             const filteredNotifications = getFilteredNotifications();
             const { ids, show } = getMarkDoneTargets(filteredNotifications);
@@ -385,25 +501,7 @@
             render();
             restoreScrollAnchor(scrollAnchor);
 
-            const reloadResult = await reloadNotificationsFromServer();
-            const reloadedNotifications =
-                reloadResult.status === 'ok' ? reloadResult.notifications : null;
-            if (reloadResult.status === 'error') {
-                restoreNotificationsInOrder(notificationsToRestore);
-                notificationsToRestore.forEach(notification => state.selected.add(notification.id));
-                persistNotifications();
-                removeUndoEntry(undoEntry);
-                showStatus(
-                    `Failed to mark notifications: ${reloadResult.error || 'Failed to reload notifications.'}`,
-                    'error'
-                );
-                render();
-                return;
-            }
-
-            // Enqueue and process
-            enqueueDoneItems(selectedIds, notificationLookup, { reloadedNotifications });
-            await processDoneQueue();
+            await processDoneBatch(selectedIds, notificationLookup);
 
             // Restore failed items
             if (doneQueue.failedResults.length > 0) {

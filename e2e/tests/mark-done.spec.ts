@@ -142,7 +142,7 @@ test.describe('Mark Done', () => {
   });
 
   test.describe('Mark Done API Calls', () => {
-    test('clicking Mark Done calls HTML action API for each selected notification', async ({ page }) => {
+    test('clicking Mark Done calls HTML action API once for all selected notifications', async ({ page }) => {
       const apiCalls: { action: string; notification_ids: string[] }[] = [];
 
       // Override the default mock with custom tracking
@@ -172,14 +172,13 @@ test.describe('Mark Done', () => {
       // Wait for completion
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
 
-      // Verify API was called for both (one call per notification)
-      expect(apiCalls.length).toBe(2);
-      expect(apiCalls.every((c) => c.action === 'archive')).toBe(true);
-      expect(apiCalls.some((c) => c.notification_ids.includes('notif-1'))).toBe(true);
-      expect(apiCalls.some((c) => c.notification_ids.includes('notif-3'))).toBe(true);
+      // Verify API was called once with the full batch.
+      expect(apiCalls).toEqual([
+        { action: 'archive', notification_ids: ['notif-1', 'notif-3'] },
+      ]);
     });
 
-    test('Mark all in Closed subfilter calls API for each closed issue', async ({ page }) => {
+    test('Mark all in Closed subfilter sends all closed issues in one API call', async ({ page }) => {
       const apiCalls: { notification_ids: string[] }[] = [];
 
       await page.route('**/notifications/html/action', async (route) => {
@@ -204,9 +203,7 @@ test.describe('Mark Done', () => {
 
       // Only 2 closed issues (notif-3 and notif-5), not merged PR
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
-      expect(apiCalls.length).toBe(2);
-      expect(apiCalls.some((c) => c.notification_ids.includes('notif-3'))).toBe(true);
-      expect(apiCalls.some((c) => c.notification_ids.includes('notif-5'))).toBe(true);
+      expect(apiCalls).toEqual([{ notification_ids: ['notif-3', 'notif-5'] }]);
     });
 
     test('Mark Done uses POST method to HTML action endpoint', async ({ page }) => {
@@ -437,24 +434,17 @@ test.describe('Mark Done', () => {
 
   test.describe('Progress Indicator', () => {
     test('status bar shows progress during bulk mark done', async ({ page }) => {
-      let callCount = 0;
-      let releaseFirst: (() => void) | null = null;
-      let releaseSecond: (() => void) | null = null;
+      let releaseResponse: (() => void) | null = null;
+      const apiCalls: string[][] = [];
 
-      const firstGate = new Promise<void>((resolve) => {
-        releaseFirst = resolve;
-      });
-      const secondGate = new Promise<void>((resolve) => {
-        releaseSecond = resolve;
+      const responseGate = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
       });
 
       await page.route('**/notifications/html/action', async (route) => {
-        callCount++;
-        if (callCount === 1) {
-          await firstGate;
-        } else {
-          await secondGate;
-        }
+        const body = JSON.parse(route.request().postData() || '{}');
+        apiCalls.push(body.notification_ids);
+        await responseGate;
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -467,26 +457,22 @@ test.describe('Mark Done', () => {
 
       await page.locator('#mark-done-btn').click();
 
-      // With concurrency, both are in-flight at once, so initial status shows 0/2
       await expect(page.locator('#status-bar')).toContainText('Done 0/2 (2 pending)');
+      expect(apiCalls).toEqual([['notif-1', 'notif-3']]);
 
-      if (!releaseFirst || !releaseSecond) {
+      if (!releaseResponse) {
         throw new Error('Expected gate release functions to be assigned');
       }
-      releaseFirst();
-
-      await expect(page.locator('#status-bar')).toContainText('Done 1/2 (1 pending)');
-
-      releaseSecond();
+      releaseResponse();
 
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
     });
 
-    test('bulk mark done shares one notification reload across selected items', async ({ page }) => {
+    test('bulk mark done uses one action request and no notification reload after click', async ({ page }) => {
       await page.unroute('**/notifications/html/repo/**');
 
       let reloadCount = 0;
-      let archiveCount = 0;
+      const archiveBatches: string[][] = [];
 
       await page.route('**/notifications/html/repo/**', (route) => {
         reloadCount++;
@@ -496,9 +482,11 @@ test.describe('Mark Done', () => {
           body: JSON.stringify(mixedFixture),
         });
       });
+      reloadCount = 0;
 
       await page.route('**/notifications/html/action', (route) => {
-        archiveCount++;
+        const body = JSON.parse(route.request().postData() || '{}');
+        archiveBatches.push(body.notification_ids);
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -511,8 +499,8 @@ test.describe('Mark Done', () => {
       await page.locator('#mark-done-btn').click();
 
       await expect(page.locator('#status-bar')).toContainText('Done 2/2 (0 pending)');
-      expect(reloadCount).toBe(1);
-      expect(archiveCount).toBe(2);
+      expect(reloadCount).toBe(0);
+      expect(archiveBatches).toEqual([['notif-1', 'notif-3']]);
     });
 
     test('done status can be dismissed and auto-dismisses after completion', async ({ page }) => {
@@ -735,63 +723,44 @@ test.describe('Mark Done', () => {
       await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
     });
 
-    test('shows partial success message when some fail', async ({ page }) => {
+    test('bulk failure reports the server error once', async ({ page }) => {
       let callCount = 0;
 
       await page.route('**/notifications/html/action', (route) => {
         callCount++;
-        // First call succeeds, second fails
-        if (callCount === 1) {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 'ok' }),
-          });
-        } else {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 'error', error: 'Failed' }),
-          });
-        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'error', error: 'Failed' }),
+        });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('1 done');
-      await expect(page.locator('#status-bar')).toContainText('1 failed');
+      await expect(page.locator('#status-bar')).toContainText('Failed to mark notifications');
+      await expect(page.locator('#status-bar')).toContainText('Failed');
+      expect(callCount).toBe(1);
     });
 
-    test('successful items are removed even when some fail', async ({ page }) => {
-      let callCount = 0;
-
+    test('bulk failure restores every selected notification', async ({ page }) => {
       await page.route('**/notifications/html/action', (route) => {
-        callCount++;
-        if (callCount === 1) {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 'ok' }),
-          });
-        } else {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ status: 'error', error: 'Failed' }),
-          });
-        }
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ status: 'error', error: 'Failed' }),
+        });
       });
 
       await page.locator('[data-id="notif-1"] .notification-checkbox').click();
       await page.locator('[data-id="notif-3"] .notification-checkbox').click();
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('failed');
+      await expect(page.locator('#status-bar')).toContainText('Failed');
 
-      await expect(page.locator('.notification-item')).toHaveCount(2);
-      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
+      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(1);
       await expect(page.locator('[data-id="notif-3"]')).toHaveCount(1);
     });
   });
