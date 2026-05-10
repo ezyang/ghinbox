@@ -20,6 +20,7 @@
 - Always add E2E tests for new features.  If I ask you to fix a bug, first make an E2E test that exhibits the bug and fails, and then fix it.
 - There may be multiple coding agents running at the same time; don't worry
   too much about unexpected changes, we are running SCM checkpoints regularly.
+- Automatically commit your own changes at logical spots as you work.
 - E2E test authoring rules:
   - **Never use `waitForTimeout`.**  Wait for a specific condition instead:
     - Scroll: `page.waitForFunction(() => window.scrollY > 0)`
