@@ -180,6 +180,7 @@
                 doneQueue.completed = 0;
                 doneQueue.failed = 0;
                 doneQueue.skipped = 0;
+                doneQueue.suppressProgress = false;
                 doneQueue.failedResults = [];
                 doneQueue.failedNotifications = [];
                 doneQueue.successfulIds = [];
@@ -198,7 +199,7 @@
 
         function updateQueueProgress() {
             // For single-item operations, skip intermediate progress to avoid flashing
-            if (doneQueue.totalQueued === 1) {
+            if (doneQueue.totalQueued === 1 || doneQueue.suppressProgress) {
                 return;
             }
             const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
@@ -365,6 +366,7 @@
             doneQueue.failedResults = [];
             doneQueue.failedNotifications = [];
             doneQueue.successfulIds = [];
+            doneQueue.suppressProgress = true;
             doneQueue.active = true;
         }
 

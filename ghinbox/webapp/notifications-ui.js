@@ -1141,7 +1141,12 @@
 
             // Update progress bar
             const prefetchProgress = state.commentPrefetchProgress;
-            if (doneQueue && doneQueue.active && doneQueue.totalQueued > 1) {
+            if (
+                doneQueue &&
+                doneQueue.active &&
+                doneQueue.totalQueued > 1 &&
+                !doneQueue.suppressProgress
+            ) {
                 elements.progressContainer.className = 'progress-container visible';
                 const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
                 const percent = (processed / doneQueue.totalQueued) * 100;

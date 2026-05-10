@@ -433,7 +433,7 @@ test.describe('Mark Done', () => {
   });
 
   test.describe('Progress Indicator', () => {
-    test('status bar shows progress during bulk mark done', async ({ page }) => {
+    test('status bar skips intermediate progress during bulk mark done', async ({ page }) => {
       let releaseResponse: (() => void) | null = null;
       const apiCalls: string[][] = [];
 
@@ -457,7 +457,10 @@ test.describe('Mark Done', () => {
 
       await page.locator('#mark-done-btn').click();
 
-      await expect(page.locator('#status-bar')).toContainText('Done 0/2 (2 pending)');
+      await expect.poll(() => apiCalls.length).toBe(1);
+      await expect(page.locator('#status-bar')).not.toContainText(/Done \d+\/2/, {
+        timeout: 1200,
+      });
       expect(apiCalls).toEqual([['notif-1', 'notif-3']]);
 
       if (!releaseResponse) {
@@ -536,10 +539,14 @@ test.describe('Mark Done', () => {
       await expect(statusBar).toBeHidden({ timeout: 7000 });
     });
 
-    test('progress bar appears during Mark Done operation', async ({ page }) => {
-      // Mock with delay to see progress
+    test('progress bar stays hidden during batched Mark Done operation', async ({ page }) => {
+      let releaseResponse: (() => void) | null = null;
+      const responseGate = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+
       await page.route('**/notifications/html/action', async (route) => {
-        await new Promise((r) => setTimeout(r, 200));
+        await responseGate;
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -553,36 +560,18 @@ test.describe('Mark Done', () => {
       // Click Mark Done
       await page.locator('#mark-done-btn').click();
 
-      // Progress container should be visible
       const progressContainer = page.locator('#progress-container');
-      await expect(progressContainer).toHaveClass(/visible/);
-    });
-
-    test('progress text shows current progress', async ({ page }) => {
-      let callCount = 0;
-
-      await page.route('**/notifications/html/action', async (route) => {
-        callCount++;
-        await new Promise((r) => setTimeout(r, 100));
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
+      const progressText = page.locator('#progress-text');
+      await expect(progressContainer).not.toHaveClass(/visible/);
+      await expect(progressText).not.toContainText(/Marking \d+ of 3/, {
+        timeout: 1200,
       });
 
-      // Select 3 items
-      await page.locator('[data-id="notif-1"] .notification-checkbox').click();
-      await page.locator('[data-id="notif-3"] .notification-checkbox').click();
-      await page.locator('[data-id="notif-5"] .notification-checkbox').click();
+      if (!releaseResponse) {
+        throw new Error('Expected releaseResponse to be assigned');
+      }
+      releaseResponse();
 
-      await page.locator('#mark-done-btn').click();
-
-      // Check progress text appears
-      const progressText = page.locator('#progress-text');
-      await expect(progressText).toContainText(/Marking \d+ of 3/);
-
-      // Wait for completion
       await expect(page.locator('#status-bar')).toContainText('Done 3/3 (0 pending)');
     });
 
