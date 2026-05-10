@@ -664,6 +664,8 @@
                     });
                 }
 
+                notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
+
                 state.notifications = notifications;
                 state.loading = false;
                 state.lastSyncedRepo = repo;

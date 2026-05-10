@@ -5,6 +5,7 @@
         const AUTH_TOKEN_KEY = 'ghnotif_authenticity_token';
         const ORDER_KEY = 'ghnotif_order';
         const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
+        const AUTO_MARK_TRASH_KEY = 'ghnotif_auto_mark_trash_done';
         const VALID_ORDERS = new Set(['recent', 'size']);
         const RATE_LIMIT_LOG_MAX = 300;
 
@@ -49,6 +50,7 @@
             commentExpandIssues: true,
             commentExpandPrs: true,
             commentHideUninteresting: true,
+            autoMarkTrashDone: false,
             commentAgeFilter: 'all', // 'all' | '1day' | '3days' | '1week' | '1month'
             commentQueue: [],
             commentQueueKeys: new Set(),
@@ -102,6 +104,7 @@
             commentExpandIssuesToggle: document.getElementById('comment-expand-issues-toggle'),
             commentExpandPrsToggle: document.getElementById('comment-expand-prs-toggle'),
             commentHideUninterestingToggle: document.getElementById('comment-hide-uninteresting-toggle'),
+            autoMarkTrashToggle: document.getElementById('auto-mark-trash-toggle'),
             commentAgeFilterSelect: document.getElementById('comment-age-filter-select'),
             commentCacheStatus: document.getElementById('comment-cache-status'),
             clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
@@ -551,6 +554,10 @@
             }
             elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
 
+            const savedAutoMarkTrash = localStorage.getItem(AUTO_MARK_TRASH_KEY);
+            state.autoMarkTrashDone = savedAutoMarkTrash === 'true';
+            elements.autoMarkTrashToggle.checked = state.autoMarkTrashDone;
+
             const savedCommentAgeFilter = localStorage.getItem(COMMENT_AGE_FILTER_KEY);
             if (savedCommentAgeFilter && ['all', '1day', '3days', '1week', '1month'].includes(savedCommentAgeFilter)) {
                 state.commentAgeFilter = savedCommentAgeFilter;
@@ -613,6 +620,9 @@
             });
             elements.commentHideUninterestingToggle.addEventListener('change', (event) => {
                 setCommentHideUninteresting(event.target.checked);
+            });
+            elements.autoMarkTrashToggle.addEventListener('change', (event) => {
+                setAutoMarkTrashDone(event.target.checked);
             });
             elements.commentAgeFilterSelect.addEventListener('change', (event) => {
                 setCommentAgeFilter(event.target.value);
@@ -720,6 +730,11 @@
             state.commentHideUninteresting = enabled;
             localStorage.setItem(COMMENT_HIDE_UNINTERESTING_KEY, String(enabled));
             render();
+        }
+
+        function setAutoMarkTrashDone(enabled) {
+            state.autoMarkTrashDone = enabled;
+            localStorage.setItem(AUTO_MARK_TRASH_KEY, String(enabled));
         }
 
         function setCommentAgeFilter(ageFilter) {
@@ -1012,6 +1027,83 @@
                 }
                 return true;
             });
+        }
+
+        function isTrashNotification(notification) {
+            const type = notification.subject?.type;
+            const notifState = notification.subject?.state;
+            const uninteresting = getUninterestingReason(notification) !== null;
+
+            if (type === 'PullRequest' && isMyPr(notification) && uninteresting) {
+                return true;
+            }
+
+            if (
+                isNotificationOriginPullRequest(notification) &&
+                !isMyPr(notification) &&
+                !safeIsNotificationForCurrentUser(notification)
+            ) {
+                return true;
+            }
+
+            if (type !== 'PullRequest' || isMyPr(notification)) {
+                return false;
+            }
+
+            return (
+                safeIsNotificationApproved(notification) ||
+                notifState === 'draft' ||
+                notifState === 'closed' ||
+                notifState === 'merged'
+            );
+        }
+
+        async function autoMarkTrashNotificationsDone(notifications, syncLabel) {
+            if (!state.autoMarkTrashDone) {
+                return notifications;
+            }
+            if (typeof processDoneBatch !== 'function') {
+                showStatus(`${syncLabel}: auto trash cleanup unavailable`, 'error');
+                return notifications;
+            }
+
+            const trashNotifications = notifications.filter(isTrashNotification);
+            if (trashNotifications.length === 0) {
+                return notifications;
+            }
+
+            showStatus(
+                `${syncLabel}: marking ${trashNotifications.length} trash notification${trashNotifications.length === 1 ? '' : 's'} done`,
+                'info',
+                { flash: true }
+            );
+
+            const trashIds = trashNotifications.map(notification => notification.id);
+            const notificationLookup = new Map(
+                notifications.map(notification => [notification.id, notification])
+            );
+            await processDoneBatch(trashIds, notificationLookup);
+
+            const successfulIds = new Set(doneQueue.successfulIds || []);
+            if (successfulIds.size === 0) {
+                showStatus(
+                    `${syncLabel}: failed to mark trash done`,
+                    'error',
+                    { flash: true }
+                );
+                return notifications;
+            }
+
+            const archivedNotifications = trashNotifications.filter(notification =>
+                successfulIds.has(notification.id)
+            );
+            pushToUndoStack('done', archivedNotifications);
+            showStatus(
+                `${syncLabel}: marked ${successfulIds.size} trash notification${successfulIds.size === 1 ? '' : 's'} done`,
+                'success',
+                { flash: true }
+            );
+            return notifications.filter(notification => !successfulIds.has(notification.id));
         }
 
         function safeIsNotificationNeedsReview(notification) {
