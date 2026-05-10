@@ -40,6 +40,7 @@ const makePrNotification = (
 
 const notifications = [
   makePrNotification('my-pr-no-new', 1, 'Own PR with only bot comments', 'author'),
+  makePrNotification('my-pr-own-and-bot', 7, 'Own PR with only own and bot actions', 'author'),
   makePrNotification('pr-for-others', 2, 'PR notification for another user', 'comment'),
   makePrNotification('others-approved', 3, 'Approved PR', 'review_requested'),
   makePrNotification('others-draft', 4, 'Draft PR', 'review_requested', 'draft'),
@@ -82,6 +83,28 @@ const commentCache = {
           created_at: '2025-01-08T10:00:00Z',
           body: 'CI finished successfully.',
           user: { login: 'github-actions[bot]' },
+        },
+      ],
+    },
+    'my-pr-own-and-bot': {
+      notificationUpdatedAt: '2025-01-08T12:07:00Z',
+      lastReadAt: '2025-01-08T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      authorLogin: 'testuser',
+      authorLoginFetchedAt: freshIso,
+      comments: [
+        {
+          id: 701,
+          created_at: '2025-01-08T09:00:00Z',
+          body: 'CI finished successfully.',
+          user: { login: 'htmlpurifierbot' },
+        },
+        {
+          id: 702,
+          created_at: '2025-01-08T10:00:00Z',
+          body: 'Rebased and pushed the fix.',
+          user: { login: 'testuser' },
         },
       ],
     },
@@ -250,10 +273,11 @@ test.describe('Low-priority cleanup', () => {
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="needs-review"]')).toBeVisible();
-    await expect(page.locator('#view-cleaned .count')).toHaveText('5');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('6');
     await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(5);
+    await expect(page.locator('.notification-item')).toHaveCount(6);
     await expect(page.locator('[data-id="my-pr-no-new"]')).toBeVisible();
+    await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
     await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
     await expect(page.locator('[data-id="others-approved"]')).toBeVisible();
     await expect(page.locator('[data-id="others-draft"]')).toBeVisible();
@@ -261,6 +285,7 @@ test.describe('Low-priority cleanup', () => {
 
     expect(archivedIds.sort()).toEqual([
       'my-pr-no-new',
+      'my-pr-own-and-bot',
       'others-approved',
       'others-closed',
       'others-draft',
@@ -311,7 +336,7 @@ test.describe('Low-priority cleanup', () => {
         const stored = await readNotificationsCache(page);
         return Array.isArray(stored) ? stored.length : 0;
       })
-      .toBe(6);
+      .toBe(7);
     await expect(page.locator('#view-cleaned .count')).toHaveText('0');
 
     await page.locator('#clean-now-btn').click();
@@ -322,12 +347,14 @@ test.describe('Low-priority cleanup', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(1);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('5');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('6');
     await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(5);
+    await expect(page.locator('.notification-item')).toHaveCount(6);
+    await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
 
     expect(archivedIds.sort()).toEqual([
       'my-pr-no-new',
+      'my-pr-own-and-bot',
       'others-approved',
       'others-closed',
       'others-draft',

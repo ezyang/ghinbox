@@ -855,6 +855,20 @@ function getCommentStatus(notification) {
     if (isNotificationApproved(notification)) {
         return { label: 'Approved', className: 'approved' };
     }
+    const reason = getUninterestingReason(notification);
+    const reasonLabels = {
+        'no-comments': 'No new comments',
+        'bot-only': 'Bot comments only',
+        'bot-commands': 'Bot commands only',
+        'own-or-bot-only': 'Only you or bots',
+    };
+    if (reason !== null) {
+        const reasonLabel = reasonLabels[reason];
+        return {
+            label: count > 0 ? `${reasonLabel} (${count})` : reasonLabel,
+            className: 'uninteresting'
+        };
+    }
     const directReplies = getDirectReviewThreadReplies(unreadComments);
     if (directReplies.length > 0) {
         return {
@@ -864,19 +878,6 @@ function getCommentStatus(notification) {
     }
     if (isNotificationNeedsReview(notification)) {
         return { label: 'Needs review', className: 'needs-review' };
-    }
-    const reason = getUninterestingReason(notification);
-    const reasonLabels = {
-        'no-comments': 'No new comments',
-        'bot-only': 'Bot comments only',
-        'bot-commands': 'Bot commands only',
-    };
-    if (reason !== null) {
-        const reasonLabel = reasonLabels[reason];
-        return {
-            label: count > 0 ? `${reasonLabel} (${count})` : reasonLabel,
-            className: 'uninteresting'
-        };
     }
     return { label: `Interesting (${count})`, className: 'interesting' };
 }
@@ -1233,6 +1234,9 @@ function isNotificationUninteresting(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    if (notification.subject?.type === 'PullRequest' && comments.length > 0 && areCommentsOnlyByCurrentUserOrBots(comments)) {
+        return true;
+    }
     if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
         return false;
     }
@@ -1257,6 +1261,9 @@ function getUninterestingReason(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    if (notification.subject?.type === 'PullRequest' && comments.length > 0 && areCommentsOnlyByCurrentUserOrBots(comments)) {
+        return 'own-or-bot-only';
+    }
     if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
         return null;
     }
@@ -1392,6 +1399,19 @@ function isUninterestingComment(comment) {
         return true;
     }
     return isBotInteractionComment(body);
+}
+
+function areCommentsOnlyByCurrentUserOrBots(comments) {
+    const login = String(state.currentUserLogin || '').toLowerCase();
+    if (!login || !Array.isArray(comments) || comments.length === 0) {
+        return false;
+    }
+    return comments.every((comment) => {
+        const author = String(comment?.user?.login || '').toLowerCase();
+        return author === login ||
+            isBotAuthor(author) ||
+            isBotInteractionComment(comment?.body || '');
+    });
 }
 
 function isRevertRelated(body) {
