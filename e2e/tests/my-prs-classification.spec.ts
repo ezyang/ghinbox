@@ -149,11 +149,17 @@ test.describe('My PR classification', () => {
 
     await expect(page.locator('#view-issues .count')).toHaveText('1');
     await expect(page.locator('#view-my-prs .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
 
     await page.locator('#view-my-prs').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="notif-pr-author"]')).toBeVisible();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="notif-pr-comment"]')).toBeVisible();
+    await expect(page.locator('[data-id="notif-pr-author"]')).not.toBeAttached();
 
     await page.locator('#view-others-prs').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -269,9 +275,15 @@ test.describe('My PR classification', () => {
 
     await expect(page.locator('#view-my-prs .count')).toHaveText('1');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
 
     await page.locator('#view-my-prs').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="notif-pr-approved"]')).toBeVisible();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="notif-pr-external"]')).toBeVisible();
+    await expect(page.locator('[data-id="notif-pr-approved"]')).not.toBeAttached();
   });
 });

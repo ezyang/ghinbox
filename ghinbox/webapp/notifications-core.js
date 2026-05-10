@@ -923,7 +923,8 @@
                 return isMyPr(notification);
             }
             if (state.view === 'pr-notifications') {
-                return isNotificationOriginPullRequest(notification);
+                return isNotificationOriginPullRequest(notification) &&
+                    !isMyPr(notification);
             }
             if (state.view === 'others-prs') {
                 return notification.subject.type === 'PullRequest' &&
@@ -1168,10 +1169,10 @@
                             othersPrs++;
                         }
                     } else {
-                        prNotifications++;
                         if (isMyPr(notif)) {
                             myPrs++;
                         } else {
+                            prNotifications++;
                             othersPrs++;
                         }
                     }

@@ -229,21 +229,27 @@ test.describe('PR notification audience filter', () => {
     await page.locator('#view-pr-notifications').click();
   });
 
-  test('filters PR notifications for the current user', async ({ page }) => {
+  test('filters PR notifications for the current user without sharing My PRs', async ({ page }) => {
     const audienceTabs = page.locator(
       '.subfilter-tabs[data-for-view="pr-notifications"][data-subfilter-group="audience"]'
     );
 
-    await expect(audienceTabs.locator('[data-subfilter="for-you"] .count')).toHaveText('3');
+    await expect(page.locator('#view-my-prs .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('3');
+    await expect(audienceTabs.locator('[data-subfilter="for-you"] .count')).toHaveText('2');
     await expect(audienceTabs.locator('[data-subfilter="for-others"] .count')).toHaveText('1');
 
     await audienceTabs.locator('[data-subfilter="for-you"]').click();
 
-    await expect(page.locator('.notification-item')).toHaveCount(3);
-    await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('[data-id="own-pr"]')).not.toBeAttached();
     await expect(page.locator('[data-id="mentioned-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="reply-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
+
+    await page.locator('#view-my-prs').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
   });
 
   test('filters PR notifications for others', async ({ page }) => {
