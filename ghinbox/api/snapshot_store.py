@@ -57,10 +57,50 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                 pages_fetched INTEGER NOT NULL DEFAULT 0,
                 notifications_count INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS notification_local_state (
+                repo TEXT NOT NULL,
+                notification_id TEXT NOT NULL,
+                bookmarked INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (repo, notification_id)
+            );
             """
         )
     finally:
         conn.close()
+
+
+def apply_local_state(
+    repo: str,
+    notifications: list[dict],
+    db_path: str | None = None,
+) -> list[dict]:
+    """Overlay server-owned local state onto notification payloads."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT notification_id, bookmarked
+            FROM notification_local_state
+            WHERE repo = ?
+            """,
+            (repo,),
+        ).fetchall()
+        bookmarked = {row["notification_id"] for row in rows if bool(row["bookmarked"])}
+    finally:
+        conn.close()
+
+    if not bookmarked:
+        return notifications
+
+    result = []
+    for notification in notifications:
+        item = dict(notification)
+        ui = dict(item.get("ui") or {})
+        ui["bookmarked"] = str(item.get("id")) in bookmarked
+        item["ui"] = ui
+        result.append(item)
+    return result
 
 
 def get_snapshot(repo: str, db_path: str | None = None) -> dict | None:
@@ -77,8 +117,9 @@ def get_snapshot(repo: str, db_path: str | None = None) -> dict | None:
         ).fetchone()
         if row is None:
             return None
+        notifications = apply_local_state(repo, json.loads(row["data"]), db_path)
         return {
-            "notifications": json.loads(row["data"]),
+            "notifications": notifications,
             "authenticity_token": row["authenticity_token"],
             "source_url": row["source_url"],
             "generated_at": row["generated_at"],
@@ -126,6 +167,60 @@ def save_snapshot(
             )
     finally:
         conn.close()
+
+
+def get_notification_bookmark(
+    repo: str,
+    notification_id: str,
+    db_path: str | None = None,
+) -> bool:
+    """Return whether a notification is bookmarked locally."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT bookmarked
+            FROM notification_local_state
+            WHERE repo = ? AND notification_id = ?
+            """,
+            (repo, notification_id),
+        ).fetchone()
+        return bool(row["bookmarked"]) if row else False
+    finally:
+        conn.close()
+
+
+def set_notification_bookmark(
+    repo: str,
+    notification_id: str,
+    bookmarked: bool,
+    db_path: str | None = None,
+) -> dict:
+    """Persist a local bookmark flag for a notification."""
+    now = _now()
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO notification_local_state (
+                    repo, notification_id, bookmarked, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(repo, notification_id) DO UPDATE SET
+                    bookmarked = excluded.bookmarked,
+                    updated_at = excluded.updated_at
+                """,
+                (repo, notification_id, 1 if bookmarked else 0, now),
+            )
+    finally:
+        conn.close()
+    return {
+        "repo": repo,
+        "notification_id": notification_id,
+        "bookmarked": bookmarked,
+        "updated_at": now,
+    }
 
 
 def list_snapshot_repos(db_path: str | None = None) -> list[str]:
@@ -221,5 +316,6 @@ def clear_snapshot_store(db_path: str | None = None) -> None:
         with conn:
             conn.execute("DELETE FROM notification_snapshots")
             conn.execute("DELETE FROM snapshot_sync_state")
+            conn.execute("DELETE FROM notification_local_state")
     finally:
         conn.close()

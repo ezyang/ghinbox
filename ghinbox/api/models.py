@@ -38,6 +38,7 @@ class UIState(BaseModel):
 
     saved: bool = False
     done: bool = False
+    bookmarked: bool = False
     action_tokens: dict[str, str] = Field(default_factory=dict)
 
 

@@ -12,6 +12,11 @@ from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
 from ghinbox.api.models import NotificationsResponse
+from ghinbox.api.snapshot_store import (
+    apply_local_state,
+    get_notification_bookmark,
+    set_notification_bookmark,
+)
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
@@ -30,6 +35,29 @@ class NotificationActionResponse(BaseModel):
 
     status: Literal["ok", "error"]
     error: str | None = None
+
+
+class NotificationBookmarkRequest(BaseModel):
+    """Request body for local bookmark state."""
+
+    bookmarked: bool
+
+
+class NotificationBookmarkResponse(BaseModel):
+    """Response from a local bookmark update."""
+
+    status: Literal["ok"]
+    repo: str
+    notification_id: str
+    bookmarked: bool
+
+
+def _apply_bookmarks(
+    response: NotificationsResponse, repo_key: str
+) -> NotificationsResponse:
+    payload = response.model_dump(mode="json")
+    payload["notifications"] = apply_local_state(repo_key, payload["notifications"])
+    return NotificationsResponse.model_validate(payload)
 
 
 @router.get(
@@ -139,12 +167,13 @@ async def get_repo_notifications(
         )
 
     try:
-        return parse_notifications_html(
+        parsed = parse_notifications_html(
             html=html,
             owner=owner,
             repo=repo,
             source_url=source_url,
         )
+        return _apply_bookmarks(parsed, f"{owner}/{repo}")
     except SessionExpiredError as e:
         raise HTTPException(
             status_code=401,
@@ -275,4 +304,48 @@ async def submit_action(
     return NotificationActionResponse(
         status=result.status,
         error=result.error,
+    )
+
+
+@router.get(
+    "/repo/{owner}/{repo}/bookmarks/{notification_id}",
+    response_model=NotificationBookmarkResponse,
+    summary="Get local bookmark state",
+)
+async def get_bookmark(
+    owner: str,
+    repo: str,
+    notification_id: str,
+) -> NotificationBookmarkResponse:
+    repo_key = f"{owner}/{repo}"
+    return NotificationBookmarkResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=notification_id,
+        bookmarked=get_notification_bookmark(repo_key, notification_id),
+    )
+
+
+@router.put(
+    "/repo/{owner}/{repo}/bookmarks/{notification_id}",
+    response_model=NotificationBookmarkResponse,
+    summary="Set local bookmark state",
+)
+async def set_bookmark(
+    owner: str,
+    repo: str,
+    notification_id: str,
+    request: NotificationBookmarkRequest,
+) -> NotificationBookmarkResponse:
+    repo_key = f"{owner}/{repo}"
+    result = set_notification_bookmark(
+        repo_key,
+        notification_id,
+        request.bookmarked,
+    )
+    return NotificationBookmarkResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=result["notification_id"],
+        bookmarked=result["bookmarked"],
     )
