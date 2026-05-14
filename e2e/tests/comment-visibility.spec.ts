@@ -405,6 +405,8 @@ test.describe('Own comment filtering', () => {
   test('filters comments before own comment when authenticated', async ({
     page,
   }) => {
+    await page.locator('#view-pr-notifications').click();
+
     // filterCommentsAfterOwnComment hides comments before/including the user's own comment.
     // With testuser authenticated, only comments after 'Looking now.' show.
     await expect(page.locator('.comment-item')).toHaveCount(1);

@@ -1109,6 +1109,10 @@ function getParticipationThreadKey(comment) {
     return 'conversation';
 }
 
+function isMainThreadComment(comment) {
+    return !comment?.isReviewComment;
+}
+
 function getSortedNotificationComments(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     if (!cached || cached.error || !Array.isArray(cached.comments)) {
@@ -1231,12 +1235,27 @@ function isNotificationDirectedAtCurrentUser(notification) {
         return true;
     }
 
-    return comments.some((comment) => {
+    return comments.some((comment, index) => {
         const timestamp = getCommentTimestampMs(comment);
         if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
             return false;
         }
-        return hasActionableCurrentUserMention(comment);
+        if (hasActionableCurrentUserMention(comment)) {
+            return true;
+        }
+        if (!isMainThreadComment(comment)) {
+            return false;
+        }
+        const author = String(comment?.user?.login || '').toLowerCase();
+        if (!author || author === currentUser) {
+            return false;
+        }
+        const previousMainThreadComment = comments
+            .slice(0, index)
+            .reverse()
+            .find(isMainThreadComment);
+        const previousAuthor = String(previousMainThreadComment?.user?.login || '').toLowerCase();
+        return previousAuthor === currentUser;
     });
 }
 

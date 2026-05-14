@@ -61,6 +61,77 @@ const notificationsResponse = {
       actors: [{ login: 'dana', avatar_url: 'https://avatars.githubusercontent.com/u/4?v=4' }],
       ui: { saved: false, done: false },
     },
+    {
+      id: 'main-thread-new-cc',
+      unread: true,
+      reason: 'comment',
+      updated_at: '2026-05-14T12:30:00Z',
+      last_read_at: '2026-05-14T08:00:00Z',
+      subject: {
+        title: 'Main thread comment cc mentions the user',
+        url: 'https://github.com/test/repo/issues/5',
+        type: 'Issue',
+        number: 5,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'erin', avatar_url: 'https://avatars.githubusercontent.com/u/5?v=4' }],
+      ui: { saved: false, done: false },
+    },
+    {
+      id: 'main-thread-immediate-reply',
+      unread: true,
+      reason: 'comment',
+      updated_at: '2026-05-14T12:40:00Z',
+      last_read_at: '2026-05-14T08:00:00Z',
+      subject: {
+        title: 'Main thread immediate reply after my comment',
+        url: 'https://github.com/test/repo/issues/6',
+        type: 'Issue',
+        number: 6,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'frank', avatar_url: 'https://avatars.githubusercontent.com/u/6?v=4' }],
+      ui: { saved: false, done: false },
+    },
+    {
+      id: 'main-thread-later-chatter',
+      unread: true,
+      reason: 'comment',
+      updated_at: '2026-05-14T12:50:00Z',
+      last_read_at: '2026-05-14T09:05:00Z',
+      subject: {
+        title: 'Main thread later chatter after my comment',
+        url: 'https://github.com/test/repo/issues/7',
+        type: 'Issue',
+        number: 7,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'grace', avatar_url: 'https://avatars.githubusercontent.com/u/7?v=4' }],
+      ui: { saved: false, done: false },
+    },
+    {
+      id: 'symbolic-export-followup',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2026-05-13T10:58:50Z',
+      last_read_at: '2026-05-13T10:00:00Z',
+      subject: {
+        title:
+          'Eager fake-tensor execution on symbolic torch.export metadata can specialize shapes and add guards outside tracing',
+        url: 'https://github.com/test/repo/issues/182940',
+        type: 'Issue',
+        number: 182940,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [
+        { login: 'oscarandersson8218', avatar_url: 'https://avatars.githubusercontent.com/u/8?v=4' },
+      ],
+      ui: { saved: false, done: false },
+    },
   ],
   pagination: {
     before_cursor: null,
@@ -110,6 +181,96 @@ const commentCache = {
           updated_at: '2026-05-14T09:30:00Z',
           body: 'I can reproduce this.',
           user: { login: 'dana' },
+        },
+      ],
+    },
+    'main-thread-new-cc': {
+      notificationUpdatedAt: '2026-05-14T12:30:00Z',
+      lastReadAt: '2026-05-14T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 500,
+          created_at: '2026-05-14T09:00:00Z',
+          updated_at: '2026-05-14T09:00:00Z',
+          body: 'cc @testuser for visibility',
+          user: { login: 'erin' },
+        },
+      ],
+    },
+    'main-thread-immediate-reply': {
+      notificationUpdatedAt: '2026-05-14T12:40:00Z',
+      lastReadAt: '2026-05-14T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 600,
+          created_at: '2026-05-14T08:30:00Z',
+          updated_at: '2026-05-14T08:30:00Z',
+          body: 'I can help debug this.',
+          user: { login: 'testuser' },
+        },
+        {
+          id: 601,
+          created_at: '2026-05-14T09:00:00Z',
+          updated_at: '2026-05-14T09:00:00Z',
+          body: 'Thanks, here are more details.',
+          user: { login: 'frank' },
+        },
+      ],
+    },
+    'main-thread-later-chatter': {
+      notificationUpdatedAt: '2026-05-14T12:50:00Z',
+      lastReadAt: '2026-05-14T09:05:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 700,
+          created_at: '2026-05-14T08:30:00Z',
+          updated_at: '2026-05-14T08:30:00Z',
+          body: 'I can help debug this.',
+          user: { login: 'testuser' },
+        },
+        {
+          id: 701,
+          created_at: '2026-05-14T09:00:00Z',
+          updated_at: '2026-05-14T09:00:00Z',
+          body: 'Thanks, here are more details.',
+          user: { login: 'frank' },
+        },
+        {
+          id: 702,
+          created_at: '2026-05-14T09:10:00Z',
+          updated_at: '2026-05-14T09:10:00Z',
+          body: 'I have a related question for the group.',
+          user: { login: 'grace' },
+        },
+      ],
+    },
+    'symbolic-export-followup': {
+      notificationUpdatedAt: '2026-05-13T10:58:50Z',
+      lastReadAt: '2026-05-13T10:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 1829400,
+          created_at: '2026-05-13T10:20:00Z',
+          updated_at: '2026-05-13T10:20:00Z',
+          body:
+            'There is an API on ShapeEnv to freeze it and we should apply it here. Unfortunately this is BC breaking.',
+          user: { login: 'testuser' },
+        },
+        {
+          id: 1829401,
+          created_at: '2026-05-13T10:58:50Z',
+          updated_at: '2026-05-13T10:58:50Z',
+          body:
+            "Ok, so there's nothing we can do about it at the moment? Unfortunately such eager execution is convenient and used in a few places.",
+          user: { login: 'oscarandersson8218' },
         },
       ],
     },
@@ -226,7 +387,7 @@ test.describe('Feed, Replies, and Reviews queues', () => {
     await page.reload();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 8 notifications');
   });
 
   test('separates awareness notifications from directed replies and review requests', async ({
@@ -236,19 +397,30 @@ test.describe('Feed, Replies, and Reviews queues', () => {
     await expect(page.locator('#view-pr-notifications')).toContainText('Replies');
     await expect(page.locator('#view-others-prs')).toContainText('Reviews');
 
-    await expect(page.locator('#view-issues .count')).toHaveText('1');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('2');
+    await expect(page.locator('#view-issues .count')).toHaveText('2');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('5');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
 
     await expect(page.locator('[data-id="pr-body-cc"]')).toBeVisible();
+    await expect(page.locator('[data-id="main-thread-later-chatter"]')).toBeVisible();
     await expect(page.locator('[data-id="mid-thread-mention"]')).not.toBeAttached();
     await expect(page.locator('[data-id="authored-issue-reply"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="main-thread-new-cc"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="main-thread-immediate-reply"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="symbolic-export-followup"]')).not.toBeAttached();
     await expect(page.locator('[data-id="review-request:test/repo#3"]')).not.toBeAttached();
 
     await page.locator('#view-pr-notifications').click();
     await expect(page.locator('[data-id="mid-thread-mention"]')).toBeVisible();
     await expect(page.locator('[data-id="authored-issue-reply"]')).toBeVisible();
+    await expect(page.locator('[data-id="main-thread-new-cc"]')).toBeVisible();
+    await expect(page.locator('[data-id="main-thread-immediate-reply"]')).toBeVisible();
+    await expect(page.locator('[data-id="symbolic-export-followup"]')).toBeVisible();
+    await expect(page.locator('[data-id="symbolic-export-followup"]')).toContainText(
+      'Eager fake-tensor execution on symbolic torch.export metadata'
+    );
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="main-thread-later-chatter"]')).not.toBeAttached();
 
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="review-request:test/repo#3"]')).toBeVisible();
