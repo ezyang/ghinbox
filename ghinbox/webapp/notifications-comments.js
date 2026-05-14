@@ -1192,6 +1192,23 @@ function isNotificationDirectedAtCurrentUser(notification) {
         state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt ||
         ''
     );
+    const hasUnreadCommentFromOtherUser = comments.some((comment) => {
+        const timestamp = getCommentTimestampMs(comment);
+        if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
+            return false;
+        }
+        const author = String(comment?.user?.login || '').toLowerCase();
+        return author && author !== currentUser;
+    });
+
+    if (
+        notification.subject?.type === 'Issue' &&
+        String(notification.reason || '').toLowerCase() === 'author' &&
+        hasUnreadCommentFromOtherUser
+    ) {
+        return true;
+    }
+
     return comments.some((comment) => {
         const timestamp = getCommentTimestampMs(comment);
         if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {

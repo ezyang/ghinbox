@@ -44,6 +44,23 @@ const notificationsResponse = {
       actors: [{ login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' }],
       ui: { saved: false, done: false },
     },
+    {
+      id: 'authored-issue-reply',
+      unread: true,
+      reason: 'author',
+      updated_at: '2026-05-14T12:20:00Z',
+      last_read_at: '2026-05-14T08:00:00Z',
+      subject: {
+        title: "Authored issue with someone else's reply",
+        url: 'https://github.com/test/repo/issues/4',
+        type: 'Issue',
+        number: 4,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'dana', avatar_url: 'https://avatars.githubusercontent.com/u/4?v=4' }],
+      ui: { saved: false, done: false },
+    },
   ],
   pagination: {
     before_cursor: null,
@@ -78,6 +95,21 @@ const commentCache = {
           updated_at: '2026-05-14T09:00:00Z',
           body: '@testuser can you take a look at this?',
           user: { login: 'bob' },
+        },
+      ],
+    },
+    'authored-issue-reply': {
+      notificationUpdatedAt: '2026-05-14T12:20:00Z',
+      lastReadAt: '2026-05-14T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 400,
+          created_at: '2026-05-14T09:30:00Z',
+          updated_at: '2026-05-14T09:30:00Z',
+          body: 'I can reproduce this.',
+          user: { login: 'dana' },
         },
       ],
     },
@@ -194,7 +226,7 @@ test.describe('Feed, Replies, and Reviews queues', () => {
     await page.reload();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
   });
 
   test('separates awareness notifications from directed replies and review requests', async ({
@@ -205,15 +237,17 @@ test.describe('Feed, Replies, and Reviews queues', () => {
     await expect(page.locator('#view-others-prs')).toContainText('Reviews');
 
     await expect(page.locator('#view-issues .count')).toHaveText('1');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('2');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
 
     await expect(page.locator('[data-id="pr-body-cc"]')).toBeVisible();
     await expect(page.locator('[data-id="mid-thread-mention"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="authored-issue-reply"]')).not.toBeAttached();
     await expect(page.locator('[data-id="review-request:test/repo#3"]')).not.toBeAttached();
 
     await page.locator('#view-pr-notifications').click();
     await expect(page.locator('[data-id="mid-thread-mention"]')).toBeVisible();
+    await expect(page.locator('[data-id="authored-issue-reply"]')).toBeVisible();
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
 
     await page.locator('#view-others-prs').click();

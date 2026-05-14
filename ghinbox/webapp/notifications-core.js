@@ -1025,6 +1025,15 @@
                 );
         }
 
+        function isCommitNotification(notification) {
+            const type = String(notification.subject?.type || '').toLowerCase();
+            if (type === 'commit') {
+                return true;
+            }
+            const url = String(notification.subject?.url || '');
+            return /github\.com\/[^/]+\/[^/]+\/commit\/[0-9a-f]{7,40}(?:[?#/]|$)/i.test(url);
+        }
+
         function applyAudienceFilter(notifications, audienceFilter) {
             if (audienceFilter === 'all') {
                 return notifications;
@@ -1062,6 +1071,10 @@
             const type = notification.subject?.type;
             const notifState = notification.subject?.state;
             const uninteresting = getUninterestingReason(notification) !== null;
+
+            if (isCommitNotification(notification)) {
+                return true;
+            }
 
             if (type === 'PullRequest' && isMyPr(notification) && uninteresting) {
                 return true;
