@@ -66,13 +66,13 @@ test.describe('Selection', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     // Wait for notifications to load
-    await expect(page.locator('.notification-item')).toHaveCount(3);
+    await expect(page.locator('.notification-item')).toHaveCount(4);
   });
 
   test.describe('Notification Checkboxes', () => {
     test('checkboxes toggle selection and update count', async ({ page }) => {
       const checkboxes = page.locator('.notification-checkbox');
-      await expect(checkboxes).toHaveCount(3);
+      await expect(checkboxes).toHaveCount(4);
       await expect(checkboxes.first()).not.toBeChecked();
 
       const checkbox = page.locator('[data-id="notif-1"] .notification-checkbox');
@@ -99,7 +99,7 @@ test.describe('Selection', () => {
 
       await selectAll.click();
       await expect(selectAll).toBeChecked();
-      await expect(page.locator('#selection-count')).toHaveText('3 selected');
+      await expect(page.locator('#selection-count')).toHaveText('4 selected');
 
       await selectAll.click();
       await expect(selectAll).not.toBeChecked();
@@ -123,11 +123,12 @@ test.describe('Selection', () => {
         modifiers: ['Shift'],
       });
 
-      // Items 1, 3, 5 should be selected
+      // Items 1, 3, 4, and 5 should be selected
       await expect(page.locator('[data-id="notif-1"]')).toHaveClass(/selected/);
       await expect(page.locator('[data-id="notif-3"]')).toHaveClass(/selected/);
+      await expect(page.locator('[data-id="notif-4"]')).toHaveClass(/selected/);
       await expect(page.locator('[data-id="notif-5"]')).toHaveClass(/selected/);
-      await expect(page.locator('#selection-count')).toHaveText('3 selected');
+      await expect(page.locator('#selection-count')).toHaveText('4 selected');
     });
   });
 

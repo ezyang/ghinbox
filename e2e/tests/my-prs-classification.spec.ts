@@ -91,7 +91,7 @@ const fixture = {
   },
 };
 
-test.describe('My PR classification', () => {
+test.describe('Feed and Reviews PR classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(
@@ -141,32 +141,28 @@ test.describe('My PR classification', () => {
     await clearAppStorage(page);
   });
 
-  test('uses author reason instead of actor for My PRs', async ({ page }) => {
+  test('keeps PR author notifications in Feed unless they are directed replies or reviews', async ({ page }) => {
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
 
-    await expect(page.locator('#view-issues .count')).toHaveText('1');
-    await expect(page.locator('#view-my-prs .count')).toHaveText('1');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
-    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+    await expect(page.locator('#view-issues .count')).toHaveText('3');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('0');
 
-    await page.locator('#view-my-prs').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await page.locator('#view-issues').click();
+    await expect(page.locator('.notification-item')).toHaveCount(3);
     await expect(page.locator('[data-id="notif-pr-author"]')).toBeVisible();
+    await expect(page.locator('[data-id="notif-pr-comment"]')).toBeVisible();
 
     await page.locator('#view-pr-notifications').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
-    await expect(page.locator('[data-id="notif-pr-comment"]')).toBeVisible();
-    await expect(page.locator('[data-id="notif-pr-author"]')).not.toBeAttached();
-
+    await expect(page.locator('.notification-item')).toHaveCount(0);
     await page.locator('#view-others-prs').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
-    await expect(page.locator('[data-id="notif-pr-comment"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
-  test('uses PR author login when reason is not author', async ({ page }) => {
+  test('uses PR metadata for review queues without promoting generic PR comments', async ({ page }) => {
     const graphqlFixture = {
       ...fixture,
       notifications: [
@@ -271,17 +267,16 @@ test.describe('My PR classification', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
 
     await page.locator('#view-others-prs').click();
-    await page.locator('[data-for-view="others-prs"][data-subfilter-group="author"] [data-subfilter="committer"]').click();
 
-    await expect(page.locator('#view-my-prs .count')).toHaveText('1');
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
+    await expect(page.locator('#view-issues .count')).toHaveText('1');
 
-    await page.locator('#view-my-prs').click();
+    await page.locator('#view-others-prs').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="notif-pr-approved"]')).toBeVisible();
 
-    await page.locator('#view-pr-notifications').click();
+    await page.locator('#view-issues').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="notif-pr-external"]')).toBeVisible();
     await expect(page.locator('[data-id="notif-pr-approved"]')).not.toBeAttached();

@@ -56,6 +56,7 @@ test.describe('Open all button', () => {
     expect(openedWindows.map((entry) => entry.url)).toEqual([
       'https://github.com/test/repo/issues/42?notification_referrer_id=NT_test_42',
       'https://github.com/test/repo/issues/41?notification_referrer_id=NT_test_41',
+      'https://github.com/test/repo/pull/40',
       'https://github.com/test/repo/issues/39?notification_referrer_id=NT_test_39',
     ]);
     expect(new Set(openedWindows.map((entry) => entry.name)).size).toBe(openedWindows.length);

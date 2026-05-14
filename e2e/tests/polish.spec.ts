@@ -77,7 +77,7 @@ test.describe('Polish', () => {
       await page.keyboard.press('Escape');
 
       // No errors, page still works
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
     });
 
     test('Ctrl+A selects all notifications', async ({ page }) => {
@@ -85,7 +85,7 @@ test.describe('Polish', () => {
       await page.keyboard.press('Control+a');
 
       // All items should be selected
-      await expect(page.locator('#selection-count')).toHaveText('3 selected');
+      await expect(page.locator('#selection-count')).toHaveText('4 selected');
       await expect(page.locator('#select-all-checkbox')).toBeChecked();
     });
 
@@ -94,7 +94,7 @@ test.describe('Polish', () => {
       await page.keyboard.press('Meta+a');
 
       // All items should be selected
-      await expect(page.locator('#selection-count')).toHaveText('3 selected');
+      await expect(page.locator('#selection-count')).toHaveText('4 selected');
     });
 
     test('keyboard shortcuts do not work in input field', async ({ page }) => {
@@ -152,7 +152,7 @@ test.describe('Polish', () => {
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
 
       const emptyState = page.locator('#empty-state');
-      await expect(emptyState).toContainText('No open issue notifications');
+      await expect(emptyState).toContainText('No open feed notifications');
       await expect(emptyState).toContainText('closed or merged');
     });
 
@@ -186,7 +186,7 @@ test.describe('Polish', () => {
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
       const emptyState = page.locator('#empty-state');
-      await expect(emptyState).toContainText('No closed issue notifications');
+      await expect(emptyState).toContainText('No closed feed notifications');
       await expect(emptyState).toContainText('still open');
     });
   });

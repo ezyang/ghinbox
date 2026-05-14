@@ -70,10 +70,9 @@ test.describe('Remove Reviewer', () => {
     // Sync to load notifications
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    // Switch to Others PRs view to see PR notifications
+    // Switch to Reviews view to see review-requested PR notifications.
     await page.locator('#view-others-prs').click();
-    // Wait for PR notifications to load (2 PRs in fixture: notif-2 and notif-4)
-    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('.notification-item')).toHaveCount(1);
   });
 
   test.describe('Button Visibility', () => {
@@ -141,7 +140,7 @@ test.describe('Remove Reviewer', () => {
 
       // Notification should be removed from UI
       await expect(prNotification).toHaveCount(0);
-      await expect(page.locator('.notification-item')).toHaveCount(1);
+      await expect(page.locator('.notification-item')).toHaveCount(0);
 
       // Verify all API calls were made
       expect(removeReviewerCalled).toBe(true);
@@ -306,9 +305,9 @@ test.describe('Remove Reviewer', () => {
       await page.reload();
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
-      // Switch to Others PRs view to see PR notifications
+      // Switch to Reviews view to see review-requested PR notifications.
       await page.locator('#view-others-prs').click();
-      await expect(page.locator('.notification-item')).toHaveCount(2);
+      await expect(page.locator('.notification-item')).toHaveCount(1);
 
       const prNotification = page.locator('[data-id="notif-2"]');
       await prNotification.locator('.notification-remove-reviewer-btn').click();

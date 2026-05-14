@@ -1172,6 +1172,35 @@ function isNotificationForCurrentUser(notification) {
     });
 }
 
+function isNotificationDirectedAtCurrentUser(notification) {
+    const currentUser = String(state.currentUserLogin || '').toLowerCase();
+    if (!currentUser) {
+        return false;
+    }
+
+    const comments = getSortedNotificationComments(notification);
+    if (!comments.length) {
+        return false;
+    }
+
+    if (getDirectReviewThreadReplies(comments).length > 0) {
+        return true;
+    }
+
+    const lastReadAt = Date.parse(
+        notification.last_read_at ||
+        state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt ||
+        ''
+    );
+    return comments.some((comment) => {
+        const timestamp = getCommentTimestampMs(comment);
+        if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
+            return false;
+        }
+        return mentionsCurrentUser(comment?.body || '');
+    });
+}
+
 function getDirectReviewThreadReplies(comments) {
     const login = (state.currentUserLogin || '').toLowerCase();
     if (!login || !Array.isArray(comments) || comments.length === 0) {

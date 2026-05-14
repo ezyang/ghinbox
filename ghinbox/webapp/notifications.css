@@ -851,7 +851,7 @@
             }
         }
 
-        /* View tabs (primary navigation: Issues / My PRs / Others' PRs) */
+        /* View tabs (primary navigation: Feed / Replies / Reviews) */
         .view-tabs {
             display: flex;
             gap: 0;

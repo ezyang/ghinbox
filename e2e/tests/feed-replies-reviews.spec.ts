@@ -1,0 +1,223 @@
+import { test, expect } from '@playwright/test';
+import { clearAppStorage, seedCommentCache } from './storage-utils';
+
+const notificationsResponse = {
+  source_url: 'https://github.com/notifications?query=repo:test/repo',
+  generated_at: '2026-05-14T00:00:00Z',
+  repository: {
+    owner: 'test',
+    name: 'repo',
+    full_name: 'test/repo',
+  },
+  notifications: [
+    {
+      id: 'pr-body-cc',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2026-05-14T12:00:00Z',
+      last_read_at: '2026-05-14T08:00:00Z',
+      subject: {
+        title: 'Top-level PR body CC',
+        url: 'https://github.com/test/repo/pull/1',
+        type: 'PullRequest',
+        number: 1,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+      ui: { saved: false, done: false },
+    },
+    {
+      id: 'mid-thread-mention',
+      unread: true,
+      reason: 'comment',
+      updated_at: '2026-05-14T12:10:00Z',
+      last_read_at: '2026-05-14T08:00:00Z',
+      subject: {
+        title: 'Comment mentions the user',
+        url: 'https://github.com/test/repo/issues/2',
+        type: 'Issue',
+        number: 2,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' }],
+      ui: { saved: false, done: false },
+    },
+  ],
+  pagination: {
+    before_cursor: null,
+    after_cursor: null,
+    has_previous: false,
+    has_next: false,
+  },
+};
+
+const freshIso = new Date().toISOString();
+const commentCache = {
+  version: 1,
+  threads: {
+    'pr-body-cc': {
+      notificationUpdatedAt: '2026-05-14T12:00:00Z',
+      lastReadAt: '2026-05-14T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      authorLogin: 'alice',
+      authorLoginFetchedAt: freshIso,
+      comments: [],
+    },
+    'mid-thread-mention': {
+      notificationUpdatedAt: '2026-05-14T12:10:00Z',
+      lastReadAt: '2026-05-14T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 200,
+          created_at: '2026-05-14T09:00:00Z',
+          updated_at: '2026-05-14T09:00:00Z',
+          body: '@testuser can you take a look at this?',
+          user: { login: 'bob' },
+        },
+      ],
+    },
+  },
+};
+
+const reviewRequestSearch = {
+  total_count: 1,
+  incomplete_results: false,
+  items: [
+    {
+      number: 3,
+      title: 'Needs an explicit review',
+      html_url: 'https://github.com/test/repo/pull/3',
+      state: 'open',
+      draft: false,
+      updated_at: '2026-05-14T11:00:00Z',
+      created_at: '2026-05-14T10:00:00Z',
+      user: { login: 'carol', avatar_url: 'https://avatars.githubusercontent.com/u/3?v=4' },
+      pull_request: {},
+    },
+  ],
+};
+
+test.describe('Feed, Replies, and Reviews queues', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
+    });
+
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+
+    await page.route('**/github/rest/rate_limit', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rate: { limit: 5000, remaining: 4999, reset: 0 },
+          resources: {},
+        }),
+      });
+    });
+
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(notificationsResponse),
+      });
+    });
+
+    await page.route('**/github/rest/search/issues**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(reviewRequestSearch),
+      });
+    });
+
+    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: {
+              limit: 5000,
+              remaining: 4999,
+              resetAt: '2026-05-14T00:00:00Z',
+            },
+            repository: {
+              pr1: {
+                reviewDecision: null,
+                authorAssociation: 'CONTRIBUTOR',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'alice' },
+              },
+              pr3: {
+                reviewDecision: null,
+                authorAssociation: 'CONTRIBUTOR',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'carol' },
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('notifications.html');
+    await clearAppStorage(page);
+    await seedCommentCache(page, commentCache);
+    await page.reload();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+  });
+
+  test('separates awareness notifications from directed replies and review requests', async ({
+    page,
+  }) => {
+    await expect(page.locator('#view-issues')).toContainText('Feed');
+    await expect(page.locator('#view-pr-notifications')).toContainText('Replies');
+    await expect(page.locator('#view-others-prs')).toContainText('Reviews');
+
+    await expect(page.locator('#view-issues .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+
+    await expect(page.locator('[data-id="pr-body-cc"]')).toBeVisible();
+    await expect(page.locator('[data-id="mid-thread-mention"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="review-request:test/repo#3"]')).not.toBeAttached();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="mid-thread-mention"]')).toBeVisible();
+    await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
+
+    await page.locator('#view-others-prs').click();
+    await expect(page.locator('[data-id="review-request:test/repo#3"]')).toBeVisible();
+    await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
+  });
+});

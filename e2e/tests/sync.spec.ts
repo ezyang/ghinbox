@@ -85,7 +85,7 @@ test.describe('Sync Functionality', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
 
     // Check notification count in header
-    await expect(page.locator('#notification-count')).toContainText('3 notifications');
+    await expect(page.locator('#notification-count')).toContainText('4 notifications');
   });
 
   test('session-expired sync response redirects to login refresh', async ({ page }) => {
@@ -1366,7 +1366,7 @@ test.describe('Sync Functionality', () => {
     await page.waitForLoadState('domcontentloaded');
 
     // Notifications should still be displayed (loaded from IndexedDB)
-    await expect(page.locator('#notification-count')).toContainText('3 notifications');
+    await expect(page.locator('#notification-count')).toContainText('4 notifications');
 
     // Empty state should be hidden
     await expect(page.locator('#empty-state')).not.toBeVisible();
@@ -1760,7 +1760,7 @@ test.describe('Error Handling', () => {
     await expect(page.locator('#status-bar')).toContainText('Sync failed');
 
     // Original notifications should still be displayed
-    await expect(page.locator('#notification-count')).toContainText('3 notifications');
+    await expect(page.locator('#notification-count')).toContainText('4 notifications');
   });
 });
 
@@ -1794,7 +1794,7 @@ test.describe('Notifications Display', () => {
 
     // Check that notification titles are displayed
     const list = page.locator('#notifications-list');
-    await expect(list.locator('.notification-item')).toHaveCount(3);
+    await expect(list.locator('.notification-item')).toHaveCount(4);
 
     // First notification should have its title
     await expect(list.locator('.notification-item').first()).toContainText('Fix critical bug in authentication');

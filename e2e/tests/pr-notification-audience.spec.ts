@@ -125,7 +125,7 @@ const commentCache = {
   },
 };
 
-test.describe('PR notification audience filter', () => {
+test.describe('Replies queue classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(
@@ -229,37 +229,31 @@ test.describe('PR notification audience filter', () => {
     await page.locator('#view-pr-notifications').click();
   });
 
-  test('filters PR notifications for the current user without sharing My PRs', async ({ page }) => {
-    const audienceTabs = page.locator(
-      '.subfilter-tabs[data-for-view="pr-notifications"][data-subfilter-group="audience"]'
-    );
-
-    await expect(page.locator('#view-my-prs .count')).toHaveText('1');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('3');
-    await expect(audienceTabs.locator('[data-subfilter="for-you"] .count')).toHaveText('2');
-    await expect(audienceTabs.locator('[data-subfilter="for-others"] .count')).toHaveText('1');
-
-    await audienceTabs.locator('[data-subfilter="for-you"]').click();
-
+  test('shows directed PR mentions and thread replies in Replies', async ({ page }) => {
+    await expect(page.locator('#view-issues .count')).toHaveText('2');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('2');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('0');
     await expect(page.locator('.notification-item')).toHaveCount(2);
+
     await expect(page.locator('[data-id="own-pr"]')).not.toBeAttached();
     await expect(page.locator('[data-id="mentioned-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="reply-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
 
-    await page.locator('#view-my-prs').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await page.locator('#view-issues').click();
+    await expect(page.locator('.notification-item')).toHaveCount(2);
     await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
+    await expect(page.locator('[data-id="others-pr"]')).toBeVisible();
   });
 
-  test('filters PR notifications for others', async ({ page }) => {
-    const audienceTabs = page.locator(
-      '.subfilter-tabs[data-for-view="pr-notifications"][data-subfilter-group="audience"]'
+  test('empty Replies state is shown when the open filter excludes replies', async ({ page }) => {
+    const replyTabs = page.locator(
+      '.subfilter-tabs[data-for-view="pr-notifications"][data-subfilter-group="state"]'
     );
 
-    await audienceTabs.locator('[data-subfilter="for-others"]').click();
+    await replyTabs.locator('[data-subfilter="closed"]').click();
 
-    await expect(page.locator('.notification-item')).toHaveCount(1);
-    await expect(page.locator('[data-id="others-pr"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(0);
+    await expect(page.locator('#empty-state')).toBeVisible();
   });
 });

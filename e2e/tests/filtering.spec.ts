@@ -19,7 +19,7 @@ async function expectNoStatusFlash(page, text) {
 /**
  * Filtering Tests
  *
- * Tests for filtering notifications by view (Issues, My PRs, Others' PRs)
+ * Tests for filtering notifications by queue (Feed, Replies, Reviews)
  * and by subfilter (All, Open, Closed, Needs Review, Approved, Committers, External).
  */
 
@@ -94,7 +94,7 @@ test.describe('Filtering', () => {
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('.notification-item')).toHaveCount(3);
+    await expect(page.locator('.notification-item')).toHaveCount(4);
 
     await expect.poll(() => graphqlCount, { timeout: 5000 }).toBeGreaterThan(0);
     await expect.poll(() => commentCount, { timeout: 5000 }).toBeGreaterThan(0);
@@ -102,28 +102,25 @@ test.describe('Filtering', () => {
 
   test.describe('View Tabs', () => {
     test('displays all view tabs', async ({ page }) => {
-      const issuesTab = page.locator('#view-issues');
-      const myPrsTab = page.locator('#view-my-prs');
-      const othersPrsTab = page.locator('#view-others-prs');
-
-      await expect(issuesTab).toBeVisible();
-      await expect(myPrsTab).toBeVisible();
-      await expect(othersPrsTab).toBeVisible();
+      await expect(page.locator('#view-issues')).toContainText('Feed');
+      await expect(page.locator('#view-pr-notifications')).toContainText('Replies');
+      await expect(page.locator('#view-others-prs')).toContainText('Reviews');
+      await expect(page.locator('#view-cleaned')).toContainText('Cleaned');
     });
 
-    test('Issues tab is active by default', async ({ page }) => {
+    test('Feed tab is active by default', async ({ page }) => {
       const issuesTab = page.locator('#view-issues');
       await expect(issuesTab).toHaveClass(/active/);
       await expect(issuesTab).toHaveAttribute('aria-selected', 'true');
     });
 
     test('other view tabs are not active by default', async ({ page }) => {
-      const myPrsTab = page.locator('#view-my-prs');
+      const repliesTab = page.locator('#view-pr-notifications');
       const othersPrsTab = page.locator('#view-others-prs');
 
-      await expect(myPrsTab).not.toHaveClass(/active/);
+      await expect(repliesTab).not.toHaveClass(/active/);
       await expect(othersPrsTab).not.toHaveClass(/active/);
-      await expect(myPrsTab).toHaveAttribute('aria-selected', 'false');
+      await expect(repliesTab).toHaveAttribute('aria-selected', 'false');
       await expect(othersPrsTab).toHaveAttribute('aria-selected', 'false');
     });
 
@@ -143,22 +140,22 @@ test.describe('Filtering', () => {
   });
 
   test.describe('Subfilter Tabs', () => {
-    test('displays Issues subfilter tabs when Issues view is active', async ({ page }) => {
+    test('displays Feed subfilter tabs when Feed view is active', async ({ page }) => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]');
       await expect(issuesSubfilters).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="closed"]')).toBeVisible();
     });
 
-    test('hides other subfilter tabs when Issues view is active', async ({ page }) => {
+    test('hides other subfilter tabs when Feed view is active', async ({ page }) => {
       const othersPrsSubfilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
       );
-      await expect(page.locator('.subfilter-tabs[data-for-view="my-prs"][data-subfilter-group="state"]')).toHaveCount(0);
+      await expect(page.locator('.subfilter-tabs[data-for-view="pr-notifications"][data-subfilter-group="state"]')).toHaveClass(/hidden/);
       await expect(othersPrsSubfilters).toHaveClass(/hidden/);
     });
 
-    test('shows Others PRs subfilters when switching to Others PRs view', async ({ page }) => {
+    test('shows Reviews subfilters when switching to Reviews view', async ({ page }) => {
       await page.locator('#view-others-prs').click();
 
       const othersPrsStatus = page.locator(
@@ -213,44 +210,40 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      // Wait for notifications to load (Issues view shows 3 items from mixed fixture)
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      // Wait for notifications to load (Feed shows awareness items from the mixed fixture)
+      await expect(page.locator('.notification-item')).toHaveCount(4);
     });
 
-    test('clicking Issues tab shows only issues', async ({ page }) => {
-      // Issues is default, so we should see 3 issues
+    test('clicking Feed tab shows awareness notifications', async ({ page }) => {
+      // Feed is default, so we should see issues plus non-directed PR notifications.
       const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(3);
+      await expect(items).toHaveCount(4);
 
-      // Verify issue items are shown
       await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
       await expect(page.locator('[data-id="notif-3"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
       await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
 
-      // Verify PR items are not shown
       await expect(page.locator('[data-id="notif-2"]')).not.toBeAttached();
-      await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
     });
 
-    test('clicking Others PRs tab shows only others PRs', async ({ page }) => {
+    test('clicking Reviews tab shows review responsibility', async ({ page }) => {
       await page.locator('#view-others-prs').click();
 
       // Check tab states
       await expect(page.locator('#view-others-prs')).toHaveClass(/active/);
       await expect(page.locator('#view-issues')).not.toHaveClass(/active/);
 
-      // Check only PR items are shown (all PRs in fixture are by others)
       const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(2);
+      await expect(items).toHaveCount(1);
 
       await expect(page.locator('[data-id="notif-2"]')).toBeVisible();
-      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
     });
 
-    test('My PRs tab shows empty when no PRs by current user', async ({ page }) => {
-      await page.locator('#view-my-prs').click();
+    test('Replies tab shows empty when nothing is directed at the current user', async ({ page }) => {
+      await page.locator('#view-pr-notifications').click();
 
-      // Test user is 'testuser', but fixture PRs are by bob and eve
       const items = page.locator('.notification-item');
       await expect(items).toHaveCount(0);
 
@@ -262,11 +255,11 @@ test.describe('Filtering', () => {
   test.describe('View Counts', () => {
     test('shows 0 counts before sync', async ({ page }) => {
       const issuesCount = page.locator('#view-issues .count');
-      const myPrsCount = page.locator('#view-my-prs .count');
+      const repliesCount = page.locator('#view-pr-notifications .count');
       const othersPrsCount = page.locator('#view-others-prs .count');
 
       await expect(issuesCount).toHaveText('0');
-      await expect(myPrsCount).toHaveText('0');
+      await expect(repliesCount).toHaveText('0');
       await expect(othersPrsCount).toHaveText('0');
     });
 
@@ -276,12 +269,11 @@ test.describe('Filtering', () => {
       await page.locator('#sync-btn').click();
 
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
-      // 3 issues, 0 my PRs (testuser has no PRs), 2 others PRs
-      await expect(page.locator('#view-issues .count')).toHaveText('3');
-      await expect(page.locator('#view-my-prs .count')).toHaveText('0');
-      await expect(page.locator('#view-others-prs .count')).toHaveText('2');
+      await expect(page.locator('#view-issues .count')).toHaveText('4');
+      await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
+      await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     });
   });
 
@@ -291,15 +283,15 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
     });
 
-    test('shows subfilter counts for Issues view', async ({ page }) => {
+    test('shows subfilter counts for Feed view', async ({ page }) => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
 
-      // 3 issues total: 1 open, 2 closed
+      // 4 feed items total: 1 open, 3 closed/merged
       await expect(issuesSubfilters.locator('[data-subfilter="open"] .count')).toHaveText('1');
-      await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('2');
+      await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('3');
     });
 
     test('hides count on the active subfilter', async ({ page }) => {
@@ -307,10 +299,10 @@ test.describe('Filtering', () => {
 
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(issuesSubfilters.locator('[data-subfilter="open"] .count')).toHaveText('');
-      await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('2');
+      await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('3');
     });
 
-    test('shows subfilter counts for Others PRs view', async ({ page }) => {
+    test('shows subfilter counts for Reviews view', async ({ page }) => {
       await page.locator('#view-others-prs').click();
 
       const othersPrsStatus = page.locator(
@@ -320,18 +312,17 @@ test.describe('Filtering', () => {
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
       );
 
-      // 2 PRs: 1 open, 1 merged (closed)
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
       await expect(othersPrsStatus.locator('[data-subfilter="approved"] .count')).toHaveText('0');
       await expect(othersPrsStatus.locator('[data-subfilter="draft"] .count')).toHaveText('0');
-      await expect(othersPrsStatus.locator('[data-subfilter="closed"] .count')).toHaveText('1');
+      await expect(othersPrsStatus.locator('[data-subfilter="closed"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="external"] .count')).toHaveText('0');
     });
   });
 
   test.describe('Committer Filters', () => {
-    test('filters others PRs by committer vs external', async ({ page }) => {
+    test('filters Reviews by committer vs external', async ({ page }) => {
       await page.route('**/github/rest/rate_limit', (route) => {
         route.fulfill({
           status: 200,
@@ -393,7 +384,7 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
       await waitForStatusClear(page);
       await page.locator('#view-others-prs').click();
 
@@ -417,15 +408,15 @@ test.describe('Filtering', () => {
       await expect(page.locator('.notification-item')).toHaveCount(0);
 
       await othersPrsStatus.locator('[data-subfilter="needs-review"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(1);
-      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
+      await expect(page.locator('.notification-item')).toHaveCount(0);
+      await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
     });
 
     test('switching filters does not trigger review metadata prefetch', async ({ page }) => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
       await waitForStatusClear(page);
 
       await page.locator('#view-others-prs').click();
@@ -443,34 +434,33 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
     });
 
-    test('clicking Open subfilter filters to open issues', async ({ page }) => {
+    test('clicking Open subfilter filters to open feed items', async ({ page }) => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
 
       // Check subfilter tab states
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toHaveClass(/active/);
 
-      // Check only open issue is shown
       const items = page.locator('.notification-item');
       await expect(items).toHaveCount(1);
       await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
     });
 
-    test('clicking Closed subfilter filters to closed issues', async ({ page }) => {
+    test('clicking Closed subfilter filters to closed feed items', async ({ page }) => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
-      // Check only closed issues are shown
       const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(2);
+      await expect(items).toHaveCount(3);
       await expect(page.locator('[data-id="notif-3"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
       await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
     });
 
-    test('clicking an active subfilter shows all issues', async ({ page }) => {
+    test('clicking an active subfilter shows all feed items', async ({ page }) => {
       // First switch to open
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
@@ -478,7 +468,7 @@ test.describe('Filtering', () => {
 
       // Then click again to clear
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
       await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
     });
 
@@ -488,24 +478,22 @@ test.describe('Filtering', () => {
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
       await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
     });
 
     test('notification count header updates with subfilter', async ({ page }) => {
       const countHeader = page.locator('#notification-count');
 
-      // All shows 3 issues
-      await expect(countHeader).toHaveText('3 notifications');
+      await expect(countHeader).toHaveText('4 notifications');
 
       // Open shows 1
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(countHeader).toHaveText('1 notifications');
 
-      // Closed shows 2
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
-      await expect(countHeader).toHaveText('2 notifications');
+      await expect(countHeader).toHaveText('3 notifications');
     });
   });
 
@@ -558,9 +546,8 @@ test.describe('Filtering', () => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await expect(issuesSubfilters.locator('[data-subfilter="closed"]')).toHaveClass(/active/);
 
-      // Check only closed issues are shown
       const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(2);
+      await expect(items).toHaveCount(3);
     });
 
     test('ignores invalid view values in localStorage', async ({ page }) => {
@@ -570,7 +557,7 @@ test.describe('Filtering', () => {
 
       await page.reload();
 
-      // Should default to Issues
+      // Should default to Feed
       await expect(page.locator('#view-issues')).toHaveClass(/active/);
     });
   });
@@ -582,10 +569,9 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
-      // Switch to My PRs (testuser has no PRs)
-      await page.locator('#view-my-prs').click();
+      await page.locator('#view-pr-notifications').click();
 
       // Should show empty state
       const emptyState = page.locator('#empty-state');
@@ -597,9 +583,8 @@ test.describe('Filtering', () => {
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
       // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
-      // Issues and Others PRs should have results
       await expect(page.locator('#empty-state')).not.toBeVisible();
 
       await page.locator('#view-others-prs').click();
@@ -608,7 +593,7 @@ test.describe('Filtering', () => {
   });
 
   test.describe('Filter with Draft PRs', () => {
-    test('draft PRs show in the draft subfilter for Others PRs', async ({ page }) => {
+    test('draft PRs show in the draft subfilter for Reviews', async ({ page }) => {
       // Create fixture with a draft PR
       const withDraftFixture = {
         ...mixedFixture,
@@ -648,14 +633,11 @@ test.describe('Filtering', () => {
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      // Wait for notifications to load (Issues view shows 3 items)
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
-      // Switch to Others PRs
       await page.locator('#view-others-prs').click();
 
-      // Should show 3 PRs (2 original + 1 draft) in the view count
-      await expect(page.locator('#view-others-prs .count')).toHaveText('3');
+      await expect(page.locator('#view-others-prs .count')).toHaveText('2');
 
       const othersPrsSubfilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
@@ -665,9 +647,8 @@ test.describe('Filtering', () => {
       await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
       await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('0');
 
-      // Default subfilter is 'all', so all 3 PRs should be visible
       const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(3);
+      await expect(items).toHaveCount(2);
 
       await othersPrsSubfilters.locator('[data-subfilter="draft"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -676,24 +657,54 @@ test.describe('Filtering', () => {
   });
 
   test.describe('Filter with Merged PRs', () => {
-    test('merged PRs are included in Closed subfilter for Others PRs', async ({ page }) => {
+    test('merged review requests are included in the Reviews closed subfilter', async ({ page }) => {
+      const withMergedReviewFixture = {
+        ...mixedFixture,
+        notifications: [
+          ...mixedFixture.notifications,
+          {
+            id: 'notif-merged-review',
+            unread: true,
+            reason: 'review_requested',
+            updated_at: '2024-12-27T12:30:00Z',
+            subject: {
+              title: 'Merged review request',
+              url: 'https://github.com/test/repo/pull/51',
+              type: 'PullRequest',
+              number: 51,
+              state: 'merged',
+              state_reason: null,
+            },
+            actors: [{ login: 'alice', avatar_url: 'https://example.com/avatar' }],
+            ui: { saved: false, done: false },
+          },
+        ],
+      };
+
+      await page.route(
+        '**/notifications/html/repo/**',
+        (route) => {
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(withMergedReviewFixture),
+          });
+        },
+        { times: 1 }
+      );
+
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
-      // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('.notification-item')).toHaveCount(4);
 
-      // Switch to Others PRs
       await page.locator('#view-others-prs').click();
-
-      // Switch to Closed subfilter
       const othersPrsSubfilters = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
       );
       await othersPrsSubfilters.locator('[data-subfilter="closed"]').click();
 
-      // Merged PR should be visible
-      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-merged-review"]')).toBeVisible();
     });
   });
 });

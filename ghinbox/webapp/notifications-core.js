@@ -11,9 +11,9 @@
 
         // Default view filters for each view
         const DEFAULT_VIEW_FILTERS = {
-            'issues': { state: 'all', interest: 'all' }, // state: 'all' | 'open' | 'closed', interest: 'all' | 'has-new' | 'no-new'
+            'issues': { state: 'all', interest: 'all' }, // Feed. state: 'all' | 'open' | 'closed', interest: 'all' | 'has-new' | 'no-new'
             'my-prs': { state: 'all', interest: 'all' }, // 'all'
-            'pr-notifications': { state: 'all', audience: 'all', interest: 'all' },
+            'pr-notifications': { state: 'all', audience: 'all', interest: 'all' }, // Replies
             'others-prs': {
                 state: 'all', // 'all' | 'needs-review' | 'approved' | 'draft' | 'closed'
                 author: 'all', // 'all' | 'committer' | 'external'
@@ -42,7 +42,7 @@
             statusAutoDismissTimer: null,
             statusAutoDismissId: 0,
             lastPersistentStatus: null,
-            view: 'issues', // 'issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'
+            view: 'issues', // issues=Feed, pr-notifications=Replies, others-prs=Reviews
             viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
             orderBy: 'recent',
@@ -817,6 +817,9 @@
             if (state.view === 'issues') {
                 options.push({ value: 'open', label: 'Open' });
                 options.push({ value: 'closed', label: 'Closed' });
+            } else if (state.view === 'pr-notifications') {
+                options.push({ value: 'open', label: 'Open' });
+                options.push({ value: 'closed', label: 'Closed' });
             } else if (state.view === 'others-prs') {
                 options.push({ value: 'needs-review', label: 'Needs review' });
                 options.push({ value: 'approved', label: 'Approved' });
@@ -848,19 +851,17 @@
                 elements.mobileOrderSelect.value = state.orderBy;
             }
 
-            // Sync secondary select (author for others-prs, audience for PR notifications)
+            // Sync secondary select (author for Reviews; hidden/default elsewhere)
             if (elements.mobileAuthorSelect) {
                 elements.mobileAuthorSelect.innerHTML = '';
-                const secondaryOptions = state.view === 'pr-notifications'
+                const secondaryOptions = state.view === 'others-prs'
                     ? [
-                        { value: 'all', label: 'All audiences' },
-                        { value: 'for-you', label: 'For you' },
-                        { value: 'for-others', label: 'For others' },
-                    ]
-                    : [
                         { value: 'all', label: 'All authors' },
                         { value: 'committer', label: 'Committers' },
                         { value: 'external', label: 'External' },
+                    ]
+                    : [
+                        { value: 'all', label: 'All' },
                     ];
                 secondaryOptions.forEach(opt => {
                     const option = document.createElement('option');
@@ -868,9 +869,9 @@
                     option.textContent = opt.label;
                     elements.mobileAuthorSelect.appendChild(option);
                 });
-                const currentSecondary = state.view === 'pr-notifications'
-                    ? (viewFilters.audience || 'all')
-                    : (viewFilters.author || 'all');
+                const currentSecondary = state.view === 'others-prs'
+                    ? (viewFilters.author || 'all')
+                    : 'all';
                 elements.mobileAuthorSelect.value = currentSecondary;
             }
         }
@@ -911,7 +912,7 @@
                     ...DEFAULT_VIEW_FILTERS[state.view],
                 };
             }
-            const group = state.view === 'pr-notifications' ? 'audience' : 'author';
+            const group = state.view === 'others-prs' ? 'author' : 'audience';
             state.viewFilters[state.view][group] = value;
             localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(state.viewFilters));
             render();
@@ -940,18 +941,19 @@
         // Check if notification matches the current view
         function matchesView(notification) {
             if (state.view === 'issues') {
-                return notification.subject.type === 'Issue';
+                return !isSyntheticResponsibilityNotification(notification) &&
+                    !isNotificationReviewQueue(notification) &&
+                    !safeIsNotificationDirectedAtCurrentUser(notification);
             }
             if (state.view === 'my-prs') {
                 return isMyPr(notification);
             }
             if (state.view === 'pr-notifications') {
-                return isNotificationOriginPullRequest(notification) &&
-                    !isMyPr(notification);
+                return !isSyntheticResponsibilityNotification(notification) &&
+                    safeIsNotificationDirectedAtCurrentUser(notification);
             }
             if (state.view === 'others-prs') {
-                return notification.subject.type === 'PullRequest' &&
-                    !isMyPr(notification);
+                return isNotificationReviewQueue(notification);
             }
             if (state.view === 'cleaned') {
                 return false;
@@ -1005,6 +1007,22 @@
                 ? isNotificationForCurrentUser(notification)
                 : isMyPr(notification) ||
                     String(notification.reason || '').toLowerCase() === 'mention';
+        }
+
+        function safeIsNotificationDirectedAtCurrentUser(notification) {
+            return typeof isNotificationDirectedAtCurrentUser === 'function'
+                ? isNotificationDirectedAtCurrentUser(notification)
+                : false;
+        }
+
+        function isNotificationReviewQueue(notification) {
+            return notification.subject?.type === 'PullRequest' &&
+                (
+                    isSyntheticResponsibilityNotification(notification) ||
+                    safeIsNotificationReviewResponsibility(notification) ||
+                    safeIsNotificationApproved(notification) ||
+                    safeIsNotificationChangesRequested(notification)
+                );
         }
 
         function applyAudienceFilter(notifications, audienceFilter) {
@@ -1269,9 +1287,6 @@
             if (state.view === 'others-prs') {
                 filtered = applyAuthorFilter(filtered, viewFilters.author || 'all');
             }
-            if (state.view === 'pr-notifications') {
-                filtered = applyAudienceFilter(filtered, viewFilters.audience || 'all');
-            }
 
             // Step 3: Apply interest filter (all views)
             filtered = applyInterestFilter(filtered, viewFilters.interest || 'all');
@@ -1314,21 +1329,24 @@
             const trash = state.trashNotifications.length;
 
             state.notifications.forEach(notif => {
-                if (notif.subject.type === 'Issue') {
+                if (
+                    !isSyntheticResponsibilityNotification(notif) &&
+                    !isNotificationReviewQueue(notif) &&
+                    !safeIsNotificationDirectedAtCurrentUser(notif)
+                ) {
                     issues++;
-                } else if (notif.subject.type === 'PullRequest') {
-                    if (isSyntheticResponsibilityNotification(notif)) {
-                        if (!isMyPr(notif)) {
-                            othersPrs++;
-                        }
-                    } else {
-                        if (isMyPr(notif)) {
-                            myPrs++;
-                        } else {
-                            prNotifications++;
-                            othersPrs++;
-                        }
-                    }
+                }
+                if (notif.subject.type === 'PullRequest' && isMyPr(notif)) {
+                    myPrs++;
+                }
+                if (
+                    !isSyntheticResponsibilityNotification(notif) &&
+                    safeIsNotificationDirectedAtCurrentUser(notif)
+                ) {
+                    prNotifications++;
+                }
+                if (isNotificationReviewQueue(notif)) {
+                    othersPrs++;
                 }
             });
 
@@ -1384,8 +1402,6 @@
             const baseForStateCounts =
                 state.view === 'others-prs'
                     ? applyAuthorFilter(viewNotifications, authorFilter)
-                    : state.view === 'pr-notifications'
-                    ? applyAudienceFilter(viewNotifications, audienceFilter)
                     : viewNotifications;
             const baseForAuthorCounts =
                 state.view === 'others-prs'
@@ -1427,9 +1443,9 @@
                 });
             }
             if (state.view === 'pr-notifications') {
-                audienceCounts.all = baseForAudienceCounts.length;
+                audienceCounts.all = viewNotifications.length;
                 baseForAudienceCounts.forEach(notif => {
-                    if (safeIsNotificationForCurrentUser(notif)) {
+                    if (safeIsNotificationDirectedAtCurrentUser(notif)) {
                         audienceCounts['for-you']++;
                     } else {
                         audienceCounts['for-others']++;
@@ -1444,9 +1460,6 @@
             let baseForInterestCounts = applyStateFilter(viewNotifications, stateFilter);
             if (state.view === 'others-prs') {
                 baseForInterestCounts = applyAuthorFilter(baseForInterestCounts, authorFilter);
-            }
-            if (state.view === 'pr-notifications') {
-                baseForInterestCounts = applyAudienceFilter(baseForInterestCounts, audienceFilter);
             }
 
             interestCounts.all = baseForInterestCounts.length;

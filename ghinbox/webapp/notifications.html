@@ -642,7 +642,7 @@
             </header>
 
             <!-- Primary View Tabs -->
-            <nav class="view-tabs" role="tablist" aria-label="View notifications by type">
+            <nav class="view-tabs" role="tablist" aria-label="Notification queues">
                 <button
                     class="view-tab active"
                     role="tab"
@@ -650,16 +650,7 @@
                     data-view="issues"
                     id="view-issues"
                 >
-                    Issues <span class="count">0</span>
-                </button>
-                <button
-                    class="view-tab"
-                    role="tab"
-                    aria-selected="false"
-                    data-view="my-prs"
-                    id="view-my-prs"
-                >
-                    My PRs <span class="count">0</span>
+                    Feed <span class="count">0</span>
                 </button>
                 <button
                     class="view-tab"
@@ -668,7 +659,7 @@
                     data-view="pr-notifications"
                     id="view-pr-notifications"
                 >
-                    PR Notifications <span class="count">0</span>
+                    Replies <span class="count">0</span>
                 </button>
                 <button
                     class="view-tab"
@@ -677,7 +668,7 @@
                     data-view="others-prs"
                     id="view-others-prs"
                 >
-                    Others' PRs <span class="count">0</span>
+                    Reviews <span class="count">0</span>
                 </button>
                 <button
                     class="view-tab"
@@ -692,8 +683,8 @@
 
             <div class="subfilter-row">
                 <div class="subfilter-stack">
-                    <!-- Subfilter Tabs for Issues -->
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter issues" data-for-view="issues" data-subfilter-group="state">
+                    <!-- Subfilter Tabs for Feed -->
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed" data-for-view="issues" data-subfilter-group="state">
                         <button
                             class="subfilter-tab"
                             data-subfilter="open"
@@ -710,8 +701,26 @@
                         </button>
                     </nav>
 
-                    <!-- Subfilter Tabs for Others' PRs -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by status" data-for-view="others-prs" data-subfilter-group="state">
+                    <!-- Subfilter Tabs for Replies -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter replies by status" data-for-view="pr-notifications" data-subfilter-group="state">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="open"
+                            aria-pressed="false"
+                        >
+                            Open <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="closed"
+                            aria-pressed="false"
+                        >
+                            Closed <span class="count">0</span>
+                        </button>
+                    </nav>
+
+                    <!-- Subfilter Tabs for Reviews -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter reviews by status" data-for-view="others-prs" data-subfilter-group="state">
                         <button
                             class="subfilter-tab"
                             data-subfilter="needs-review"
@@ -741,7 +750,7 @@
                             Closed <span class="count">0</span>
                         </button>
                     </nav>
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter others' PRs by author" data-for-view="others-prs" data-subfilter-group="author">
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter reviews by author" data-for-view="others-prs" data-subfilter-group="author">
                         <button
                             class="subfilter-tab"
                             data-subfilter="committer"
@@ -757,17 +766,8 @@
                             External <span class="count">0</span>
                         </button>
                     </nav>
-                    <!-- Audience filter - PR notifications -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter PR notifications by audience" data-for-view="pr-notifications" data-subfilter-group="audience">
-                        <button class="subfilter-tab" data-subfilter="for-you" aria-pressed="false">
-                            For you <span class="count">0</span>
-                        </button>
-                        <button class="subfilter-tab" data-subfilter="for-others" aria-pressed="false">
-                            For others <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <!-- Interest filter - Issues -->
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter by interest" data-for-view="issues" data-subfilter-group="interest">
+                    <!-- Interest filter - Feed -->
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed by interest" data-for-view="issues" data-subfilter-group="interest">
                         <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
                             Has new <span class="count">0</span>
                         </button>
@@ -775,17 +775,8 @@
                             No new <span class="count">0</span>
                         </button>
                     </nav>
-                    <!-- Interest filter - My PRs -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter by interest" data-for-view="my-prs" data-subfilter-group="interest">
-                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
-                            Has new <span class="count">0</span>
-                        </button>
-                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
-                            No new <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <!-- Interest filter - Others' PRs -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter by interest" data-for-view="others-prs" data-subfilter-group="interest">
+                    <!-- Interest filter - Replies -->
+                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter replies by interest" data-for-view="pr-notifications" data-subfilter-group="interest">
                         <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
                             Has new <span class="count">0</span>
                         </button>
@@ -968,7 +959,7 @@
             const DEFAULT_VIEW_FILTERS = {
                 'issues': { state: 'all' },
                 'my-prs': { state: 'all' },
-                'pr-notifications': { state: 'all' },
+                'pr-notifications': { state: 'all', audience: 'all' },
                 'others-prs': { state: 'all', author: 'all' },
                 'cleaned': { state: 'all' },
             };
@@ -983,7 +974,7 @@
             const VALID_STATE_BY_VIEW = {
                 'issues': new Set(['all', 'open', 'closed']),
                 'my-prs': new Set(['all']),
-                'pr-notifications': new Set(['all']),
+                'pr-notifications': new Set(['all', 'open', 'closed']),
                 'others-prs': new Set(['all', 'needs-review', 'approved', 'draft', 'closed']),
                 'cleaned': new Set(['all']),
             };

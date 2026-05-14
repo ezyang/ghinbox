@@ -365,10 +365,10 @@
             }
 
             const viewLabels = {
-                'issues': 'issue',
+                'issues': 'feed',
                 'my-prs': 'PR',
-                'pr-notifications': 'PR',
-                'others-prs': 'PR',
+                'pr-notifications': 'reply',
+                'others-prs': 'review',
                 'cleaned': 'cleaned',
             };
             const viewLabel = viewLabels[state.view];
@@ -388,8 +388,8 @@
             if (viewCount === 0) {
                 if (state.view === 'issues') {
                     return {
-                        title: 'No issue notifications',
-                        message: 'No issue notifications in this repository.',
+                        title: 'No feed notifications',
+                        message: 'No awareness notifications in this repository.',
                     };
                 }
                 if (state.view === 'my-prs') {
@@ -400,14 +400,14 @@
                 }
                 if (state.view === 'others-prs') {
                     return {
-                        title: "No notifications for others' PRs",
+                        title: 'No reviews',
                         message: 'No pull requests need your review right now.',
                     };
                 }
                 if (state.view === 'pr-notifications') {
                     return {
-                        title: 'No PR notifications',
-                        message: 'No pull request notifications are pending.',
+                        title: 'No replies',
+                        message: 'No notifications look like someone is talking to you.',
                     };
                 }
                 if (state.view === 'cleaned') {
@@ -470,8 +470,8 @@
 
             if (audienceFilter === 'for-you') {
                 return {
-                    title: 'No PR notifications for you',
-                    message: 'No pull request notifications match your participation.',
+                    title: 'No replies',
+                    message: 'No notifications look like someone is talking to you.',
                 };
             }
 

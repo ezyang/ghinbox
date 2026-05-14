@@ -167,7 +167,7 @@ test.describe('PR direct replies', () => {
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
 
-    await page.locator('#view-others-prs').click();
+    await page.locator('#view-pr-notifications').click();
     const item = page.locator('[data-id="thread-pr-direct-reply"]');
     await expect(item.locator('.comment-tag')).toHaveText('Reply to you');
     await expect(item.locator('.comment-item')).toHaveCount(1);

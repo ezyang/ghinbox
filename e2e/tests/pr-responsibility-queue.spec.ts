@@ -224,7 +224,7 @@ test.describe('PR responsibility queue', () => {
     await clearAppStorage(page);
   });
 
-  test('keeps notification-backed PRs in a clearable PR notifications tab', async ({
+  test('keeps notification-backed review requests clearable in Reviews', async ({
     page,
   }) => {
     notificationsPayload = notificationBackedReviewRequest;
@@ -243,15 +243,12 @@ test.describe('PR responsibility queue', () => {
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
 
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
     await expect(page.locator('#view-others-prs .count')).toHaveText('4');
 
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
-
-    await page.locator('#view-pr-notifications').click();
     await expect(page.locator('[data-id="notif-review-10"]')).toBeVisible();
-    await expect(page.locator('[data-id="review-request:test/repo#10"]')).not.toBeAttached();
 
     await expect(page.locator('#mark-done-btn')).toBeVisible();
     await page.locator('#mark-done-btn').click();

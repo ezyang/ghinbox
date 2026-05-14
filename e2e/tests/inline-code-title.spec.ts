@@ -63,7 +63,6 @@ test.describe('Inline Code Titles', () => {
   });
 
   test('renders backticks as inline code in PR titles', async ({ page }) => {
-    await page.locator('#view-others-prs').click();
     const title = page.locator('.notification-title').first();
     await expect(title.locator('code')).toHaveCount(2);
     await expect(title.locator('code').nth(0)).toHaveText('setup_context');

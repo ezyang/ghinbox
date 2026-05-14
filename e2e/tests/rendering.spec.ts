@@ -91,7 +91,7 @@ const testNotifications = {
     {
       id: 'pr-merged',
       unread: false,
-      reason: 'subscribed',
+      reason: 'review_requested',
       updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3).toISOString(), // 3 days ago
       subject: {
         title: 'Merged pull request',
@@ -109,7 +109,7 @@ const testNotifications = {
     {
       id: 'pr-closed',
       unread: false,
-      reason: 'subscribed',
+      reason: 'review_requested',
       updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(), // 1 week ago
       subject: {
         title: 'Closed pull request (not merged)',
@@ -125,7 +125,7 @@ const testNotifications = {
     {
       id: 'pr-draft',
       unread: false,
-      reason: 'subscribed',
+      reason: 'review_requested',
       updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(), // 2 weeks ago
       subject: {
         title: 'Draft pull request',

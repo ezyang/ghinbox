@@ -102,8 +102,8 @@ test.describe('Keyboard Shortcuts', () => {
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    // Default view is Issues, which shows 3 items from the fixture
-    await expect(page.locator('.notification-item')).toHaveCount(3);
+    // Default view is Feed, which shows generic notifications from the fixture.
+    await expect(page.locator('.notification-item')).toHaveCount(4);
   });
 
   test('j/k moves the active selection', async ({ page }) => {
@@ -191,14 +191,14 @@ test.describe('Keyboard Shortcuts', () => {
     await page.keyboard.press('j');
     await expect(page.locator('[data-id="notif-3"]')).toHaveClass(/keyboard-selected/);
 
-    // Mark as done - selection should move to notif-5, not notif-1
+    // Mark as done - selection should move to notif-4, not notif-1
     await page.keyboard.press('e');
 
     // Wait for the notification to be removed
     await expect(page.locator('[data-id="notif-3"]')).not.toBeAttached();
 
-    // The selection should be on notif-5 (the next one), NOT notif-1 (the first one)
-    await expect(page.locator('[data-id="notif-5"]')).toHaveClass(/keyboard-selected/);
+    // The selection should be on notif-4 (the next one), NOT notif-1 (the first one)
+    await expect(page.locator('[data-id="notif-4"]')).toHaveClass(/keyboard-selected/);
     await expect(page.locator('[data-id="notif-1"]')).not.toHaveClass(/keyboard-selected/);
   });
 
