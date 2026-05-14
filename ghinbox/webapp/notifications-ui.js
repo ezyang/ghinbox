@@ -109,22 +109,31 @@
             // This ensures we anchor to content below the removal point, which is
             // what shifts when items are removed.
             let pastRemoved = false;
+            let hasSurvivingItemBeforeRemoval = false;
             for (const item of items) {
                 const id = item.getAttribute('data-id');
                 if (removedSet.has(id)) {
+                    if (!isMobileViewport() && !hasSurvivingItemBeforeRemoval) {
+                        return { type: 'scroll-position', scrollY: window.scrollY };
+                    }
                     pastRemoved = true;
                     continue;
                 }
                 if (pastRemoved) {
                     const rect = item.getBoundingClientRect();
-                    return { id, viewportTop: rect.top };
+                    return { type: 'item', id, viewportTop: rect.top };
                 }
+                hasSurvivingItemBeforeRemoval = true;
             }
             return null;
         }
 
         function restoreScrollAnchor(anchor) {
             if (!anchor) return;
+            if (anchor.type === 'scroll-position') {
+                window.scrollTo(0, anchor.scrollY);
+                return;
+            }
             const item = getNotificationElement(anchor.id);
             if (!item) return;
             const newTop = item.getBoundingClientRect().top;

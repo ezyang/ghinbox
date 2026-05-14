@@ -141,6 +141,25 @@ test.describe('Scroll Anchoring', () => {
     expect(Math.abs(afterY - beforeY)).toBeLessThan(5);
   });
 
+  test('desktop inline mark done at top of list does not jump viewport upward', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const beforeScrollY = await page.evaluate(() => {
+      const firstItem = document.querySelector('[data-id="notif-0"]');
+      if (!firstItem) throw new Error('First notification not found');
+      const targetY = firstItem.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo(0, targetY);
+      return window.scrollY;
+    });
+    expect(beforeScrollY).toBeGreaterThan(0);
+
+    await page.locator('[data-id="notif-0"] .notification-actions-inline .notification-done-btn').click();
+    await expect(page.locator('[data-id="notif-0"]')).toHaveCount(0);
+
+    const afterScrollY = await page.evaluate(() => window.scrollY);
+    expect(Math.abs(afterScrollY - beforeScrollY)).toBeLessThan(5);
+  });
+
   test('bulk mark done preserves scroll position of items below', async ({ page }) => {
     await page.locator('[data-id="notif-5"]').scrollIntoViewIfNeeded();
 
