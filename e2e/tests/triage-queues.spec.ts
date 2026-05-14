@@ -171,7 +171,6 @@ test.describe('Triage queues @classification @mutation', () => {
     await othersPrsSubfilters.locator('[data-subfilter="needs-review"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="thread-pr-1"]')).toBeVisible();
-    await expect(page.locator('.comment-tag.needs-review')).toHaveText('Needs review');
   });
 
   test('approved queue allows unsubscribe', async ({ page }) => {

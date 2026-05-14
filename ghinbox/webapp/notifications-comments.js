@@ -17,6 +17,7 @@ const PREFETCH_STATUS_REFRESH_MS = 750;
 const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
 const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
 const COMMENT_WINDOW = globalThis.GhinboxCommentWindow;
+const COMMENT_STATUS = globalThis.GhinboxCommentStatus;
 
 function canUpdateCommentPrefetchStatus() {
     return !state.statusState || state.statusState.type === 'info';
@@ -814,50 +815,9 @@ async function prefetchNotificationComments(notification) {
 
 function getCommentStatus(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached) {
-        return { label: 'Comments: pending', className: 'pending' };
-    }
-    if (cached.error) {
-        return { label: 'Comments: error', className: 'error' };
-    }
-    // Use anchor-filtered count for display (only if we have all comments)
-    // If comments were already filtered server-side (via last_read_at), use as-is
-    const anchor = cached.anchor || notification.subject?.anchor || null;
-    const comments = cached.comments || [];
-    const unreadComments = COMMENT_WINDOW.getCommentWindowComments(notification, {
-        ...cached,
-        anchor,
-        comments,
+    return COMMENT_STATUS.getCommentStatus(notification, cached, {
+        currentUserLogin: state.currentUserLogin,
     });
-    const count = unreadComments.length;
-    if (isNotificationApproved(notification)) {
-        return { label: 'Approved', className: 'approved' };
-    }
-    const reason = getUninterestingReason(notification);
-    const reasonLabels = {
-        'no-comments': 'No new comments',
-        'bot-only': 'Bot comments only',
-        'bot-commands': 'Bot commands only',
-        'own-or-bot-only': 'Only you or bots',
-    };
-    if (reason !== null) {
-        const reasonLabel = reasonLabels[reason];
-        return {
-            label: count > 0 ? `${reasonLabel} (${count})` : reasonLabel,
-            className: 'uninteresting'
-        };
-    }
-    const directReplies = getDirectReviewThreadReplies(unreadComments);
-    if (directReplies.length > 0) {
-        return {
-            label: directReplies.length === 1 ? 'Reply to you' : `Replies to you (${directReplies.length})`,
-            className: 'interesting',
-        };
-    }
-    if (isNotificationNeedsReview(notification)) {
-        return { label: 'Needs review', className: 'needs-review' };
-    }
-    return { label: `Interesting (${count})`, className: 'interesting' };
 }
 
 function getDiffstatInfo(notification) {
@@ -1009,90 +969,35 @@ function filterRelevantCommentsForNotification(notification, comments) {
 
 function isNotificationUninteresting(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return false;
-    }
-    const comments = COMMENT_WINDOW.getCommentWindowComments(notification, cached);
-    return COMMENT_INTEREST.isNotificationUninteresting(notification, {
-        comments,
+    return COMMENT_STATUS.isUninteresting(notification, cached, {
         currentUserLogin: state.currentUserLogin,
-        isApproved: isNotificationApproved(notification),
     });
 }
 
 function getUninterestingReason(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return null;
-    }
-    const comments = COMMENT_WINDOW.getCommentWindowComments(notification, cached);
-    return COMMENT_INTEREST.getUninterestingReason(notification, {
-        comments,
+    return COMMENT_STATUS.getUninterestingReason(notification, cached, {
         currentUserLogin: state.currentUserLogin,
-        isApproved: isNotificationApproved(notification),
     });
 }
 
 function isNotificationNeedsReview(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
-    const notifState = notification.subject?.state;
-    if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
-        return false;
-    }
-    if (!isNotificationReviewResponsibility(notification)) {
-        return false;
-    }
-    if (isNotificationApproved(notification)) {
-        return false;
-    }
-    if (isNotificationChangesRequested(notification)) {
-        return false;
-    }
-    return true;
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    return COMMENT_STATUS.isNeedsReview(notification, cached);
 }
 
 function isNotificationReviewResponsibility(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
-    if (notification.responsibility_source === 'review-requested') {
-        return true;
-    }
-    return String(notification.reason || '').toLowerCase() === 'review_requested';
+    return COMMENT_STATUS.isReviewResponsibility(notification);
 }
 
 function isNotificationApproved(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
-    const prState = notification.subject?.state;
-    if (prState === 'draft' || prState === 'closed' || prState === 'merged') {
-        return false;
-    }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return false;
-    }
-    const decision = String(cached.reviewDecision || '').toUpperCase();
-    return decision === 'APPROVED';
+    return COMMENT_STATUS.isApproved(notification, cached);
 }
 
 function isNotificationChangesRequested(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
-    const prState = notification.subject?.state;
-    if (prState === 'draft' || prState === 'closed' || prState === 'merged') {
-        return false;
-    }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return false;
-    }
-    const decision = String(cached.reviewDecision || '').toUpperCase();
-    return decision === 'CHANGES_REQUESTED';
+    return COMMENT_STATUS.isChangesRequested(notification, cached);
 }
 
 function isNotificationFromCommitter(notification) {

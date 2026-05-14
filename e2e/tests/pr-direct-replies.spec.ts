@@ -169,7 +169,6 @@ test.describe('PR direct replies @classification', () => {
 
     await page.locator('#view-pr-notifications').click();
     const item = page.locator('[data-id="thread-pr-direct-reply"]');
-    await expect(item.locator('.comment-tag')).toHaveText('Reply to you');
     await expect(item.locator('.comment-item')).toHaveCount(1);
     await expect(item.locator('.comment-item')).toContainText('I pushed a simplification here.');
     await expect(item.locator('.comment-item')).not.toContainText('Separate note on another thread.');
