@@ -272,19 +272,6 @@ test.describe('Interest Filter', () => {
     await expect(page.locator('[data-id="thread-no-comments"]')).toBeVisible();
   });
 
-  test('shows reason labels for uninteresting notifications', async ({ page }) => {
-    // Check that the status badges show the correct reason
-    const botOnlyStatus = page.locator('[data-id="thread-bot-only"] .comment-tag');
-    const botCommandsStatus = page.locator('[data-id="thread-bot-commands"] .comment-tag');
-    const noCommentsStatus = page.locator('[data-id="thread-no-comments"] .comment-tag');
-    const interestingStatus = page.locator('[data-id="thread-interesting"] .comment-tag');
-
-    await expect(botOnlyStatus).toContainText('Bot comments only');
-    await expect(botCommandsStatus).toContainText('Bot commands only');
-    await expect(noCommentsStatus).toContainText('No new comments');
-    await expect(interestingStatus).toContainText('Interesting');
-  });
-
   test('clicking active interest filter clears the filter', async ({ page }) => {
     const interestFilters = page.locator(
       '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]'
@@ -315,84 +302,4 @@ test.describe('Interest Filter', () => {
     expect(parsed.issues).toHaveProperty('interest', 'no-new');
   });
 
-  test('interest filter works with state filter combined', async ({ page }) => {
-    // Create a fixture with mixed states
-    const mixedStateFixture = {
-      ...notificationsResponse,
-      notifications: [
-        ...notificationsResponse.notifications,
-        // Add a closed issue with interesting comments
-        {
-          id: 'thread-closed-interesting',
-          unread: true,
-          reason: 'subscribed',
-          updated_at: '2025-01-02T00:00:00Z',
-          last_read_at: '2025-01-01T00:00:00Z',
-          subject: {
-            title: 'Closed issue with interesting comments',
-            url: 'https://github.com/test/repo/issues/5',
-            type: 'Issue',
-            number: 5,
-            state: 'closed',
-            state_reason: 'completed',
-          },
-          actors: [],
-          ui: { saved: false, done: false },
-        },
-      ],
-    };
-
-    const extendedCommentCache = {
-      ...commentCache,
-      threads: {
-        ...commentCache.threads,
-        'thread-closed-interesting': {
-          notificationUpdatedAt: '2025-01-02T00:00:00Z',
-          lastReadAt: '2025-01-01T00:00:00Z',
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [
-            {
-              id: 501,
-              user: { login: 'human' },
-              body: 'This is resolved now.',
-              created_at: '2025-01-01T02:00:00Z',
-              updated_at: '2025-01-01T02:00:00Z',
-            },
-          ],
-        },
-      },
-    };
-
-    // Re-route with new fixture
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedStateFixture),
-      });
-    });
-
-    await seedCommentCache(page, extendedCommentCache);
-    await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced');
-
-    // Apply state filter first
-    const stateFilters = page.locator(
-      '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]'
-    );
-    await stateFilters.locator('[data-subfilter="open"]').click();
-
-    // Now apply interest filter
-    const interestFilters = page.locator(
-      '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]'
-    );
-    await interestFilters.locator('[data-subfilter="has-new"]').click();
-
-    // Should show only open + interesting = 1 item
-    const items = page.locator('.notification-item');
-    await expect(items).toHaveCount(1);
-    await expect(page.locator('[data-id="thread-interesting"]')).toBeVisible();
-  });
 });

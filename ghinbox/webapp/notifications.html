@@ -1288,6 +1288,7 @@
             }
             const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(`<script src="notifications-idb.js${bust}"><\/script>`);
+            document.write(`<script src="notifications-comment-interest.js${bust}"><\/script>`);
             document.write(`<script src="notifications-comments.js${bust}"><\/script>`);
             document.write(`<script src="notifications-filtering.js${bust}"><\/script>`);
             document.write(`<script src="notifications-core.js${bust}"><\/script>`);

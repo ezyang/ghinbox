@@ -15,6 +15,7 @@ const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
 const COMMENT_AGE_FILTER_KEY = 'ghnotif_comment_age_filter';
 const PREFETCH_STATUS_REFRESH_MS = 750;
 const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
+const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
 
 function canUpdateCommentPrefetchStatus() {
     return !state.statusState || state.statusState.type === 'info';
@@ -1036,81 +1037,35 @@ function getCommentItems(notification) {
 }
 
 function filterCommentsAfterOwnComment(comments) {
-    const login = (state.currentUserLogin || '').toLowerCase();
-    if (!login) {
-        return comments;
-    }
-    let lastOwnIndex = -1;
-    for (let i = 0; i < comments.length; i += 1) {
-        const author = String(comments[i]?.user?.login || '').toLowerCase();
-        if (author === login) {
-            lastOwnIndex = i;
-        }
-    }
-    return lastOwnIndex === -1 ? comments : comments.slice(lastOwnIndex + 1);
+    return COMMENT_INTEREST.filterCommentsAfterOwnComment(comments, state.currentUserLogin);
 }
 
 function getReviewThreadKey(comment) {
-    if (!comment?.isReviewComment) {
-        return null;
-    }
-    const rootId = comment.in_reply_to_id || comment.id;
-    if (rootId === null || rootId === undefined) {
-        return null;
-    }
-    return String(rootId);
+    return COMMENT_INTEREST.getReviewThreadKey(comment);
 }
 
 function getCommentTimestampMs(comment) {
-    const timestamp = comment?.created_at || comment?.updated_at;
-    if (!timestamp) {
-        return 0;
-    }
-    const parsed = Date.parse(timestamp);
-    return Number.isNaN(parsed) ? 0 : parsed;
+    return COMMENT_INTEREST.getCommentTimestampMs(comment);
 }
 
 function mentionsCurrentUser(text) {
-    const login = String(state.currentUserLogin || '').trim();
-    if (!login || !text) {
-        return false;
-    }
-    const escaped = login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`(^|[^A-Za-z0-9-])@${escaped}(?![A-Za-z0-9-])`, 'i');
-    return pattern.test(String(text));
+    return COMMENT_INTEREST.mentionsCurrentUser(text, state.currentUserLogin);
 }
 
 function isCurrentUserCcLine(line) {
-    const text = String(line || '').trim();
-    if (!/^cc:?\s+/i.test(text)) {
-        return false;
-    }
-    return mentionsCurrentUser(text);
+    return COMMENT_INTEREST.isCurrentUserCcLine(line, state.currentUserLogin);
 }
 
 function hasActionableCurrentUserMention(comment) {
-    const body = String(comment?.body || '');
-    if (!mentionsCurrentUser(body)) {
-        return false;
-    }
-    if (!comment?.isIssue) {
-        return true;
-    }
-    const mentionedLines = body
-        .split(/\r?\n/)
-        .filter((line) => mentionsCurrentUser(line));
-    return mentionedLines.some((line) => !isCurrentUserCcLine(line));
+    return COMMENT_INTEREST.hasActionableCurrentUserMention(comment, state.currentUserLogin);
 }
 
 function getParticipationThreadKey(comment) {
-    if (comment?.isReviewComment) {
-        return `review:${getReviewThreadKey(comment) || comment.id || 'unknown'}`;
-    }
-    return 'conversation';
+    return COMMENT_INTEREST.getParticipationThreadKey(comment);
 }
 
 function isMainThreadComment(comment) {
-    return !comment?.isReviewComment;
+    return COMMENT_INTEREST.isMainThreadComment(comment);
 }
 
 function getSortedNotificationComments(notification) {
@@ -1118,197 +1073,37 @@ function getSortedNotificationComments(notification) {
     if (!cached || cached.error || !Array.isArray(cached.comments)) {
         return [];
     }
-    return [...cached.comments].sort((a, b) => {
-        const timeA = getCommentTimestampMs(a);
-        const timeB = getCommentTimestampMs(b);
-        if (timeA === timeB) {
-            const idA = Number(a?.id) || 0;
-            const idB = Number(b?.id) || 0;
-            return idA - idB;
-        }
-        return timeA - timeB;
-    });
+    return COMMENT_INTEREST.sortComments(cached.comments);
 }
 
 function isNotificationForCurrentUser(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
-
-    const currentUser = String(state.currentUserLogin || '').toLowerCase();
-    if (!currentUser) {
-        return String(notification.reason || '').toLowerCase() === 'mention';
-    }
-
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    const authorLogin = String(cached?.authorLogin || '').toLowerCase();
-    if (
-        authorLogin === currentUser ||
-        String(notification.reason || '').toLowerCase() === 'author'
-    ) {
-        return true;
-    }
-
-    if (String(notification.reason || '').toLowerCase() === 'mention') {
-        return true;
-    }
-
-    const comments = getSortedNotificationComments(notification);
-    if (!comments.length) {
-        return false;
-    }
-
-    let latestOwnIndex = -1;
-    comments.forEach((comment, index) => {
-        const author = String(comment?.user?.login || '').toLowerCase();
-        if (author === currentUser) {
-            latestOwnIndex = index;
-        }
-    });
-
-    const threadParticipation = new Map();
-    comments.forEach((comment, index) => {
-        const key = getParticipationThreadKey(comment);
-        const stateForThread = threadParticipation.get(key) || {
-            own: false,
-            mentioned: false,
-        };
-        if (index <= latestOwnIndex) {
-            const author = String(comment?.user?.login || '').toLowerCase();
-            if (author === currentUser) {
-                stateForThread.own = true;
-            }
-            if (hasActionableCurrentUserMention(comment)) {
-                stateForThread.mentioned = true;
-            }
-        }
-        threadParticipation.set(key, stateForThread);
-    });
-
-    const newComments = latestOwnIndex === -1
-        ? comments
-        : comments.slice(latestOwnIndex + 1);
-    return newComments.some((comment) => {
-        if (hasActionableCurrentUserMention(comment)) {
-            return true;
-        }
-        const key = getParticipationThreadKey(comment);
-        const participation = threadParticipation.get(key);
-        return Boolean(participation?.own || participation?.mentioned);
+    return COMMENT_INTEREST.isNotificationForCurrentUser(notification, {
+        authorLogin: cached?.authorLogin,
+        comments: getSortedNotificationComments(notification),
+        currentUserLogin: state.currentUserLogin,
     });
 }
 
 function isNotificationDirectedAtCurrentUser(notification) {
-    const currentUser = String(state.currentUserLogin || '').toLowerCase();
-    if (!currentUser) {
-        return false;
-    }
-
     const comments = getSortedNotificationComments(notification);
-    if (!comments.length) {
-        return false;
-    }
-
-    if (getDirectReviewThreadReplies(comments).length > 0) {
-        return true;
-    }
-
-    const lastReadAt = Date.parse(
-        notification.last_read_at ||
-        state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt ||
-        ''
-    );
-    const hasUnreadCommentFromOtherUser = comments.some((comment) => {
-        const timestamp = getCommentTimestampMs(comment);
-        if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
-            return false;
-        }
-        const author = String(comment?.user?.login || '').toLowerCase();
-        return author && author !== currentUser;
-    });
-
-    if (
-        notification.subject?.type === 'Issue' &&
-        String(notification.reason || '').toLowerCase() === 'author' &&
-        hasUnreadCommentFromOtherUser
-    ) {
-        return true;
-    }
-
-    return comments.some((comment, index) => {
-        const timestamp = getCommentTimestampMs(comment);
-        if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
-            return false;
-        }
-        if (hasActionableCurrentUserMention(comment)) {
-            return true;
-        }
-        if (!isMainThreadComment(comment)) {
-            return false;
-        }
-        const author = String(comment?.user?.login || '').toLowerCase();
-        if (!author || author === currentUser) {
-            return false;
-        }
-        const previousMainThreadComment = comments
-            .slice(0, index)
-            .reverse()
-            .find(isMainThreadComment);
-        const previousAuthor = String(previousMainThreadComment?.user?.login || '').toLowerCase();
-        return previousAuthor === currentUser;
+    return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+        comments,
+        currentUserLogin: state.currentUserLogin,
+        lastReadAt: state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt,
     });
 }
 
 function getDirectReviewThreadReplies(comments) {
-    const login = (state.currentUserLogin || '').toLowerCase();
-    if (!login || !Array.isArray(comments) || comments.length === 0) {
-        return [];
-    }
-    const byThread = new Map();
-    comments.forEach((comment, index) => {
-        const key = getReviewThreadKey(comment);
-        if (!key) {
-            return;
-        }
-        const thread = byThread.get(key) || [];
-        thread.push({ comment, index });
-        byThread.set(key, thread);
-    });
-    const replies = [];
-    byThread.forEach((thread) => {
-        let lastOwnIndex = -1;
-        thread.forEach(({ comment }, index) => {
-            const author = String(comment?.user?.login || '').toLowerCase();
-            if (author === login) {
-                lastOwnIndex = index;
-            }
-        });
-        if (lastOwnIndex === -1) {
-            return;
-        }
-        thread.slice(lastOwnIndex + 1).forEach(({ comment }) => {
-            const author = String(comment?.user?.login || '').toLowerCase();
-            if (author && author !== login) {
-                replies.push(comment);
-            }
-        });
-    });
-    replies.sort((a, b) => {
-        const dateA = new Date(a.created_at || a.updated_at || 0);
-        const dateB = new Date(b.created_at || b.updated_at || 0);
-        return dateA - dateB;
-    });
-    return replies;
+    return COMMENT_INTEREST.getDirectReviewThreadReplies(comments, state.currentUserLogin);
 }
 
 function filterRelevantCommentsForNotification(notification, comments) {
-    if (notification.subject?.type === 'PullRequest') {
-        const directReplies = getDirectReviewThreadReplies(comments);
-        if (directReplies.length > 0) {
-            return directReplies;
-        }
-    }
-    return filterCommentsAfterOwnComment(comments);
+    return COMMENT_INTEREST.filterRelevantCommentsForNotification(
+        notification,
+        comments,
+        state.currentUserLogin
+    );
 }
 
 function isNotificationUninteresting(notification) {
@@ -1321,23 +1116,11 @@ function isNotificationUninteresting(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
-    if (notification.subject?.type === 'PullRequest' && comments.length > 0 && areCommentsOnlyByCurrentUserOrBots(comments)) {
-        return true;
-    }
-    if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
-        return false;
-    }
-    if (notification.subject?.type === 'PullRequest') {
-        if (isNotificationApproved(notification)) {
-            return false;
-        }
-        if (comments.length === 0) {
-            return false;
-        }
-    } else if (comments.length === 0) {
-        return true;
-    }
-    return comments.every(isUninterestingComment);
+    return COMMENT_INTEREST.isNotificationUninteresting(notification, {
+        comments,
+        currentUserLogin: state.currentUserLogin,
+        isApproved: isNotificationApproved(notification),
+    });
 }
 
 function getUninterestingReason(notification) {
@@ -1348,47 +1131,11 @@ function getUninterestingReason(notification) {
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const rawComments = cached.comments || [];
     const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
-    if (notification.subject?.type === 'PullRequest' && comments.length > 0 && areCommentsOnlyByCurrentUserOrBots(comments)) {
-        return 'own-or-bot-only';
-    }
-    if (notification.subject?.type === 'PullRequest' && getDirectReviewThreadReplies(comments).length > 0) {
-        return null;
-    }
-    const filteredComments = filterRelevantCommentsForNotification(notification, comments);
-
-    // Check PR-specific conditions
-    if (notification.subject?.type === 'PullRequest') {
-        if (isNotificationApproved(notification)) {
-            return null; // Approved PRs are interesting
-        }
-        if (filteredComments.length === 0) {
-            return null; // PRs with no comments show "Needs review" - not uninteresting
-        }
-    }
-
-    // No comments case (for issues)
-    if (filteredComments.length === 0) {
-        return 'no-comments';
-    }
-
-    // Check if all comments are from bot authors
-    const allBotAuthors = filteredComments.every(c => isBotAuthor(c?.user?.login || ''));
-    if (allBotAuthors) {
-        return 'bot-only';
-    }
-
-    // Check if all comments are bot interaction commands
-    const allBotCommands = filteredComments.every(c => isBotInteractionComment(c?.body || ''));
-    if (allBotCommands) {
-        return 'bot-commands';
-    }
-
-    // General uninteresting check (mixed bot content)
-    if (filteredComments.every(isUninterestingComment)) {
-        return 'bot-only';
-    }
-
-    return null; // Has interesting content
+    return COMMENT_INTEREST.getUninterestingReason(notification, {
+        comments,
+        currentUserLogin: state.currentUserLogin,
+        isApproved: isNotificationApproved(notification),
+    });
 }
 
 function isNotificationNeedsReview(notification) {
@@ -1477,81 +1224,21 @@ function hasNotificationAuthorPermission(notification) {
 }
 
 function isUninterestingComment(comment) {
-    const body = String(comment?.body || '');
-    if (isRevertRelated(body)) {
-        return false;
-    }
-    const author = comment?.user?.login || '';
-    if (isBotAuthor(author)) {
-        return true;
-    }
-    return isBotInteractionComment(body);
+    return COMMENT_INTEREST.isUninterestingComment(comment);
 }
 
 function areCommentsOnlyByCurrentUserOrBots(comments) {
-    const login = String(state.currentUserLogin || '').toLowerCase();
-    if (!login || !Array.isArray(comments) || comments.length === 0) {
-        return false;
-    }
-    return comments.every((comment) => {
-        const author = String(comment?.user?.login || '').toLowerCase();
-        return author === login ||
-            isBotAuthor(author) ||
-            isBotInteractionComment(comment?.body || '');
-    });
+    return COMMENT_INTEREST.areCommentsOnlyByCurrentUserOrBots(comments, state.currentUserLogin);
 }
 
 function isRevertRelated(body) {
-    return /\brevert(ed|ing)?\b/i.test(body) || /\brollback\b/i.test(body);
+    return COMMENT_INTEREST.isRevertRelated(body);
 }
 
 function isBotAuthor(login) {
-    if (!login) {
-        return false;
-    }
-    const normalized = login.toLowerCase();
-    if (normalized.endsWith('[bot]')) {
-        return true;
-    }
-    const knownBots = new Set([
-        'dr-ci',
-        'dr-ci-bot',
-        'bors',
-        'homu',
-        'mergify',
-        'pytorchbot',
-        'pytorchmergebot',
-        'pytorch-bot',
-        'htmlpurifierbot',
-        'github-actions',
-        'dependabot',
-        'dependabot-preview',
-    ]);
-    return knownBots.has(normalized);
+    return COMMENT_INTEREST.isBotAuthor(login);
 }
 
 function isBotInteractionComment(body) {
-    const lines = String(body || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-    if (lines.length === 0) {
-        return false;
-    }
-    const commandPattern =
-        '(?:label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|backport|cherry-pick|assign|unassign|cc|triage|priority|kind|lgtm|r\\+)';
-    const patterns = [
-        new RegExp(`^/(?:${commandPattern})(?:\\s|$)`, 'i'),
-        new RegExp(
-            `^@?[\\w-]*bot\\b\\s+(?:${commandPattern})(?:\\s|$)`,
-            'i'
-        ),
-        /^bors\b/i,
-        /^@?bors\b/i,
-        /^@?homu\b/i,
-        /^@?mergify\b/i,
-        /^@?dr[-.\s]?ci\b/i,
-        /^r\+$/i,
-    ];
-    return lines.every((line) => patterns.some((pattern) => pattern.test(line)));
+    return COMMENT_INTEREST.isBotInteractionComment(body);
 }
