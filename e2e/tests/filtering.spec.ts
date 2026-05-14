@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage, seedNotificationsCache } from './storage-utils';
+import {
+  mockDefaultApiRoutes,
+  openNotificationsApp,
+  openNotificationsWithCachedData,
+} from './app-fixture';
 
 async function waitForStatusClear(page) {
   const statusBar = page.locator('#status-bar');
@@ -25,56 +30,8 @@ async function expectNoStatusFlash(page, text) {
 
 test.describe('Filtering', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock auth endpoint
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    // Mock notifications endpoint
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
-    // Mock GraphQL endpoint for prefetch
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      });
-    });
-
-    // Mock REST comment endpoints for prefetch and syncNotificationBeforeDone
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    // Mock REST issues endpoint for prefetch
-    // Use broader pattern and filter out comments, to avoid route matching issues
-    await page.route('**/github/rest/repos/**/issues/**', (route) => {
-      if (route.request().url().includes('/comments')) {
-        return; // Let the comments route handle this
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-
-    await page.goto('notifications.html');
+    await mockDefaultApiRoutes(page);
+    await openNotificationsApp(page);
     await clearAppStorage(page);
   });
 
@@ -206,12 +163,7 @@ test.describe('Filtering', () => {
 
   test.describe('View Switching', () => {
     test.beforeEach(async ({ page }) => {
-      // Sync first
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      // Wait for notifications to load (Feed shows awareness items from the mixed fixture)
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page);
     });
 
     test('clicking Feed tab shows awareness notifications', async ({ page }) => {
@@ -279,11 +231,7 @@ test.describe('Filtering', () => {
 
   test.describe('Subfilter Counts', () => {
     test.beforeEach(async ({ page }) => {
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page);
     });
 
     test('shows subfilter counts for Feed view', async ({ page }) => {
@@ -430,11 +378,7 @@ test.describe('Filtering', () => {
 
   test.describe('Subfilter Switching', () => {
     test.beforeEach(async ({ page }) => {
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page);
     });
 
     test('clicking Open subfilter filters to open feed items', async ({ page }) => {
@@ -462,7 +406,9 @@ test.describe('Filtering', () => {
 
     test('clicking an active subfilter shows all feed items', async ({ page }) => {
       // First switch to open
-      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      const issuesSubfilters = page.locator(
+        '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]'
+      );
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
@@ -473,7 +419,9 @@ test.describe('Filtering', () => {
     });
 
     test('clicking the active subfilter clears the filter', async ({ page }) => {
-      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
+      const issuesSubfilters = page.locator(
+        '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]'
+      );
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
@@ -564,12 +512,7 @@ test.describe('Filtering', () => {
 
   test.describe('Empty State with Views', () => {
     test('shows empty state when view has no results', async ({ page }) => {
-      // Sync first
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page);
 
       await page.locator('#view-pr-notifications').click();
 
@@ -579,11 +522,7 @@ test.describe('Filtering', () => {
     });
 
     test('empty state hidden when view has results', async ({ page }) => {
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      // Wait for notifications to load
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page);
 
       await expect(page.locator('#empty-state')).not.toBeVisible();
 
@@ -618,22 +557,10 @@ test.describe('Filtering', () => {
         ],
       };
 
-      await page.route(
-        '**/notifications/html/repo/**',
-        (route) => {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(withDraftFixture),
-          });
-        },
-        { times: 1 }
-      );
-
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page, {
+        notifications: withDraftFixture,
+        expectedCount: 4,
+      });
 
       await page.locator('#view-others-prs').click();
 
@@ -681,22 +608,10 @@ test.describe('Filtering', () => {
         ],
       };
 
-      await page.route(
-        '**/notifications/html/repo/**',
-        (route) => {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(withMergedReviewFixture),
-          });
-        },
-        { times: 1 }
-      );
-
-      const input = page.locator('#repo-input');
-      await input.fill('test/repo');
-      await page.locator('#sync-btn').click();
-      await expect(page.locator('.notification-item')).toHaveCount(4);
+      await openNotificationsWithCachedData(page, {
+        notifications: withMergedReviewFixture,
+        expectedCount: 4,
+      });
 
       await page.locator('#view-others-prs').click();
       const othersPrsSubfilters = page.locator(
