@@ -110,10 +110,17 @@
             // what shifts when items are removed.
             let pastRemoved = false;
             let hasSurvivingItemBeforeRemoval = false;
+            let alignNextItemToTop = false;
             for (const item of items) {
                 const id = item.getAttribute('data-id');
                 if (removedSet.has(id)) {
                     if (!isMobileViewport() && !hasSurvivingItemBeforeRemoval) {
+                        const rect = item.getBoundingClientRect();
+                        if (rect.top < 0) {
+                            alignNextItemToTop = true;
+                            pastRemoved = true;
+                            continue;
+                        }
                         return { type: 'scroll-position', scrollY: window.scrollY };
                     }
                     pastRemoved = true;
@@ -121,6 +128,9 @@
                 }
                 if (pastRemoved) {
                     const rect = item.getBoundingClientRect();
+                    if (alignNextItemToTop) {
+                        return { type: 'item-top', id };
+                    }
                     return { type: 'item', id, viewportTop: rect.top };
                 }
                 hasSurvivingItemBeforeRemoval = true;
@@ -137,6 +147,12 @@
             const item = getNotificationElement(anchor.id);
             if (!item) return;
             const newTop = item.getBoundingClientRect().top;
+            if (anchor.type === 'item-top') {
+                if (Math.abs(newTop) > 1) {
+                    window.scrollTo(0, window.scrollY + newTop);
+                }
+                return;
+            }
             const drift = newTop - anchor.viewportTop;
             if (Math.abs(drift) > 1) {
                 window.scrollTo(0, window.scrollY + drift);

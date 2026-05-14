@@ -160,6 +160,26 @@ test.describe('Scroll Anchoring', () => {
     expect(Math.abs(afterScrollY - beforeScrollY)).toBeLessThan(5);
   });
 
+  test('desktop inline mark done from middle of first entry aligns next entry at top', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const removedItemTop = await page.evaluate(() => {
+      const firstItem = document.querySelector<HTMLElement>('[data-id="notif-0"]');
+      if (!firstItem) throw new Error('First notification not found');
+      firstItem.style.minHeight = '1200px';
+      const targetY = firstItem.getBoundingClientRect().top + window.scrollY + 250;
+      window.scrollTo(0, targetY);
+      return firstItem.getBoundingClientRect().top;
+    });
+    expect(removedItemTop).toBeLessThan(0);
+
+    await page.locator('[data-id="notif-0"] .notification-actions-inline .notification-done-btn').click();
+    await expect(page.locator('[data-id="notif-0"]')).toHaveCount(0);
+
+    const nextItemTop = await getViewportY(page, 'notif-1');
+    expect(Math.abs(nextItemTop)).toBeLessThan(5);
+  });
+
   test('bulk mark done preserves scroll position of items below', async ({ page }) => {
     await page.locator('[data-id="notif-5"]').scrollIntoViewIfNeeded();
 
