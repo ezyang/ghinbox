@@ -16,6 +16,7 @@ const COMMENT_AGE_FILTER_KEY = 'ghnotif_comment_age_filter';
 const PREFETCH_STATUS_REFRESH_MS = 750;
 const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
 const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
+const COMMENT_WINDOW = globalThis.GhinboxCommentWindow;
 
 function canUpdateCommentPrefetchStatus() {
     return !state.statusState || state.statusState.type === 'info';
@@ -343,34 +344,6 @@ function shouldPrefetchNotificationComments(notification) {
         return true;
     }
     return false;
-}
-
-// Extract the comment ID and type from an anchor like "issuecomment-12345" or "discussion_r12345"
-function extractCommentIdFromAnchor(anchor) {
-    if (!anchor) {
-        return null;
-    }
-    // Handle "issuecomment-12345" format
-    const issueMatch = anchor.match(/^issuecomment-(\d+)$/);
-    if (issueMatch) {
-        return { id: parseInt(issueMatch[1], 10), type: 'issue' };
-    }
-    // Handle "discussion_r12345" format (discussion comments)
-    const discussionMatch = anchor.match(/^discussion_r(\d+)$/);
-    if (discussionMatch) {
-        return { id: parseInt(discussionMatch[1], 10), type: 'discussion' };
-    }
-    // Handle "pullrequestreview-12345" format (PR review, not individual comment)
-    const reviewMatch = anchor.match(/^pullrequestreview-(\d+)$/);
-    if (reviewMatch) {
-        return { id: parseInt(reviewMatch[1], 10), type: 'review' };
-    }
-    // Handle "r12345" format (PR review comments on the diff)
-    const reviewCommentMatch = anchor.match(/^r(\d+)$/);
-    if (reviewCommentMatch) {
-        return { id: parseInt(reviewCommentMatch[1], 10), type: 'review_comment' };
-    }
-    return null;
 }
 
 function toIssueComment(issue) {
@@ -851,7 +824,11 @@ function getCommentStatus(notification) {
     // If comments were already filtered server-side (via last_read_at), use as-is
     const anchor = cached.anchor || notification.subject?.anchor || null;
     const comments = cached.comments || [];
-    const unreadComments = cached.allComments ? filterCommentsByAnchor(comments, anchor) : comments;
+    const unreadComments = COMMENT_WINDOW.getCommentWindowComments(notification, {
+        ...cached,
+        anchor,
+        comments,
+    });
     const count = unreadComments.length;
     if (isNotificationApproved(notification)) {
         return { label: 'Approved', className: 'approved' };
@@ -912,63 +889,6 @@ function getDiffstatInfo(notification) {
     };
 }
 
-// Filter comments to only show those at or after the anchor (first unread)
-function filterCommentsByAnchor(comments, anchor) {
-    if (!anchor || !comments || comments.length === 0) {
-        return comments;
-    }
-    const anchorInfo = extractCommentIdFromAnchor(anchor);
-    if (!anchorInfo) {
-        // Anchor format not recognized, return all comments
-        return comments;
-    }
-    const { id: anchorCommentId, type: anchorType } = anchorInfo;
-
-    // Find the index of the anchor comment and return from there
-    // Match based on both ID and type to handle mixed comment types
-    const anchorIndex = comments.findIndex((comment) => {
-        const commentId = typeof comment.id === 'number' ? comment.id : parseInt(comment.id, 10);
-        if (commentId !== anchorCommentId) {
-            return false;
-        }
-        // Check if comment type matches anchor type
-        if (anchorType === 'review_comment' && comment.isReviewComment) {
-            return true;
-        }
-        if (anchorType === 'issue' && !comment.isReviewComment && !comment.isIssue) {
-            return true;
-        }
-        // For other types or if we can't determine, just match by ID
-        return commentId === anchorCommentId;
-    });
-    if (anchorIndex === -1) {
-        // Anchor comment not found - could be a review that's not in our comments list.
-        // Return all comments.
-        return comments;
-    }
-    return comments.slice(anchorIndex);
-}
-
-function isCommentTooOld(comment, ageFilter) {
-    if (ageFilter === 'all') return false;
-
-    const timestamp = comment.created_at || comment.updated_at;
-    if (!timestamp) return false;
-
-    const commentDate = new Date(timestamp);
-    const now = new Date();
-    const ageMs = now - commentDate;
-
-    const thresholds = {
-        '1day': 1 * 24 * 60 * 60 * 1000,
-        '3days': 3 * 24 * 60 * 60 * 1000,
-        '1week': 7 * 24 * 60 * 60 * 1000,
-        '1month': 30 * 24 * 60 * 60 * 1000,
-    };
-
-    return ageMs > thresholds[ageFilter];
-}
-
 function getCommentItems(notification) {
     const isIssue = notification.subject?.type === 'Issue';
     const isPR = notification.subject?.type === 'PullRequest';
@@ -977,37 +897,18 @@ function getCommentItems(notification) {
         return '';
     }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached) {
-        return '<li class="comment-item">Comments: pending...</li>';
+    const commentState = COMMENT_WINDOW.getRenderableCommentState(notification, cached, {
+        ageFilter: state.commentAgeFilter,
+        currentUserLogin: state.currentUserLogin,
+        hideUninteresting: state.commentHideUninteresting,
+    });
+    if (commentState.kind === 'error') {
+        return `<li class="comment-item">Comments error: ${escapeHtml(commentState.error)}</li>`;
     }
-    if (cached.error) {
-        return `<li class="comment-item">Comments error: ${escapeHtml(cached.error)}</li>`;
+    if (commentState.kind !== 'comments') {
+        return `<li class="comment-item">${commentState.label}</li>`;
     }
-    // Filter by anchor first (only if we have all comments), then by own comment
-    // If comments were already filtered server-side (via last_read_at), use as-is
-    const anchor = cached.anchor || notification.subject?.anchor || null;
-    const rawComments = cached.comments || [];
-    const unreadComments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
-    const comments = filterRelevantCommentsForNotification(notification, unreadComments);
-    const hasFilter = Boolean(anchor || cached.lastReadAt);
-    if (comments.length === 0) {
-        const label = hasFilter ? 'No unread comments found.' : 'No comments found.';
-        return `<li class="comment-item">${label}</li>`;
-    }
-    const visibleComments = state.commentHideUninteresting
-        ? comments.filter((comment) => !isUninterestingComment(comment))
-        : comments;
-    // Apply age filter
-    const ageFilteredComments = visibleComments.filter(
-        (comment) => !isCommentTooOld(comment, state.commentAgeFilter)
-    );
-    if (ageFilteredComments.length === 0) {
-        if (visibleComments.length > 0) {
-            return '<li class="comment-item">All comments filtered by age.</li>';
-        }
-        return '<li class="comment-item">No interesting unread comments found.</li>';
-    }
-    return ageFilteredComments
+    return commentState.comments
         .map((comment) => {
             const author = comment.user?.login || 'unknown';
             const timestamp = comment.updated_at || comment.created_at || '';
@@ -1111,11 +1012,7 @@ function isNotificationUninteresting(notification) {
     if (!cached || cached.error) {
         return false;
     }
-    // Use anchor-filtered comments (only if we have all comments)
-    // If comments were already filtered server-side (via last_read_at), use as-is
-    const anchor = cached.anchor || notification.subject?.anchor || null;
-    const rawComments = cached.comments || [];
-    const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    const comments = COMMENT_WINDOW.getCommentWindowComments(notification, cached);
     return COMMENT_INTEREST.isNotificationUninteresting(notification, {
         comments,
         currentUserLogin: state.currentUserLogin,
@@ -1128,9 +1025,7 @@ function getUninterestingReason(notification) {
     if (!cached || cached.error) {
         return null;
     }
-    const anchor = cached.anchor || notification.subject?.anchor || null;
-    const rawComments = cached.comments || [];
-    const comments = cached.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    const comments = COMMENT_WINDOW.getCommentWindowComments(notification, cached);
     return COMMENT_INTEREST.getUninterestingReason(notification, {
         comments,
         currentUserLogin: state.currentUserLogin,

@@ -1,0 +1,145 @@
+// Pure comment windowing and render-state helpers.
+// Browser code passes state-derived values in; Node tests import this file.
+(function (root, factory) {
+    let commentInterest = root.GhinboxCommentInterest;
+    if (!commentInterest && typeof require === 'function') {
+        commentInterest = require('./notifications-comment-interest.js');
+    }
+    const api = factory(commentInterest);
+    if (typeof module === 'object' && module.exports) {
+        module.exports = api;
+    }
+    root.GhinboxCommentWindow = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (commentInterest) {
+    const AGE_THRESHOLDS = {
+        '1day': 1 * 24 * 60 * 60 * 1000,
+        '3days': 3 * 24 * 60 * 60 * 1000,
+        '1week': 7 * 24 * 60 * 60 * 1000,
+        '1month': 30 * 24 * 60 * 60 * 1000,
+    };
+
+    function extractCommentIdFromAnchor(anchor) {
+        if (!anchor) {
+            return null;
+        }
+        const issueMatch = String(anchor).match(/^issuecomment-(\d+)$/);
+        if (issueMatch) {
+            return { id: parseInt(issueMatch[1], 10), type: 'issue' };
+        }
+        const discussionMatch = String(anchor).match(/^discussion_r(\d+)$/);
+        if (discussionMatch) {
+            return { id: parseInt(discussionMatch[1], 10), type: 'discussion' };
+        }
+        const reviewMatch = String(anchor).match(/^pullrequestreview-(\d+)$/);
+        if (reviewMatch) {
+            return { id: parseInt(reviewMatch[1], 10), type: 'review' };
+        }
+        const reviewCommentMatch = String(anchor).match(/^r(\d+)$/);
+        if (reviewCommentMatch) {
+            return { id: parseInt(reviewCommentMatch[1], 10), type: 'review_comment' };
+        }
+        return null;
+    }
+
+    function filterCommentsByAnchor(comments, anchor) {
+        if (!anchor || !comments || comments.length === 0) {
+            return comments;
+        }
+        const anchorInfo = extractCommentIdFromAnchor(anchor);
+        if (!anchorInfo) {
+            return comments;
+        }
+        const { id: anchorCommentId, type: anchorType } = anchorInfo;
+        const anchorIndex = comments.findIndex((comment) => {
+            const commentId = typeof comment.id === 'number' ? comment.id : parseInt(comment.id, 10);
+            if (commentId !== anchorCommentId) {
+                return false;
+            }
+            if (anchorType === 'review_comment' && comment.isReviewComment) {
+                return true;
+            }
+            if (anchorType === 'issue' && !comment.isReviewComment && !comment.isIssue) {
+                return true;
+            }
+            return commentId === anchorCommentId;
+        });
+        return anchorIndex === -1 ? comments : comments.slice(anchorIndex);
+    }
+
+    function getCommentWindowComments(notification, cached) {
+        const anchor = cached?.anchor || notification?.subject?.anchor || null;
+        const rawComments = cached?.comments || [];
+        return cached?.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+    }
+
+    function isCommentTooOld(comment, ageFilter, now = new Date()) {
+        if (ageFilter === 'all') {
+            return false;
+        }
+        const threshold = AGE_THRESHOLDS[ageFilter];
+        if (!threshold) {
+            return false;
+        }
+        const timestamp = comment?.created_at || comment?.updated_at;
+        if (!timestamp) {
+            return false;
+        }
+        const parsed = Date.parse(timestamp);
+        if (Number.isNaN(parsed)) {
+            return false;
+        }
+        const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+        if (Number.isNaN(nowMs)) {
+            return false;
+        }
+        return nowMs - parsed > threshold;
+    }
+
+    function getRenderableCommentState(notification, cached, options = {}) {
+        if (!cached) {
+            return { kind: 'pending', label: 'Comments: pending...' };
+        }
+        if (cached.error) {
+            return { kind: 'error', error: cached.error };
+        }
+
+        const anchor = cached.anchor || notification?.subject?.anchor || null;
+        const unreadComments = getCommentWindowComments(notification, cached);
+        const comments = commentInterest.filterRelevantCommentsForNotification(
+            notification,
+            unreadComments,
+            options.currentUserLogin
+        );
+        const hasFilter = Boolean(anchor || cached.lastReadAt);
+        if (comments.length === 0) {
+            return {
+                kind: 'empty',
+                label: hasFilter ? 'No unread comments found.' : 'No comments found.',
+            };
+        }
+
+        const visibleComments = options.hideUninteresting
+            ? comments.filter((comment) => !commentInterest.isUninterestingComment(comment))
+            : comments;
+        const ageFilteredComments = visibleComments.filter(
+            (comment) => !isCommentTooOld(comment, options.ageFilter || 'all', options.now)
+        );
+        if (ageFilteredComments.length === 0) {
+            return {
+                kind: 'empty',
+                label: visibleComments.length > 0
+                    ? 'All comments filtered by age.'
+                    : 'No interesting unread comments found.',
+            };
+        }
+        return { kind: 'comments', comments: ageFilteredComments };
+    }
+
+    return {
+        extractCommentIdFromAnchor,
+        filterCommentsByAnchor,
+        getCommentWindowComments,
+        getRenderableCommentState,
+        isCommentTooOld,
+    };
+});
