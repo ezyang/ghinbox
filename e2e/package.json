@@ -4,7 +4,12 @@
   "description": "E2E tests for GitHub notifications webapp",
   "scripts": {
     "test": "playwright test",
+    "test:actions": "playwright test tests/mark-done.spec.ts tests/undo.spec.ts tests/remove-reviewer.spec.ts",
     "test:headed": "playwright test --headed",
+    "test:selection": "playwright test tests/selection.spec.ts",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:sync": "playwright test tests/sync.spec.ts",
+    "test:timings": "playwright test --reporter=json",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui"
   },

@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
-import mixedFixture from '../fixtures/notifications_mixed.json';
-import { clearAppStorage } from './storage-utils';
+import { openNotificationsWithCachedData } from './app-fixture';
 
 /**
  * Phase 6: Selection Tests
@@ -11,66 +10,11 @@ import { clearAppStorage } from './storage-utils';
 
 test.describe('Selection', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock auth endpoint
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    // Mock notifications endpoint
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
-    // Mock GraphQL endpoint for prefetch
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      });
-    });
-
-    // Mock REST comment endpoints for prefetch
-    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    // Mock REST issues endpoint for prefetch
-    await page.route('**/github/rest/repos/**/issues/**', (route) => {
-      if (route.request().url().includes('/comments')) {
-        return;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-
-    // Sync to load notifications
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    // Wait for notifications to load
-    await expect(page.locator('.notification-item')).toHaveCount(4);
+    await openNotificationsWithCachedData(page);
   });
 
   test.describe('Notification Checkboxes', () => {
-    test('checkboxes toggle selection and update count', async ({ page }) => {
+    test('checkboxes toggle selection and update count @smoke', async ({ page }) => {
       const checkboxes = page.locator('.notification-checkbox');
       await expect(checkboxes).toHaveCount(4);
       await expect(checkboxes.first()).not.toBeChecked();
