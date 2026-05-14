@@ -6,6 +6,7 @@
     "test": "playwright test",
     "test:actions": "playwright test tests/mark-done.spec.ts tests/undo.spec.ts tests/remove-reviewer.spec.ts",
     "test:headed": "playwright test --headed",
+    "test:keyboard": "playwright test tests/keyboard-shortcuts.spec.ts",
     "test:selection": "playwright test tests/selection.spec.ts",
     "test:smoke": "playwright test --grep @smoke",
     "test:sync": "playwright test tests/sync.spec.ts",

@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { clearAppStorage, seedCommentCache } from './storage-utils';
+import { test, expect, type Page } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
+import { openNotificationsWithCachedData } from './app-fixture';
 
 const THREAD_SYNC_PAYLOAD = {
   updated_at: '2000-01-01T00:00:00Z',
@@ -8,59 +8,56 @@ const THREAD_SYNC_PAYLOAD = {
   unread: true,
 };
 
-async function waitForScrollSettled(
-  page,
-  { timeoutMs = 1000, intervalMs = 50, settleMs = 200 } = {}
-) {
-  let last = await page.evaluate(() => window.scrollY);
-  let stableFor = 0;
-  const start = Date.now();
+async function observeScrollChange(page: Page, previousScrollY: number, durationMs = 500) {
+  return page.evaluate(
+    ({ before, duration }) =>
+      new Promise<boolean>((resolve) => {
+        let changed = false;
+        const onScroll = () => {
+          changed = true;
+        };
+        window.addEventListener('scroll', onScroll);
+        window.setTimeout(() => {
+          window.removeEventListener('scroll', onScroll);
+          resolve(changed || Math.abs(window.scrollY - before) >= 1);
+        }, duration);
+      }),
+    { before: previousScrollY, duration: durationMs }
+  );
+}
 
-  while (Date.now() - start < timeoutMs) {
-    await page.waitForTimeout(intervalMs);
-    const current = await page.evaluate(() => window.scrollY);
+async function waitForScrollSettled(page: Page, settleMs = 150, timeoutMs = 1000) {
+  return page.evaluate(
+    ({ settle, timeout }) =>
+      new Promise<number>((resolve) => {
+        let settleTimer: number | undefined;
+        const timeoutTimer = window.setTimeout(finish, timeout);
 
-    if (Math.abs(current - last) < 1) {
-      stableFor += intervalMs;
-      if (stableFor >= settleMs) {
-        return current;
-      }
-    } else {
-      stableFor = 0;
-      last = current;
-    }
-  }
+        function finish() {
+          window.clearTimeout(timeoutTimer);
+          if (settleTimer !== undefined) {
+            window.clearTimeout(settleTimer);
+          }
+          window.removeEventListener('scroll', scheduleSettle);
+          resolve(window.scrollY);
+        }
 
-  return page.evaluate(() => window.scrollY);
+        function scheduleSettle() {
+          if (settleTimer !== undefined) {
+            window.clearTimeout(settleTimer);
+          }
+          settleTimer = window.setTimeout(finish, settle);
+        }
+
+        window.addEventListener('scroll', scheduleSettle);
+        scheduleSettle();
+      }),
+    { settle: settleMs, timeout: timeoutMs }
+  );
 }
 
 test.describe('Keyboard Shortcuts', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
-    // Mock comments endpoint for syncNotificationBeforeDone
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
     const commentCache = {
       version: 1,
       threads: {
@@ -95,15 +92,7 @@ test.describe('Keyboard Shortcuts', () => {
       },
     };
 
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    // Default view is Feed, which shows generic notifications from the fixture.
-    await expect(page.locator('.notification-item')).toHaveCount(4);
+    await openNotificationsWithCachedData(page, { commentCache });
   });
 
   test('j/k moves the active selection', async ({ page }) => {
@@ -289,15 +278,13 @@ test.describe('Keyboard Shortcuts', () => {
 
     // First scroll down
     await page.keyboard.press('Shift+G');
+    await page.waitForFunction(() => window.scrollY > 0);
     const scrollTopBefore = await waitForScrollSettled(page);
     expect(scrollTopBefore).toBeGreaterThan(0);
 
-    // Press g once and wait
+    // Press g once and observe that it does not scroll by itself.
     await page.keyboard.press('g');
-    const scrollTopAfter = await waitForScrollSettled(page, { timeoutMs: 1200 });
-
-    // Scroll position should not have changed
-    expect(scrollTopAfter).toBe(scrollTopBefore);
+    await expect.poll(() => observeScrollChange(page, scrollTopBefore), { timeout: 700 }).toBe(false);
   });
 
   test('t toggles selection of active notification', async ({ page }) => {

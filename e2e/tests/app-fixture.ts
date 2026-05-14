@@ -1,6 +1,6 @@
 import { expect, type Page, type Route } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
-import { clearAppStorage, seedNotificationsCache } from './storage-utils';
+import { clearAppStorage, seedCommentCache, seedNotificationsCache } from './storage-utils';
 
 type JsonBody = unknown;
 
@@ -76,7 +76,7 @@ export async function openNotificationsApp(page: Page, options: {
     },
     { loginValue: login, repoValue: repo }
   );
-  await page.goto('notifications.html');
+  await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
 }
 
 export async function openNotificationsWithSync(page: Page, options: {
@@ -97,6 +97,7 @@ export async function openNotificationsWithSync(page: Page, options: {
 }
 
 export async function openNotificationsWithCachedData(page: Page, options: {
+  commentCache?: JsonBody;
   expectedCount?: number;
   login?: string;
   notifications?: JsonBody;
@@ -106,7 +107,7 @@ export async function openNotificationsWithCachedData(page: Page, options: {
   const repo = options.repo ?? DEFAULT_REPO;
 
   await mockDefaultApiRoutes(page, options);
-  await page.goto('notifications.html');
+  await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
   await clearAppStorage(page);
   await page.evaluate(
     ({ login, repoValue }) => {
@@ -119,7 +120,10 @@ export async function openNotificationsWithCachedData(page: Page, options: {
     },
     { login: options.login ?? DEFAULT_LOGIN, repoValue: repo }
   );
+  if (options.commentCache !== undefined) {
+    await seedCommentCache(page, options.commentCache);
+  }
   await seedNotificationsCache(page, notificationsArray(options.notifications ?? mixedFixture));
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.notification-item')).toHaveCount(expectedCount);
 }
