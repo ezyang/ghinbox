@@ -2,7 +2,11 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   DEFAULT_COMMENT_CACHE_TTL_MS,
+  buildCommentErrorCacheEntry,
+  buildCommentSuccessCacheEntry,
+  buildMissingIssueCommentCacheEntry,
   getPendingReviewMetadataNotifications,
+  getPreservedCommentMetadata,
   getReviewMetadataNeeds,
   isAuthorAssociationFresh,
   isAuthorLoginFresh,
@@ -210,5 +214,154 @@ test('review metadata prefetch selects only PRs with missing requested metadata'
       nowMs,
     }).map((item) => item.id),
     ['fresh-pr']
+  );
+});
+
+test('preserved comment metadata keeps review, author, permission, and diffstat fields', () => {
+  assert.deepEqual(
+    getPreservedCommentMetadata(cached({
+      reviewDecision: 'APPROVED',
+      reviewDecisionFetchedAt: '2026-05-14T10:00:00Z',
+      authorLogin: 'alice',
+      authorLoginFetchedAt: '2026-05-14T10:01:00Z',
+      authorAssociation: 'MEMBER',
+      authorAssociationFetchedAt: '2026-05-14T10:02:00Z',
+      authorPermission: 'write',
+      authorPermissionFetchedAt: '2026-05-14T10:03:00Z',
+      additions: 10,
+      deletions: 0,
+      changedFiles: 2,
+      diffstatFetchedAt: '2026-05-14T10:04:00Z',
+    })),
+    {
+      reviewDecision: 'APPROVED',
+      reviewDecisionFetchedAt: '2026-05-14T10:00:00Z',
+      additions: 10,
+      deletions: 0,
+      changedFiles: 2,
+      diffstatFetchedAt: '2026-05-14T10:04:00Z',
+      authorLogin: 'alice',
+      authorLoginFetchedAt: '2026-05-14T10:01:00Z',
+      authorAssociation: 'MEMBER',
+      authorAssociationFetchedAt: '2026-05-14T10:02:00Z',
+      authorPermission: 'write',
+      authorPermissionFetchedAt: '2026-05-14T10:03:00Z',
+    }
+  );
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(getPreservedCommentMetadata(cached()), 'authorLogin'),
+    false
+  );
+});
+
+test('comment success cache entry replaces comments while preserving metadata', () => {
+  const comments = [{ id: 1, body: 'new comment' }];
+  assert.deepEqual(
+    buildCommentSuccessCacheEntry(
+      notification('issue', {
+        unread: true,
+        last_read_at: '2026-05-14T10:30:00Z',
+        subject: { anchor: 'issuecomment-1' },
+      }),
+      cached({
+        reviewDecision: null,
+        reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+        authorLogin: 'alice',
+        authorLoginFetchedAt: '2026-05-14T09:01:00Z',
+        comments: [{ id: 0, body: 'old comment' }],
+      }),
+      {
+        comments,
+        allComments: true,
+        fetchedAt: freshIso,
+      }
+    ),
+    {
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+      anchor: 'issuecomment-1',
+      lastReadAt: '2026-05-14T10:30:00Z',
+      unread: true,
+      comments,
+      allComments: true,
+      fetchedAt: freshIso,
+      reviewDecision: null,
+      reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+      additions: undefined,
+      deletions: undefined,
+      changedFiles: undefined,
+      diffstatFetchedAt: undefined,
+      authorLogin: 'alice',
+      authorLoginFetchedAt: '2026-05-14T09:01:00Z',
+    }
+  );
+});
+
+test('comment error cache entries preserve metadata and reflect fetch window', () => {
+  const existing = cached({
+    reviewDecision: 'CHANGES_REQUESTED',
+    reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+    additions: 4,
+    deletions: 2,
+    changedFiles: 1,
+    diffstatFetchedAt: '2026-05-14T09:01:00Z',
+  });
+
+  assert.deepEqual(
+    buildCommentErrorCacheEntry(notification('unfiltered'), existing, {
+      error: 'Missing repository input.',
+      fetchedAt: freshIso,
+    }),
+    {
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+      comments: [],
+      allComments: true,
+      error: 'Missing repository input.',
+      fetchedAt: freshIso,
+      reviewDecision: 'CHANGES_REQUESTED',
+      reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+      additions: 4,
+      deletions: 2,
+      changedFiles: 1,
+      diffstatFetchedAt: '2026-05-14T09:01:00Z',
+    }
+  );
+
+  assert.equal(
+    buildCommentErrorCacheEntry(
+      notification('filtered', { last_read_at: '2026-05-14T10:00:00Z' }),
+      existing,
+      { error: 'boom', fetchedAt: freshIso }
+    ).allComments,
+    false
+  );
+});
+
+test('missing issue cache entry records the parse error and preserves metadata', () => {
+  assert.deepEqual(
+    buildMissingIssueCommentCacheEntry(
+      notification('missing-number', { subject: { number: null } }),
+      cached({
+        reviewDecision: 'APPROVED',
+        reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+        authorPermission: 'admin',
+        authorPermissionFetchedAt: '2026-05-14T09:01:00Z',
+      }),
+      { fetchedAt: freshIso }
+    ),
+    {
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+      comments: [],
+      error: 'No issue number found.',
+      fetchedAt: freshIso,
+      reviewDecision: 'APPROVED',
+      reviewDecisionFetchedAt: '2026-05-14T09:00:00Z',
+      additions: undefined,
+      deletions: undefined,
+      changedFiles: undefined,
+      diffstatFetchedAt: undefined,
+      authorPermission: 'admin',
+      authorPermissionFetchedAt: '2026-05-14T09:01:00Z',
+    }
   );
 });

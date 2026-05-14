@@ -549,62 +549,14 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
 async function prefetchNotificationComments(notification) {
     const threadId = getNotificationKey(notification);
     const cached = state.commentCache.threads[threadId];
-    const existingReviewDecision = cached?.reviewDecision;
-    const existingReviewDecisionFetchedAt = cached?.reviewDecisionFetchedAt;
-    const existingAuthorLogin = cached?.authorLogin;
-    const existingAuthorLoginFetchedAt = cached?.authorLoginFetchedAt;
-    const existingAuthorAssociation = cached?.authorAssociation;
-    const existingAuthorAssociationFetchedAt = cached?.authorAssociationFetchedAt;
-    const existingAuthorPermission = cached?.authorPermission;
-    const existingAuthorPermissionFetchedAt = cached?.authorPermissionFetchedAt;
-    const existingDiffstat = {
-        additions: cached?.additions,
-        deletions: cached?.deletions,
-        changedFiles: cached?.changedFiles,
-        diffstatFetchedAt: cached?.diffstatFetchedAt,
-    };
-
-    // Determine if we have a useful filter: prefer anchor, fallback to last_read_at
-    const anchor = notification.subject?.anchor || null;
-    const lastReadAt = notification.last_read_at || null;
-    const hasFilter = Boolean(anchor || lastReadAt);
-
-    // Check if cache is still valid
-    if (
-        cached &&
-        cached.notificationUpdatedAt === notification.updated_at &&
-        isCommentCacheFresh(cached)
-    ) {
-        // If we have a filter, check if anchor/lastReadAt match
-        // Normalize undefined to null for comparison
-        if (hasFilter) {
-            const cachedAnchor = cached.anchor || null;
-            const cachedLastReadAt = cached.lastReadAt || null;
-            if (cachedAnchor === anchor && cachedLastReadAt === lastReadAt) {
-                return;
-            }
-        } else if (cached.allComments) {
-            return;
-        }
+    if (!shouldPrefetchNotificationComments(notification)) {
+        return;
     }
 
     const issueNumber = getIssueNumber(notification);
     if (!issueNumber) {
-        state.commentCache.threads[threadId] = {
-            notificationUpdatedAt: notification.updated_at,
-            comments: [],
-            error: 'No issue number found.',
-            fetchedAt: new Date().toISOString(),
-            reviewDecision: existingReviewDecision,
-            reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
-            authorLogin: existingAuthorLogin,
-            authorLoginFetchedAt: existingAuthorLoginFetchedAt,
-            authorAssociation: existingAuthorAssociation,
-            authorAssociationFetchedAt: existingAuthorAssociationFetchedAt,
-            authorPermission: existingAuthorPermission,
-            authorPermissionFetchedAt: existingAuthorPermissionFetchedAt,
-            ...existingDiffstat,
-        };
+        state.commentCache.threads[threadId] =
+            COMMENT_CACHE_POLICY.buildMissingIssueCommentCacheEntry(notification, cached);
         return;
     }
 
@@ -617,6 +569,7 @@ async function prefetchNotificationComments(notification) {
         const isPR = notification.subject?.type === 'PullRequest';
         let comments = [];
         let allComments = false;
+        const { anchor, lastReadAt } = COMMENT_CACHE_POLICY.getCommentFetchWindow(notification);
 
         // If we have an anchor, always fetch all and filter client-side
         // If we have last_read_at (but no anchor), use it as a server-side filter
@@ -659,55 +612,20 @@ async function prefetchNotificationComments(notification) {
             comments = await fetchAllIssueComments(repo, issueNumber, { isPR });
         }
 
-        const next = {
-            notificationUpdatedAt: notification.updated_at,
-            anchor,
-            lastReadAt,
-            unread: notification.unread,
-            comments,
-            allComments,
-            fetchedAt: new Date().toISOString(),
-            reviewDecision: existingReviewDecision,
-            reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
-            ...existingDiffstat,
-        };
-        if (existingAuthorLogin !== null && existingAuthorLogin !== undefined) {
-            next.authorLogin = existingAuthorLogin;
-            next.authorLoginFetchedAt = existingAuthorLoginFetchedAt;
-        }
-        if (existingAuthorAssociation !== null && existingAuthorAssociation !== undefined) {
-            next.authorAssociation = existingAuthorAssociation;
-            next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
-        }
-        if (existingAuthorPermission !== null && existingAuthorPermission !== undefined) {
-            next.authorPermission = existingAuthorPermission;
-            next.authorPermissionFetchedAt = existingAuthorPermissionFetchedAt;
-        }
-        state.commentCache.threads[threadId] = next;
+        state.commentCache.threads[threadId] = COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(
+            notification,
+            cached,
+            {
+                comments,
+                allComments,
+            }
+        );
     } catch (error) {
-        const next = {
-            notificationUpdatedAt: notification.updated_at,
-            comments: [],
-            allComments: !hasFilter,
-            error: error.message || String(error),
-            fetchedAt: new Date().toISOString(),
-            reviewDecision: existingReviewDecision,
-            reviewDecisionFetchedAt: existingReviewDecisionFetchedAt,
-            ...existingDiffstat,
-        };
-        if (existingAuthorLogin !== null && existingAuthorLogin !== undefined) {
-            next.authorLogin = existingAuthorLogin;
-            next.authorLoginFetchedAt = existingAuthorLoginFetchedAt;
-        }
-        if (existingAuthorAssociation !== null && existingAuthorAssociation !== undefined) {
-            next.authorAssociation = existingAuthorAssociation;
-            next.authorAssociationFetchedAt = existingAuthorAssociationFetchedAt;
-        }
-        if (existingAuthorPermission !== null && existingAuthorPermission !== undefined) {
-            next.authorPermission = existingAuthorPermission;
-            next.authorPermissionFetchedAt = existingAuthorPermissionFetchedAt;
-        }
-        state.commentCache.threads[threadId] = next;
+        state.commentCache.threads[threadId] = COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(
+            notification,
+            cached,
+            { error: error.message || String(error) }
+        );
     }
 }
 

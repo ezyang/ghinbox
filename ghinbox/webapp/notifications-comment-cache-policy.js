@@ -68,6 +68,66 @@
         };
     }
 
+    function getPreservedCommentMetadata(cached) {
+        const preserved = {
+            reviewDecision: cached?.reviewDecision,
+            reviewDecisionFetchedAt: cached?.reviewDecisionFetchedAt,
+            additions: cached?.additions,
+            deletions: cached?.deletions,
+            changedFiles: cached?.changedFiles,
+            diffstatFetchedAt: cached?.diffstatFetchedAt,
+        };
+        if (cached?.authorLogin !== null && cached?.authorLogin !== undefined) {
+            preserved.authorLogin = cached.authorLogin;
+            preserved.authorLoginFetchedAt = cached.authorLoginFetchedAt;
+        }
+        if (cached?.authorAssociation !== null && cached?.authorAssociation !== undefined) {
+            preserved.authorAssociation = cached.authorAssociation;
+            preserved.authorAssociationFetchedAt = cached.authorAssociationFetchedAt;
+        }
+        if (cached?.authorPermission !== null && cached?.authorPermission !== undefined) {
+            preserved.authorPermission = cached.authorPermission;
+            preserved.authorPermissionFetchedAt = cached.authorPermissionFetchedAt;
+        }
+        return preserved;
+    }
+
+    function buildCommentSuccessCacheEntry(notification, cached, options = {}) {
+        const { anchor, lastReadAt } = getCommentFetchWindow(notification);
+        return {
+            notificationUpdatedAt: notification?.updated_at,
+            anchor,
+            lastReadAt,
+            unread: notification?.unread,
+            comments: Array.isArray(options.comments) ? options.comments : [],
+            allComments: Boolean(options.allComments),
+            fetchedAt: options.fetchedAt || new Date().toISOString(),
+            ...getPreservedCommentMetadata(cached),
+        };
+    }
+
+    function buildCommentErrorCacheEntry(notification, cached, options = {}) {
+        const { hasFilter } = getCommentFetchWindow(notification);
+        return {
+            notificationUpdatedAt: notification?.updated_at,
+            comments: [],
+            allComments: !hasFilter,
+            error: options.error || 'Unknown comment fetch error.',
+            fetchedAt: options.fetchedAt || new Date().toISOString(),
+            ...getPreservedCommentMetadata(cached),
+        };
+    }
+
+    function buildMissingIssueCommentCacheEntry(notification, cached, options = {}) {
+        return {
+            notificationUpdatedAt: notification?.updated_at,
+            comments: [],
+            error: 'No issue number found.',
+            fetchedAt: options.fetchedAt || new Date().toISOString(),
+            ...getPreservedCommentMetadata(cached),
+        };
+    }
+
     function shouldPrefetchNotificationComments(notification, cached, options = {}) {
         if (!cached) {
             return true;
@@ -125,8 +185,12 @@
 
     return {
         DEFAULT_COMMENT_CACHE_TTL_MS,
+        buildCommentErrorCacheEntry,
+        buildCommentSuccessCacheEntry,
+        buildMissingIssueCommentCacheEntry,
         getCommentFetchWindow,
         getPendingReviewMetadataNotifications,
+        getPreservedCommentMetadata,
         getReviewMetadataNeeds,
         hasFreshCachedField,
         isAuthorAssociationFresh,
