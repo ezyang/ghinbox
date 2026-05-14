@@ -12,7 +12,7 @@ import { clearAppStorage, readNotificationsCache } from './storage-utils';
  * and error handling.
  */
 
-test.describe('Mark Done', () => {
+test.describe('Mark Done @slow @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(
@@ -844,7 +844,7 @@ test.describe('Mark Done', () => {
  * GitHub's HTML notifications use node IDs (NT_...) which are now
  * used directly with the HTML action endpoint.
  */
-test.describe('Mark Done with Node IDs', () => {
+test.describe('Mark Done with Node IDs @slow @mutation', () => {
   // Fixture with node IDs (using simple node IDs for testing)
   const fixtureWithNodeIds = {
     ...mixedFixture,

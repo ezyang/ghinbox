@@ -36,7 +36,7 @@ const notificationsResponse = {
   },
 };
 
-test.describe('Mobile layout', () => {
+test.describe('Mobile layout @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
 

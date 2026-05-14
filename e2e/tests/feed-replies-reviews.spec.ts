@@ -295,7 +295,7 @@ const reviewRequestSearch = {
   ],
 };
 
-test.describe('Feed, Replies, and Reviews queues', () => {
+test.describe('Feed, Replies, and Reviews queues @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(

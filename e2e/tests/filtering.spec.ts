@@ -28,7 +28,7 @@ async function expectNoStatusFlash(page, text) {
  * and by subfilter (All, Open, Closed, Needs Review, Approved, Committers, External).
  */
 
-test.describe('Filtering', () => {
+test.describe('Filtering @classification', () => {
   test.beforeEach(async ({ page }) => {
     await mockDefaultApiRoutes(page);
     await openNotificationsApp(page);

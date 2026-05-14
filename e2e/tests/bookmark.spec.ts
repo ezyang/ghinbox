@@ -50,7 +50,7 @@ const notificationsResponse = {
   ],
 };
 
-test.describe('Bookmark', () => {
+test.describe('Bookmark @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(

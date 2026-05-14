@@ -84,7 +84,7 @@ const commentCache = {
   },
 };
 
-test.describe('PR direct replies', () => {
+test.describe('PR direct replies @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(

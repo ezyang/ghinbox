@@ -51,7 +51,7 @@ const notificationsResponse = {
   },
 };
 
-test.describe('Comment visibility', () => {
+test.describe('Comment visibility @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(
@@ -313,7 +313,7 @@ test.describe('Comment visibility', () => {
   });
 });
 
-test.describe('Own comment filtering', () => {
+test.describe('Own comment filtering @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

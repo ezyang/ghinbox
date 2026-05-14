@@ -91,7 +91,7 @@ const fixture = {
   },
 };
 
-test.describe('Feed and Reviews PR classification', () => {
+test.describe('Feed and Reviews PR classification @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(

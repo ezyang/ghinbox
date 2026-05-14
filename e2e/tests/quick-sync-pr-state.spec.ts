@@ -58,7 +58,7 @@ const quickSyncNotifications = {
   notifications: [initialNotifications.notifications[0]],
 };
 
-test.describe('Quick Sync PR state refresh', () => {
+test.describe('Quick Sync PR state refresh @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

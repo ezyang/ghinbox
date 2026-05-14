@@ -3,6 +3,7 @@ import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage, seedCommentCache, seedNotificationsCache } from './storage-utils';
 
 type JsonBody = unknown;
+type RouteHandler = Parameters<Page['route']>[1];
 
 const DEFAULT_REPO = 'test/repo';
 const DEFAULT_LOGIN = 'testuser';
@@ -26,6 +27,27 @@ function notificationsArray(payload: JsonBody) {
     }
   }
   return [];
+}
+
+export const testIds = {
+  notification: (id: string) => `[data-id="${id}"]`,
+  notificationCheckbox: (id: string) => `[data-id="${id}"] .notification-checkbox`,
+};
+
+export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned') {
+  return page.locator(`#view-${view}`);
+}
+
+export function subfilterTab(
+  page: Page,
+  view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned',
+  subfilter: string,
+  group?: 'state' | 'author' | 'interest'
+) {
+  const groupSelector = group ? `[data-subfilter-group="${group}"]` : '';
+  return page
+    .locator(`.subfilter-tabs[data-for-view="${view}"]${groupSelector}`)
+    .locator(`[data-subfilter="${subfilter}"]`);
 }
 
 export async function mockDefaultApiRoutes(page: Page, options: {
@@ -59,6 +81,21 @@ export async function mockDefaultApiRoutes(page: Page, options: {
   await page.route(`**/api/snapshots/${owner}/${name}`, (route) => fulfillJson(route, { snapshot: null }));
 }
 
+export async function mockHtmlAction(
+  page: Page,
+  body: JsonBody = { status: 'ok' },
+  options: { status?: number } = {}
+) {
+  await page.route('**/notifications/html/action', (route) =>
+    fulfillJson(route, body, options.status ?? 200)
+  );
+}
+
+export async function replaceHtmlAction(page: Page, handler: RouteHandler) {
+  await page.unroute('**/notifications/html/action').catch(() => undefined);
+  await page.route('**/notifications/html/action', handler);
+}
+
 export async function openNotificationsApp(page: Page, options: {
   login?: string;
   repo?: string;
@@ -79,6 +116,18 @@ export async function openNotificationsApp(page: Page, options: {
   await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
 }
 
+export async function syncNotifications(page: Page, options: {
+  expectedCount?: number;
+  repo?: string;
+} = {}) {
+  const expectedCount = options.expectedCount ?? 4;
+  const repo = options.repo ?? DEFAULT_REPO;
+
+  await page.locator('#repo-input').fill(repo);
+  await page.locator('#sync-btn').click();
+  await expect(page.locator('.notification-item')).toHaveCount(expectedCount);
+}
+
 export async function openNotificationsWithSync(page: Page, options: {
   expectedCount?: number;
   login?: string;
@@ -91,9 +140,7 @@ export async function openNotificationsWithSync(page: Page, options: {
   await mockDefaultApiRoutes(page, options);
   await openNotificationsApp(page, options);
   await clearAppStorage(page);
-  await page.locator('#repo-input').fill(repo);
-  await page.locator('#sync-btn').click();
-  await expect(page.locator('.notification-item')).toHaveCount(expectedCount);
+  await syncNotifications(page, { expectedCount, repo });
 }
 
 export async function openNotificationsWithCachedData(page: Page, options: {
@@ -126,4 +173,27 @@ export async function openNotificationsWithCachedData(page: Page, options: {
   await seedNotificationsCache(page, notificationsArray(options.notifications ?? mixedFixture));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.notification-item')).toHaveCount(expectedCount);
+}
+
+export async function expectVisibleNotificationIds(page: Page, ids: string[]) {
+  await expect(page.locator('.notification-item')).toHaveCount(ids.length);
+  for (const id of ids) {
+    await expect(page.locator(testIds.notification(id))).toBeVisible();
+  }
+}
+
+export async function expectHiddenNotificationIds(page: Page, ids: string[]) {
+  for (const id of ids) {
+    await expect(page.locator(testIds.notification(id))).not.toBeAttached();
+  }
+}
+
+export async function selectNotification(page: Page, id: string, options: { shift?: boolean } = {}) {
+  await page.locator(testIds.notificationCheckbox(id)).click({
+    modifiers: options.shift ? ['Shift'] : undefined,
+  });
+}
+
+export async function expectSelectionCount(page: Page, text: string) {
+  await expect(page.locator('#selection-count')).toHaveText(text);
 }

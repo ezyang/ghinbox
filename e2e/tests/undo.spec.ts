@@ -32,7 +32,7 @@ const fixtureWithToken = {
  * Tests for undo functionality after marking notifications as done or unsubscribing.
  */
 
-test.describe('Undo', () => {
+test.describe('Undo @mutation', () => {
   test.beforeEach(async ({ page }) => {
     // Mock auth endpoint
     await page.route('**/github/rest/user', (route) => {

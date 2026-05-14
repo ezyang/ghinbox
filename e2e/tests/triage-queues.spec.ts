@@ -81,7 +81,7 @@ const notificationsResponse = {
   },
 };
 
-test.describe('Triage queues', () => {
+test.describe('Triage queues @classification @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
@@ -342,7 +342,7 @@ test.describe('Triage queues', () => {
   });
 });
 
-test.describe('Triage queues GraphQL review decisions', () => {
+test.describe('Triage queues GraphQL review decisions @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

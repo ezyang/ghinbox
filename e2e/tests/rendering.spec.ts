@@ -147,7 +147,7 @@ const testNotifications = {
   },
 };
 
-test.describe('Notification Rendering', () => {
+test.describe('Notification Rendering @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

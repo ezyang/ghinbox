@@ -254,7 +254,7 @@ const commentCache = {
   },
 };
 
-test.describe('Low-priority cleanup', () => {
+test.describe('Low-priority cleanup @mutation', () => {
   test.beforeEach(async ({ page }) => {
     currentNotificationsResponse = notificationsResponse;
 

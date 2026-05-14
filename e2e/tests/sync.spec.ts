@@ -18,7 +18,7 @@ const fixturesDir = join(__dirname, '..', 'fixtures');
 const emptyResponse = JSON.parse(readFileSync(join(fixturesDir, 'notifications_empty.json'), 'utf-8'));
 const mixedResponse = JSON.parse(readFileSync(join(fixturesDir, 'notifications_mixed.json'), 'utf-8'));
 
-test.describe('Sync Functionality', () => {
+test.describe('Sync Functionality @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
     // Mock auth endpoint
     await page.route('**/github/rest/user', (route) => {
@@ -69,7 +69,7 @@ test.describe('Sync Functionality', () => {
     expect(apiCalled).toBe(true);
   });
 
-  test('sync fetches notifications and displays count', async ({ page }) => {
+  test('sync fetches notifications and displays count @smoke', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
         status: 200,
@@ -1472,7 +1472,7 @@ test.describe('Sync Functionality', () => {
   });
 });
 
-test.describe('Pagination', () => {
+test.describe('Pagination @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
@@ -1651,7 +1651,7 @@ test.describe('Pagination', () => {
   });
 });
 
-test.describe('Error Handling', () => {
+test.describe('Error Handling @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
@@ -1764,7 +1764,7 @@ test.describe('Error Handling', () => {
   });
 });
 
-test.describe('Notifications Display', () => {
+test.describe('Notifications Display @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

@@ -91,7 +91,7 @@ const reviewRequestSearch = {
   ],
 };
 
-test.describe('PR responsibility queue', () => {
+test.describe('PR responsibility queue @classification @mutation', () => {
   let notificationsPayload = emptyNotifications;
 
   test.beforeEach(async ({ page }) => {

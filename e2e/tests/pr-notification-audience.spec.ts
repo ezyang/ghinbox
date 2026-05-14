@@ -125,7 +125,7 @@ const commentCache = {
   },
 };
 
-test.describe('Replies queue classification', () => {
+test.describe('Replies queue classification @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(

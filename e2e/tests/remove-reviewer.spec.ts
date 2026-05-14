@@ -8,7 +8,7 @@ import { clearAppStorage } from './storage-utils';
  * Tests removing current user as a reviewer from PRs and unsubscribing from the thread.
  */
 
-test.describe('Remove Reviewer', () => {
+test.describe('Remove Reviewer @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem(
