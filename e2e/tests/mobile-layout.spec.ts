@@ -175,4 +175,19 @@ test.describe('Mobile layout', () => {
     expect(leftGap).toBeLessThanOrEqual(16);
     expect(rightGap).toBeLessThanOrEqual(16);
   });
+
+  test('shows tab switchers instead of mobile dropdown filters', async ({ page }) => {
+    await expect(page.locator('.mobile-filter-row')).toBeHidden();
+    await expect(page.locator('.view-tabs')).toBeVisible();
+    await expect(page.locator('#view-cleaned')).toBeVisible();
+    await expect(page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]')).toBeVisible();
+    await expect(page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]')).toBeVisible();
+    await expect(page.locator('#order-select')).toBeVisible();
+    await expect(page.locator('#mobile-select-btn')).toBeVisible();
+
+    const cleanedBox = await page.locator('#view-cleaned').boundingBox();
+    expect(cleanedBox).not.toBeNull();
+    expect(cleanedBox!.x).toBeGreaterThanOrEqual(0);
+    expect(cleanedBox!.x + cleanedBox!.width).toBeLessThanOrEqual(375);
+  });
 });
