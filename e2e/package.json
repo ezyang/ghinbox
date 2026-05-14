@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "E2E tests for GitHub notifications webapp",
   "scripts": {
-    "test": "playwright test --grep-invert @slow",
-    "test:full": "playwright test",
+    "test": "npm run test:unit && playwright test --grep-invert @slow",
+    "test:unit": "node --test unit/*.test.js",
+    "test:full": "npm run test:unit && playwright test",
     "test:agent": "playwright test --grep @smoke",
     "test:actions": "playwright test tests/mark-done.spec.ts tests/undo.spec.ts tests/remove-reviewer.spec.ts",
     "test:classification": "playwright test --grep @classification",

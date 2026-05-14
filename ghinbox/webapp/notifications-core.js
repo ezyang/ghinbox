@@ -6,28 +6,15 @@
         const ORDER_KEY = 'ghnotif_order';
         const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
         const AUTO_MARK_TRASH_KEY = 'ghnotif_auto_mark_trash_done';
-        const VALID_ORDERS = new Set(['recent', 'size']);
+        const {
+            DEFAULT_VIEW_FILTERS,
+            DEFAULT_VIEW_ORDERS,
+            VALID_ORDERS,
+            cloneDefaultViewFilters,
+            normalizeViewFilters,
+            normalizeViewOrders,
+        } = GhinboxFiltering;
         const RATE_LIMIT_LOG_MAX = 300;
-
-        // Default view filters for each view
-        const DEFAULT_VIEW_FILTERS = {
-            'issues': { state: 'all', interest: 'all' }, // Feed. state: 'all' | 'open' | 'closed', interest: 'all' | 'has-new' | 'no-new'
-            'my-prs': { state: 'all', interest: 'all' }, // 'all'
-            'pr-notifications': { state: 'all', audience: 'all', interest: 'all' }, // Replies
-            'others-prs': {
-                state: 'all', // 'all' | 'needs-review' | 'approved' | 'draft' | 'closed'
-                author: 'all', // 'all' | 'committer' | 'external'
-                interest: 'all', // 'all' | 'has-new' | 'no-new'
-            },
-            'cleaned': { state: 'all' },
-        };
-        const DEFAULT_VIEW_ORDERS = {
-            'issues': 'recent',
-            'my-prs': 'recent',
-            'pr-notifications': 'recent',
-            'others-prs': 'recent',
-            'cleaned': 'recent',
-        };
 
         // Application state
         const state = {
@@ -43,7 +30,7 @@
             statusAutoDismissId: 0,
             lastPersistentStatus: null,
             view: 'issues', // issues=Feed, pr-notifications=Replies, others-prs=Reviews
-            viewFilters: JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS)),
+            viewFilters: cloneDefaultViewFilters(),
             viewOrders: { ...DEFAULT_VIEW_ORDERS },
             orderBy: 'recent',
             selected: new Set(), // Set of selected notification IDs
@@ -145,41 +132,6 @@
             mobileSelectBtn: document.getElementById('mobile-select-btn'),
             notificationsContainer: document.querySelector('.notifications-container'),
         };
-
-        function normalizeViewFilters(raw) {
-            const normalized = JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
-            if (!raw || typeof raw !== 'object') {
-                return normalized;
-            }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
-                const value = raw[view];
-                if (typeof value === 'string') {
-                    normalized[view].state = value;
-                    return;
-                }
-                if (value && typeof value === 'object') {
-                    normalized[view] = {
-                        ...normalized[view],
-                        ...value,
-                    };
-                }
-            });
-            return normalized;
-        }
-
-        function normalizeViewOrders(raw) {
-            const normalized = { ...DEFAULT_VIEW_ORDERS };
-            if (!raw || typeof raw !== 'object') {
-                return normalized;
-            }
-            ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
-                const value = raw[view];
-                if (typeof value === 'string' && VALID_ORDERS.has(value)) {
-                    normalized[view] = value;
-                }
-            });
-            return normalized;
-        }
 
         function persistNotifications() {
             saveNotificationsCache(state.notifications).catch((error) => {
@@ -813,20 +765,7 @@
         }
 
         function getMobileFilterOptions() {
-            const options = [{ value: 'all', label: 'All' }];
-            if (state.view === 'issues') {
-                options.push({ value: 'open', label: 'Open' });
-                options.push({ value: 'closed', label: 'Closed' });
-            } else if (state.view === 'pr-notifications') {
-                options.push({ value: 'open', label: 'Open' });
-                options.push({ value: 'closed', label: 'Closed' });
-            } else if (state.view === 'others-prs') {
-                options.push({ value: 'needs-review', label: 'Needs review' });
-                options.push({ value: 'approved', label: 'Approved' });
-                options.push({ value: 'draft', label: 'Draft' });
-                options.push({ value: 'closed', label: 'Closed' });
-            }
-            return options;
+            return GhinboxFiltering.getMobileFilterOptions(state.view);
         }
 
         function updateMobileFilterOptions() {
@@ -918,88 +857,76 @@
             render();
         }
 
+        function makeNotificationClassifier() {
+            return GhinboxFiltering.makeClassifier({
+                currentUserLogin: state.currentUserLogin,
+                commentCache: state.commentCache,
+                deps: {
+                    notificationKey: getNotificationKey,
+                    isNotificationForCurrentUser: typeof isNotificationForCurrentUser === 'function'
+                        ? isNotificationForCurrentUser
+                        : undefined,
+                    isNotificationDirectedAtCurrentUser: typeof isNotificationDirectedAtCurrentUser === 'function'
+                        ? isNotificationDirectedAtCurrentUser
+                        : undefined,
+                    isNotificationReviewResponsibility: typeof isNotificationReviewResponsibility === 'function'
+                        ? isNotificationReviewResponsibility
+                        : undefined,
+                    isNotificationApproved: typeof isNotificationApproved === 'function'
+                        ? isNotificationApproved
+                        : undefined,
+                    isNotificationChangesRequested: typeof isNotificationChangesRequested === 'function'
+                        ? isNotificationChangesRequested
+                        : undefined,
+                    isNotificationFromCommitter: typeof isNotificationFromCommitter === 'function'
+                        ? isNotificationFromCommitter
+                        : undefined,
+                    hasNotificationAuthorPermission: typeof hasNotificationAuthorPermission === 'function'
+                        ? hasNotificationAuthorPermission
+                        : undefined,
+                    getUninterestingReason: typeof getUninterestingReason === 'function'
+                        ? getUninterestingReason
+                        : undefined,
+                    getNotificationSize: getNotificationSize,
+                },
+            });
+        }
+
+        function getFilteringInput() {
+            return {
+                notifications: state.notifications,
+                trashNotifications: state.trashNotifications,
+                view: state.view,
+                viewFilters: state.viewFilters,
+                orderBy: state.orderBy,
+                classifier: makeNotificationClassifier(),
+            };
+        }
+
         function isMyPr(notification) {
-            if (notification.subject.type !== 'PullRequest') {
-                return false;
-            }
-            const reason = String(notification.reason || '').toLowerCase();
-            if (reason === 'author') {
-                return true;
-            }
-            const currentLogin = String(state.currentUserLogin || '').toLowerCase();
-            if (!currentLogin) {
-                return false;
-            }
-            const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
-            const cachedAuthor = String(cached?.authorLogin || '').toLowerCase();
-            if (!cachedAuthor) {
-                return false;
-            }
-            return cachedAuthor === currentLogin;
+            return makeNotificationClassifier().isMyPr(notification);
         }
 
         // Check if notification matches the current view
         function matchesView(notification) {
-            if (state.view === 'issues') {
-                return !isSyntheticResponsibilityNotification(notification) &&
-                    !isNotificationReviewQueue(notification) &&
-                    !safeIsNotificationDirectedAtCurrentUser(notification);
-            }
-            if (state.view === 'my-prs') {
-                return isMyPr(notification);
-            }
-            if (state.view === 'pr-notifications') {
-                return !isSyntheticResponsibilityNotification(notification) &&
-                    safeIsNotificationDirectedAtCurrentUser(notification);
-            }
-            if (state.view === 'others-prs') {
-                return isNotificationReviewQueue(notification);
-            }
-            if (state.view === 'cleaned') {
-                return false;
-            }
-            return true;
+            return makeNotificationClassifier().matchesView(notification, state.view);
         }
 
         // Apply the state filter for the current view
         function applyStateFilter(notifications, stateFilter) {
-            if (stateFilter === 'all') {
-                return notifications;
-            }
-            return notifications.filter(notif => {
-                const notifState = notif.subject.state;
-                if (stateFilter === 'open') {
-                    return notifState === 'open' || notifState === 'draft';
-                }
-                if (stateFilter === 'closed') {
-                    return notifState === 'closed' || notifState === 'merged';
-                }
-                if (stateFilter === 'draft') {
-                    return notifState === 'draft';
-                }
-                if (stateFilter === 'needs-review') {
-                    return safeIsNotificationNeedsReview(notif);
-                }
-                if (stateFilter === 'approved') {
-                    return safeIsNotificationApproved(notif);
-                }
-                return true;
-            });
+            return GhinboxFiltering.applyStateFilter(
+                notifications,
+                stateFilter,
+                makeNotificationClassifier()
+            );
         }
 
         function applyAuthorFilter(notifications, authorFilter) {
-            if (authorFilter === 'all') {
-                return notifications;
-            }
-            return notifications.filter(notif => {
-                if (authorFilter === 'committer') {
-                    return safeIsNotificationFromCommitter(notif);
-                }
-                if (authorFilter === 'external') {
-                    return safeIsNotificationFromExternal(notif);
-                }
-                return true;
-            });
+            return GhinboxFiltering.applyAuthorFilter(
+                notifications,
+                authorFilter,
+                makeNotificationClassifier()
+            );
         }
 
         function safeIsNotificationForCurrentUser(notification) {
@@ -1016,97 +943,31 @@
         }
 
         function isNotificationReviewQueue(notification) {
-            return notification.subject?.type === 'PullRequest' &&
-                (
-                    isSyntheticResponsibilityNotification(notification) ||
-                    safeIsNotificationReviewResponsibility(notification) ||
-                    safeIsNotificationApproved(notification) ||
-                    safeIsNotificationChangesRequested(notification)
-                );
+            return makeNotificationClassifier().isNotificationReviewQueue(notification);
         }
 
         function isCommitNotification(notification) {
-            const type = String(notification.subject?.type || '').toLowerCase();
-            if (type === 'commit') {
-                return true;
-            }
-            const url = String(notification.subject?.url || '');
-            return /github\.com\/[^/]+\/[^/]+\/commit\/[0-9a-f]{7,40}(?:[?#/]|$)/i.test(url);
+            return makeNotificationClassifier().isCommitNotification(notification);
         }
 
         function applyAudienceFilter(notifications, audienceFilter) {
-            if (audienceFilter === 'all') {
-                return notifications;
-            }
-            return notifications.filter(notif => {
-                const forCurrentUser = safeIsNotificationForCurrentUser(notif);
-                if (audienceFilter === 'for-you') {
-                    return forCurrentUser;
-                }
-                if (audienceFilter === 'for-others') {
-                    return !forCurrentUser;
-                }
-                return true;
-            });
+            return GhinboxFiltering.applyAudienceFilter(
+                notifications,
+                audienceFilter,
+                makeNotificationClassifier()
+            );
         }
 
         function applyInterestFilter(notifications, interestFilter) {
-            if (interestFilter === 'all') {
-                return notifications;
-            }
-            return notifications.filter(notif => {
-                const reason = getUninterestingReason(notif);
-                const isUninteresting = reason !== null;
-                if (interestFilter === 'has-new') {
-                    return !isUninteresting;
-                }
-                if (interestFilter === 'no-new') {
-                    return isUninteresting;
-                }
-                return true;
-            });
+            return GhinboxFiltering.applyInterestFilter(
+                notifications,
+                interestFilter,
+                makeNotificationClassifier()
+            );
         }
 
         function isTrashNotification(notification) {
-            const type = notification.subject?.type;
-            const notifState = notification.subject?.state;
-            const uninteresting = getUninterestingReason(notification) !== null;
-
-            if (isCommitNotification(notification)) {
-                return true;
-            }
-
-            if (
-                type === 'Issue' &&
-                (notifState === 'closed' || notifState === 'merged') &&
-                String(notification.reason || '').toLowerCase() !== 'author' &&
-                !safeIsNotificationDirectedAtCurrentUser(notification)
-            ) {
-                return true;
-            }
-
-            if (type === 'PullRequest' && isMyPr(notification) && uninteresting) {
-                return true;
-            }
-
-            if (
-                isNotificationOriginPullRequest(notification) &&
-                !isMyPr(notification) &&
-                !safeIsNotificationForCurrentUser(notification)
-            ) {
-                return true;
-            }
-
-            if (type !== 'PullRequest' || isMyPr(notification)) {
-                return false;
-            }
-
-            return (
-                safeIsNotificationApproved(notification) ||
-                notifState === 'draft' ||
-                notifState === 'closed' ||
-                notifState === 'merged'
-            );
+            return makeNotificationClassifier().isTrashNotification(notification);
         }
 
         function addTrashNotifications(notifications) {
@@ -1201,23 +1062,7 @@
         }
 
         function safeIsNotificationNeedsReview(notification) {
-            if (notification.subject?.type !== 'PullRequest') {
-                return false;
-            }
-            const notifState = notification.subject?.state;
-            if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
-                return false;
-            }
-            if (!safeIsNotificationReviewResponsibility(notification)) {
-                return false;
-            }
-            if (safeIsNotificationApproved(notification)) {
-                return false;
-            }
-            if (safeIsNotificationChangesRequested(notification)) {
-                return false;
-            }
-            return true;
+            return makeNotificationClassifier().isNotificationNeedsReview(notification);
         }
 
         function safeIsNotificationApproved(notification) {
@@ -1239,13 +1084,11 @@
         }
 
         function isSyntheticResponsibilityNotification(notification) {
-            return notification?.responsibility_source === 'review-requested' &&
-                String(notification?.id || '').startsWith('review-request:');
+            return makeNotificationClassifier().isSyntheticResponsibilityNotification(notification);
         }
 
         function isNotificationOriginPullRequest(notification) {
-            return notification?.subject?.type === 'PullRequest' &&
-                !isSyntheticResponsibilityNotification(notification);
+            return makeNotificationClassifier().isNotificationOriginPullRequest(notification);
         }
 
         function hasNotificationHtmlAction(notification, action) {
@@ -1293,213 +1136,17 @@
 
         // Get filtered notifications based on current view and subfilter
         function getFilteredNotifications() {
-            // Step 1: Filter by view (primary category)
-            let filtered = state.view === 'cleaned'
-                ? state.trashNotifications.slice()
-                : state.notifications.filter(matchesView);
-
-            if (state.view === 'cleaned') {
-                return filtered;
-            }
-
-            // Step 2: Apply view-specific state filter
-            const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-            filtered = applyStateFilter(filtered, viewFilters.state || 'all');
-
-            if (state.view === 'others-prs') {
-                filtered = applyAuthorFilter(filtered, viewFilters.author || 'all');
-            }
-
-            // Step 3: Apply interest filter (all views)
-            filtered = applyInterestFilter(filtered, viewFilters.interest || 'all');
-
-            if (state.orderBy === 'size' && state.view !== 'issues') {
-                const withIndex = filtered.map((notif, index) => ({
-                    notif,
-                    index,
-                    size: getNotificationSize(notif),
-                }));
-                withIndex.sort((a, b) => {
-                    const aSize = a.size;
-                    const bSize = b.size;
-                    if (aSize === null && bSize === null) {
-                        return a.index - b.index;
-                    }
-                    if (aSize === null) {
-                        return 1;
-                    }
-                    if (bSize === null) {
-                        return -1;
-                    }
-                    if (aSize === bSize) {
-                        return a.index - b.index;
-                    }
-                    return aSize - bSize;
-                });
-                return withIndex.map(entry => entry.notif);
-            }
-
-            return filtered;
+            return GhinboxFiltering.getFilteredNotifications(getFilteringInput());
         }
 
         // Count notifications for each view
         function getViewCounts() {
-            let issues = 0;
-            let myPrs = 0;
-            let prNotifications = 0;
-            let othersPrs = 0;
-            const trash = state.trashNotifications.length;
-
-            state.notifications.forEach(notif => {
-                if (
-                    !isSyntheticResponsibilityNotification(notif) &&
-                    !isNotificationReviewQueue(notif) &&
-                    !safeIsNotificationDirectedAtCurrentUser(notif)
-                ) {
-                    issues++;
-                }
-                if (notif.subject.type === 'PullRequest' && isMyPr(notif)) {
-                    myPrs++;
-                }
-                if (
-                    !isSyntheticResponsibilityNotification(notif) &&
-                    safeIsNotificationDirectedAtCurrentUser(notif)
-                ) {
-                    prNotifications++;
-                }
-                if (isNotificationReviewQueue(notif)) {
-                    othersPrs++;
-                }
-            });
-
-            return { issues, myPrs, prNotifications, othersPrs, trash };
+            return GhinboxFiltering.getViewCounts(getFilteringInput());
         }
 
         // Count notifications by subfilter for the current view
         function getSubfilterCounts() {
-            if (state.view === 'cleaned') {
-                return {
-                    state: {
-                        all: state.trashNotifications.length,
-                        open: 0,
-                        closed: 0,
-                        draft: 0,
-                        needsReview: 0,
-                        approved: 0,
-                    },
-                    author: { all: 0, committer: 0, external: 0 },
-                    audience: { all: 0, 'for-you': 0, 'for-others': 0 },
-                    interest: {
-                        all: state.trashNotifications.length,
-                        hasNew: 0,
-                        noNew: 0,
-                    },
-                };
-            }
-            const viewNotifications = state.notifications.filter(matchesView);
-            const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-            const stateFilter = viewFilters.state || 'all';
-            const authorFilter = viewFilters.author || 'all';
-            const audienceFilter = viewFilters.audience || 'all';
-
-            const stateCounts = {
-                all: 0,
-                open: 0,
-                closed: 0,
-                draft: 0,
-                needsReview: 0,
-                approved: 0,
-            };
-            const authorCounts = {
-                all: 0,
-                committer: 0,
-                external: 0,
-            };
-            const audienceCounts = {
-                all: 0,
-                'for-you': 0,
-                'for-others': 0,
-            };
-
-            const baseForStateCounts =
-                state.view === 'others-prs'
-                    ? applyAuthorFilter(viewNotifications, authorFilter)
-                    : viewNotifications;
-            const baseForAuthorCounts =
-                state.view === 'others-prs'
-                    ? applyStateFilter(viewNotifications, stateFilter)
-                    : [];
-            const baseForAudienceCounts =
-                state.view === 'pr-notifications'
-                    ? applyStateFilter(viewNotifications, stateFilter)
-                    : [];
-
-            stateCounts.all = baseForStateCounts.length;
-            baseForStateCounts.forEach(notif => {
-                const notifState = notif.subject.state;
-                if (notifState === 'open' || notifState === 'draft') {
-                    stateCounts.open++;
-                } else if (notifState === 'closed' || notifState === 'merged') {
-                    stateCounts.closed++;
-                }
-                if (notifState === 'draft') {
-                    stateCounts.draft++;
-                }
-                if (safeIsNotificationNeedsReview(notif)) {
-                    stateCounts.needsReview++;
-                }
-                if (safeIsNotificationApproved(notif)) {
-                    stateCounts.approved++;
-                }
-            });
-
-            if (state.view === 'others-prs') {
-                authorCounts.all = baseForAuthorCounts.length;
-                baseForAuthorCounts.forEach(notif => {
-                    if (safeIsNotificationFromCommitter(notif)) {
-                        authorCounts.committer++;
-                    }
-                    if (safeIsNotificationFromExternal(notif)) {
-                        authorCounts.external++;
-                    }
-                });
-            }
-            if (state.view === 'pr-notifications') {
-                audienceCounts.all = viewNotifications.length;
-                baseForAudienceCounts.forEach(notif => {
-                    if (safeIsNotificationDirectedAtCurrentUser(notif)) {
-                        audienceCounts['for-you']++;
-                    } else {
-                        audienceCounts['for-others']++;
-                    }
-                });
-            }
-
-            // Interest filter counts
-            const interestCounts = { all: 0, hasNew: 0, noNew: 0 };
-
-            // Base for interest: after state and author filters
-            let baseForInterestCounts = applyStateFilter(viewNotifications, stateFilter);
-            if (state.view === 'others-prs') {
-                baseForInterestCounts = applyAuthorFilter(baseForInterestCounts, authorFilter);
-            }
-
-            interestCounts.all = baseForInterestCounts.length;
-            baseForInterestCounts.forEach(notif => {
-                const reason = getUninterestingReason(notif);
-                if (reason !== null) {
-                    interestCounts.noNew++;
-                } else {
-                    interestCounts.hasNew++;
-                }
-            });
-
-            return {
-                state: stateCounts,
-                author: authorCounts,
-                audience: audienceCounts,
-                interest: interestCounts,
-            };
+            return GhinboxFiltering.getSubfilterCounts(getFilteringInput());
         }
 
         function updateCommentCacheStatus() {

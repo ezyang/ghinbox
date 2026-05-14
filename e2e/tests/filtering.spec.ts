@@ -393,17 +393,6 @@ test.describe('Filtering @classification', () => {
       await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
     });
 
-    test('clicking Closed subfilter filters to closed feed items', async ({ page }) => {
-      const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
-      await issuesSubfilters.locator('[data-subfilter="closed"]').click();
-
-      const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(3);
-      await expect(page.locator('[data-id="notif-3"]')).toBeVisible();
-      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
-      await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
-    });
-
     test('clicking an active subfilter shows all feed items', async ({ page }) => {
       // First switch to open
       const issuesSubfilters = page.locator(
@@ -413,18 +402,6 @@ test.describe('Filtering @classification', () => {
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
       // Then click again to clear
-      await issuesSubfilters.locator('[data-subfilter="open"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(4);
-      await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
-    });
-
-    test('clicking the active subfilter clears the filter', async ({ page }) => {
-      const issuesSubfilters = page.locator(
-        '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]'
-      );
-      await issuesSubfilters.locator('[data-subfilter="open"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(1);
-
       await issuesSubfilters.locator('[data-subfilter="open"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(4);
       await expect(issuesSubfilters.locator('.subfilter-tab.active')).toHaveCount(0);
@@ -531,95 +508,4 @@ test.describe('Filtering @classification', () => {
     });
   });
 
-  test.describe('Filter with Draft PRs', () => {
-    test('draft PRs show in the draft subfilter for Reviews', async ({ page }) => {
-      // Create fixture with a draft PR
-      const withDraftFixture = {
-        ...mixedFixture,
-        notifications: [
-          ...mixedFixture.notifications,
-          {
-            id: 'notif-draft',
-            unread: true,
-            reason: 'review_requested',
-            updated_at: '2024-12-27T12:00:00Z',
-            subject: {
-              title: 'Draft: Work in progress',
-              url: 'https://github.com/test/repo/pull/50',
-              type: 'PullRequest',
-              number: 50,
-              state: 'draft',
-              state_reason: null,
-            },
-            actors: [{ login: 'alice', avatar_url: 'https://example.com/avatar' }],
-            ui: { saved: false, done: false },
-          },
-        ],
-      };
-
-      await openNotificationsWithCachedData(page, {
-        notifications: withDraftFixture,
-        expectedCount: 4,
-      });
-
-      await page.locator('#view-others-prs').click();
-
-      await expect(page.locator('#view-others-prs .count')).toHaveText('2');
-
-      const othersPrsSubfilters = page.locator(
-        '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-      );
-
-      await expect(othersPrsSubfilters.locator('[data-subfilter="draft"] .count')).toHaveText('1');
-      await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
-      await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('0');
-
-      const items = page.locator('.notification-item');
-      await expect(items).toHaveCount(2);
-
-      await othersPrsSubfilters.locator('[data-subfilter="draft"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(1);
-      await expect(page.locator('[data-id="notif-draft"]')).toBeVisible();
-    });
-  });
-
-  test.describe('Filter with Merged PRs', () => {
-    test('merged review requests are included in the Reviews closed subfilter', async ({ page }) => {
-      const withMergedReviewFixture = {
-        ...mixedFixture,
-        notifications: [
-          ...mixedFixture.notifications,
-          {
-            id: 'notif-merged-review',
-            unread: true,
-            reason: 'review_requested',
-            updated_at: '2024-12-27T12:30:00Z',
-            subject: {
-              title: 'Merged review request',
-              url: 'https://github.com/test/repo/pull/51',
-              type: 'PullRequest',
-              number: 51,
-              state: 'merged',
-              state_reason: null,
-            },
-            actors: [{ login: 'alice', avatar_url: 'https://example.com/avatar' }],
-            ui: { saved: false, done: false },
-          },
-        ],
-      };
-
-      await openNotificationsWithCachedData(page, {
-        notifications: withMergedReviewFixture,
-        expectedCount: 4,
-      });
-
-      await page.locator('#view-others-prs').click();
-      const othersPrsSubfilters = page.locator(
-        '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-      );
-      await othersPrsSubfilters.locator('[data-subfilter="closed"]').click();
-
-      await expect(page.locator('[data-id="notif-merged-review"]')).toBeVisible();
-    });
-  });
 });
