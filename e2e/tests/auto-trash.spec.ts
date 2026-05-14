@@ -47,6 +47,32 @@ const notifications = [
   makePrNotification('others-closed', 5, 'Closed PR', 'review_requested', 'closed'),
   makePrNotification('needs-review', 6, 'PR still needing review', 'review_requested'),
   {
+    id: 'closed-issue-bot-cc',
+    unread: true,
+    reason: 'mention',
+    updated_at: '2025-01-08T12:09:00Z',
+    last_read_at: '2025-01-08T08:00:00Z',
+    subject: {
+      title: 'Closed issue with top-level bot-style cc',
+      url: 'https://github.com/test/repo/issues/9',
+      type: 'Issue',
+      number: 9,
+      state: 'closed',
+      state_reason: 'completed',
+    },
+    actors: [{ login: 'issue-author', avatar_url: 'https://avatars.githubusercontent.com/u/9?v=4' }],
+    ui: {
+      saved: false,
+      done: false,
+      action_tokens: {
+        archive: 'test-csrf-token',
+        unarchive: 'test-csrf-token',
+        subscribe: 'test-csrf-token',
+        unsubscribe: 'test-csrf-token',
+      },
+    },
+  },
+  {
     id: 'commit-mention',
     unread: true,
     reason: 'mention',
@@ -209,6 +235,22 @@ const commentCache = {
         },
       ],
     },
+    'closed-issue-bot-cc': {
+      notificationUpdatedAt: '2025-01-08T12:09:00Z',
+      lastReadAt: '2025-01-08T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      comments: [
+        {
+          id: 901,
+          created_at: '2025-01-08T10:00:00Z',
+          updated_at: '2025-01-08T10:00:00Z',
+          isIssue: true,
+          body: 'Bug report details.\n\ncc @testuser @another-reviewer',
+          user: { login: 'issue-author' },
+        },
+      ],
+    },
   },
 };
 
@@ -299,9 +341,10 @@ test.describe('Low-priority cleanup', () => {
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="needs-review"]')).toBeVisible();
-    await expect(page.locator('#view-cleaned .count')).toHaveText('7');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
     await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(7);
+    await expect(page.locator('.notification-item')).toHaveCount(8);
+    await expect(page.locator('[data-id="closed-issue-bot-cc"]')).toBeVisible();
     await expect(page.locator('[data-id="commit-mention"]')).toBeVisible();
     await expect(page.locator('[data-id="my-pr-no-new"]')).toBeVisible();
     await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
@@ -311,6 +354,7 @@ test.describe('Low-priority cleanup', () => {
     await expect(page.locator('[data-id="others-closed"]')).toBeVisible();
 
     expect(archivedIds.sort()).toEqual([
+      'closed-issue-bot-cc',
       'commit-mention',
       'my-pr-no-new',
       'my-pr-own-and-bot',
@@ -364,7 +408,7 @@ test.describe('Low-priority cleanup', () => {
         const stored = await readNotificationsCache(page);
         return Array.isArray(stored) ? stored.length : 0;
       })
-      .toBe(8);
+      .toBe(9);
     await expect(page.locator('#view-cleaned .count')).toHaveText('0');
 
     await page.locator('#clean-now-btn').click();
@@ -375,13 +419,15 @@ test.describe('Low-priority cleanup', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(1);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('7');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
     await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(7);
+    await expect(page.locator('.notification-item')).toHaveCount(8);
+    await expect(page.locator('[data-id="closed-issue-bot-cc"]')).toBeVisible();
     await expect(page.locator('[data-id="commit-mention"]')).toBeVisible();
     await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
 
     expect(archivedIds.sort()).toEqual([
+      'closed-issue-bot-cc',
       'commit-mention',
       'my-pr-no-new',
       'my-pr-own-and-bot',

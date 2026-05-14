@@ -1076,6 +1076,15 @@
                 return true;
             }
 
+            if (
+                type === 'Issue' &&
+                (notifState === 'closed' || notifState === 'merged') &&
+                String(notification.reason || '').toLowerCase() !== 'author' &&
+                !safeIsNotificationDirectedAtCurrentUser(notification)
+            ) {
+                return true;
+            }
+
             if (type === 'PullRequest' && isMyPr(notification) && uninteresting) {
                 return true;
             }

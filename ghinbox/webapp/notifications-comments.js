@@ -1080,6 +1080,28 @@ function mentionsCurrentUser(text) {
     return pattern.test(String(text));
 }
 
+function isCurrentUserCcLine(line) {
+    const text = String(line || '').trim();
+    if (!/^cc:?\s+/i.test(text)) {
+        return false;
+    }
+    return mentionsCurrentUser(text);
+}
+
+function hasActionableCurrentUserMention(comment) {
+    const body = String(comment?.body || '');
+    if (!mentionsCurrentUser(body)) {
+        return false;
+    }
+    if (!comment?.isIssue) {
+        return true;
+    }
+    const mentionedLines = body
+        .split(/\r?\n/)
+        .filter((line) => mentionsCurrentUser(line));
+    return mentionedLines.some((line) => !isCurrentUserCcLine(line));
+}
+
 function getParticipationThreadKey(comment) {
     if (comment?.isReviewComment) {
         return `review:${getReviewThreadKey(comment) || comment.id || 'unknown'}`;
@@ -1152,7 +1174,7 @@ function isNotificationForCurrentUser(notification) {
             if (author === currentUser) {
                 stateForThread.own = true;
             }
-            if (mentionsCurrentUser(comment?.body || '')) {
+            if (hasActionableCurrentUserMention(comment)) {
                 stateForThread.mentioned = true;
             }
         }
@@ -1163,7 +1185,7 @@ function isNotificationForCurrentUser(notification) {
         ? comments
         : comments.slice(latestOwnIndex + 1);
     return newComments.some((comment) => {
-        if (mentionsCurrentUser(comment?.body || '')) {
+        if (hasActionableCurrentUserMention(comment)) {
             return true;
         }
         const key = getParticipationThreadKey(comment);
@@ -1214,7 +1236,7 @@ function isNotificationDirectedAtCurrentUser(notification) {
         if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
             return false;
         }
-        return mentionsCurrentUser(comment?.body || '');
+        return hasActionableCurrentUserMention(comment);
     });
 }
 
