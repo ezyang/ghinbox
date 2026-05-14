@@ -16,7 +16,7 @@ const makePrNotification = (id: string, number: number, title: string) => ({
     state_reason: null,
   },
   actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
-  ui: { saved: false, done: false },
+  ui: { saved: false, done: false, action_tokens: { archive: 'archive-token', unsubscribe: 'unsubscribe-token' } },
 });
 
 const notificationsResponse = {
@@ -221,6 +221,9 @@ test.describe('Replies queue classification', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_comment_expand_prs', 'true');
+    });
     await seedCommentCache(page, commentCache);
     await page.reload();
     await page.locator('#repo-input').fill('test/repo');
@@ -255,5 +258,28 @@ test.describe('Replies queue classification', () => {
 
     await expect(page.locator('.notification-item')).toHaveCount(0);
     await expect(page.locator('#empty-state')).toBeVisible();
+  });
+
+  test('uses icon-only bottom actions on mobile Replies', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+
+    const reply = page.locator('[data-id="mentioned-pr"]');
+    await expect(reply).toBeVisible();
+
+    const bottomActions = reply.locator('.notification-actions-bottom');
+    await expect(bottomActions).toBeVisible();
+    await expect(bottomActions.getByRole('button', { name: 'Open notification in new tab' })).toBeVisible();
+    await expect(bottomActions.getByRole('button', { name: 'Unsubscribe from notification' })).toBeVisible();
+    await expect(bottomActions.getByRole('button', { name: 'Remove me as reviewer' })).toBeVisible();
+
+    await expect(bottomActions.getByText('Open in new tab')).toBeHidden();
+    await expect(bottomActions.getByText('Unsubscribe')).toBeHidden();
+    await expect(bottomActions.getByText('Remove me')).toBeHidden();
+
+    const metrics = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      innerWidth: window.innerWidth,
+    }));
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth);
   });
 });

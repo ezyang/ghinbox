@@ -190,4 +190,45 @@ test.describe('Mobile layout', () => {
     expect(cleanedBox!.x).toBeGreaterThanOrEqual(0);
     expect(cleanedBox!.x + cleanedBox!.width).toBeLessThanOrEqual(375);
   });
+
+  test('keeps mobile queue tabs on one row and wraps subfilter borders to options', async ({ page }) => {
+    const viewTabs = page.locator('.view-tab');
+    await expect(viewTabs).toHaveCount(4);
+
+    const tabBoxes = await Promise.all(
+      ['#view-issues', '#view-pr-notifications', '#view-others-prs', '#view-cleaned'].map((selector) =>
+        page.locator(selector).boundingBox()
+      )
+    );
+    for (const box of tabBoxes) {
+      expect(box).not.toBeNull();
+    }
+
+    const safeTabBoxes = tabBoxes as NonNullable<(typeof tabBoxes)[number]>[];
+    const firstTabY = safeTabBoxes[0].y;
+    for (const box of safeTabBoxes) {
+      expect(Math.abs(box.y - firstTabY)).toBeLessThanOrEqual(2);
+      expect(box.x + box.width).toBeLessThanOrEqual(375);
+    }
+
+    const notificationsBox = await page.locator('.notifications-container').boundingBox();
+    const bookmarkFilterBox = await page
+      .locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="bookmark"]')
+      .boundingBox();
+    const stateFilterBox = await page
+      .locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]')
+      .boundingBox();
+
+    expect(notificationsBox).not.toBeNull();
+    expect(bookmarkFilterBox).not.toBeNull();
+    expect(stateFilterBox).not.toBeNull();
+
+    const safeNotificationsBox = notificationsBox!;
+    const safeBookmarkFilterBox = bookmarkFilterBox!;
+    const safeStateFilterBox = stateFilterBox!;
+
+    expect(safeBookmarkFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
+    expect(safeStateFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
+    expect(safeStateFilterBox.y).toBeGreaterThan(safeBookmarkFilterBox.y);
+  });
 });

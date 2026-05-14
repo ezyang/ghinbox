@@ -391,14 +391,26 @@
 
         @media (max-width: 640px) {
             .view-tabs {
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
                 gap: 0;
                 padding: 0 var(--notifications-padding);
             }
 
             .view-tab {
-                flex: 1 1 100%;
-                text-align: left;
+                flex: 1 1 0;
+                min-width: 0;
+                padding: 8px 7px;
+                font-size: 13px;
+                text-align: center;
+                white-space: nowrap;
+            }
+
+            .view-tab .count {
+                min-width: 16px;
+                padding: 0 4px;
+                font-size: 11px;
+                line-height: 16px;
+                margin-left: 2px;
             }
 
             .subfilter-row {
@@ -411,7 +423,7 @@
                 display: flex;
                 flex-direction: column;
                 flex-wrap: nowrap;
-                align-items: stretch;
+                align-items: flex-start;
                 width: 100%;
                 gap: 8px;
                 margin: 0;
@@ -425,10 +437,11 @@
             }
 
             .subfilter-tabs {
-                display: flex;
+                display: inline-flex;
                 flex-wrap: wrap;
                 white-space: normal;
-                width: 100%;
+                width: fit-content;
+                max-width: 100%;
             }
 
             .notifications-container {
@@ -521,6 +534,10 @@
                 order: 7;
                 width: 100%;
                 justify-content: flex-start;
+            }
+
+            .notification-actions-bottom button > span {
+                display: none;
             }
 
             .notification-actions-inline {
