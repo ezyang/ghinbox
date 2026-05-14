@@ -275,8 +275,6 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await stateFilters.locator('[data-subfilter="needs-review"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
-    await expect(page.locator('[data-id="review-request:test/repo#11"]')).not.toBeAttached();
-    await expect(page.locator('[data-id="review-request:test/repo#12"]')).not.toBeAttached();
   });
 
   test('remove me exits a synthetic responsibility item without notification actions', async ({

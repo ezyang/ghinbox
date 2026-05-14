@@ -18,6 +18,7 @@ const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
 const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
 const COMMENT_WINDOW = globalThis.GhinboxCommentWindow;
 const COMMENT_STATUS = globalThis.GhinboxCommentStatus;
+const COMMENT_CACHE_POLICY = globalThis.GhinboxCommentCachePolicy;
 
 function canUpdateCommentPrefetchStatus() {
     return !state.statusState || state.statusState.type === 'info';
@@ -156,93 +157,27 @@ function saveCommentCache() {
 }
 
 function isCommentCacheFresh(cached) {
-    if (!cached?.fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(cached.fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isCommentCacheFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function isReviewDecisionFresh(cached) {
-    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'reviewDecision')) {
-        return false;
-    }
-    const fetchedAt = cached.reviewDecisionFetchedAt || cached.fetchedAt;
-    if (!fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isReviewDecisionFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function isAuthorAssociationFresh(cached) {
-    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorAssociation')) {
-        return false;
-    }
-    const fetchedAt = cached.authorAssociationFetchedAt || cached.fetchedAt;
-    if (!fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isAuthorAssociationFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function isAuthorPermissionFresh(cached) {
-    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorPermission')) {
-        return false;
-    }
-    const fetchedAt = cached.authorPermissionFetchedAt || cached.fetchedAt;
-    if (!fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isAuthorPermissionFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function isAuthorLoginFresh(cached) {
-    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'authorLogin')) {
-        return false;
-    }
-    const fetchedAt = cached.authorLoginFetchedAt || cached.fetchedAt;
-    if (!fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isAuthorLoginFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function isDiffstatFresh(cached) {
-    if (
-        !cached ||
-        !Object.prototype.hasOwnProperty.call(cached, 'additions') ||
-        !Object.prototype.hasOwnProperty.call(cached, 'deletions')
-    ) {
-        return false;
-    }
-    const fetchedAt = cached.diffstatFetchedAt || cached.fetchedAt;
-    if (!fetchedAt) {
-        return false;
-    }
-    const fetchedAtMs = Date.parse(fetchedAt);
-    if (Number.isNaN(fetchedAtMs)) {
-        return false;
-    }
-    return Date.now() - fetchedAtMs < COMMENT_CACHE_TTL_MS;
+    return COMMENT_CACHE_POLICY.isDiffstatFresh(cached, { ttlMs: COMMENT_CACHE_TTL_MS });
 }
 
 function scheduleCommentPrefetch(notifications) {
@@ -318,33 +253,9 @@ async function runCommentQueue() {
 
 function shouldPrefetchNotificationComments(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached) {
-        return true;
-    }
-    if (cached.notificationUpdatedAt !== notification.updated_at) {
-        return true;
-    }
-    if (!isCommentCacheFresh(cached)) {
-        return true;
-    }
-    // Check if filter parameters match
-    const anchor = notification.subject?.anchor || null;
-    const lastReadAt = notification.last_read_at || null;
-    const hasFilter = Boolean(anchor || lastReadAt);
-
-    if (hasFilter) {
-        // Re-fetch if anchor or lastReadAt changed
-        // Normalize undefined to null for comparison
-        const cachedAnchor = cached.anchor || null;
-        const cachedLastReadAt = cached.lastReadAt || null;
-        if (cachedAnchor !== anchor || cachedLastReadAt !== lastReadAt) {
-            return true;
-        }
-    } else if (!cached.allComments) {
-        // No filter but we don't have all comments
-        return true;
-    }
-    return false;
+    return COMMENT_CACHE_POLICY.shouldPrefetchNotificationComments(notification, cached, {
+        ttlMs: COMMENT_CACHE_TTL_MS,
+    });
 }
 
 function toIssueComment(issue) {
@@ -603,31 +514,18 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     if (!repo) {
         return;
     }
-    const prNotifications = notifications.filter(
-        (notif) => notif.subject?.type === 'PullRequest'
-    );
-    if (!prNotifications.length) {
-        return;
-    }
     const pending = force
-        ? prNotifications
-        : prNotifications.filter((notif) => {
-            const cached = state.commentCache.threads[getNotificationKey(notif)];
-            const needsReviewDecision = !isReviewDecisionFresh(cached);
-            const needsAuthorAssociation =
-                includeAuthorAssociation && !isAuthorAssociationFresh(cached);
-            const needsAuthorPermission =
-                includeAuthorPermission && !isAuthorPermissionFresh(cached);
-            const needsAuthorLogin = !isAuthorLoginFresh(cached);
-            const needsDiffstat = !isDiffstatFresh(cached);
-            return (
-                needsReviewDecision ||
-                needsAuthorAssociation ||
-                needsAuthorPermission ||
-                needsAuthorLogin ||
-                needsDiffstat
-            );
-        });
+        ? notifications.filter((notif) => notif.subject?.type === 'PullRequest')
+        : COMMENT_CACHE_POLICY.getPendingReviewMetadataNotifications(
+            notifications,
+            state.commentCache.threads,
+            {
+                getNotificationKey,
+                includeAuthorAssociation,
+                includeAuthorPermission,
+                ttlMs: COMMENT_CACHE_TTL_MS,
+            }
+        );
     if (!pending.length) {
         return;
     }
