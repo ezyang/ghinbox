@@ -37,35 +37,48 @@ def init_snapshot_db(db_path: str | None = None) -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     conn = _connect(path)
     try:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS notification_snapshots (
-                repo TEXT PRIMARY KEY,
-                data TEXT NOT NULL,
-                authenticity_token TEXT,
-                source_url TEXT,
-                generated_at TEXT NOT NULL,
-                synced_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS snapshot_sync_state (
-                repo TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                mode TEXT NOT NULL,
-                started_at TEXT,
-                finished_at TEXT,
-                error TEXT,
-                pages_fetched INTEGER NOT NULL DEFAULT 0,
-                notifications_count INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS notification_local_state (
-                repo TEXT NOT NULL,
-                notification_id TEXT NOT NULL,
-                bookmarked INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (repo, notification_id)
-            );
-            """
-        )
+        with conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS notification_snapshots (
+                    repo TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    authenticity_token TEXT,
+                    source_url TEXT,
+                    generated_at TEXT NOT NULL,
+                    synced_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS snapshot_sync_state (
+                    repo TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    error TEXT,
+                    pages_fetched INTEGER NOT NULL DEFAULT 0,
+                    notifications_count INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS notification_local_state (
+                    repo TEXT NOT NULL,
+                    notification_id TEXT NOT NULL,
+                    bookmarked INTEGER NOT NULL DEFAULT 0,
+                    replies_muted INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (repo, notification_id)
+                );
+                """
+            )
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(notification_local_state)")
+            }
+            if "replies_muted" not in columns:
+                conn.execute(
+                    """
+                    ALTER TABLE notification_local_state
+                    ADD COLUMN replies_muted INTEGER NOT NULL DEFAULT 0
+                    """
+                )
     finally:
         conn.close()
 
@@ -80,17 +93,20 @@ def apply_local_state(
     try:
         rows = conn.execute(
             """
-            SELECT notification_id, bookmarked
+            SELECT notification_id, bookmarked, replies_muted
             FROM notification_local_state
             WHERE repo = ?
             """,
             (repo,),
         ).fetchall()
         bookmarked = {row["notification_id"] for row in rows if bool(row["bookmarked"])}
+        replies_muted = {
+            row["notification_id"] for row in rows if bool(row["replies_muted"])
+        }
     finally:
         conn.close()
 
-    if not bookmarked:
+    if not bookmarked and not replies_muted:
         return notifications
 
     result = []
@@ -98,6 +114,7 @@ def apply_local_state(
         item = dict(notification)
         ui = dict(item.get("ui") or {})
         ui["bookmarked"] = str(item.get("id")) in bookmarked
+        ui["replies_muted"] = str(item.get("id")) in replies_muted
         item["ui"] = ui
         result.append(item)
     return result
@@ -219,6 +236,60 @@ def set_notification_bookmark(
         "repo": repo,
         "notification_id": notification_id,
         "bookmarked": bookmarked,
+        "updated_at": now,
+    }
+
+
+def get_notification_replies_muted(
+    repo: str,
+    notification_id: str,
+    db_path: str | None = None,
+) -> bool:
+    """Return whether generic participation replies are muted locally."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT replies_muted
+            FROM notification_local_state
+            WHERE repo = ? AND notification_id = ?
+            """,
+            (repo, notification_id),
+        ).fetchone()
+        return bool(row["replies_muted"]) if row else False
+    finally:
+        conn.close()
+
+
+def set_notification_replies_muted(
+    repo: str,
+    notification_id: str,
+    replies_muted: bool,
+    db_path: str | None = None,
+) -> dict:
+    """Persist local suppression of generic participation replies."""
+    now = _now()
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO notification_local_state (
+                    repo, notification_id, replies_muted, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(repo, notification_id) DO UPDATE SET
+                    replies_muted = excluded.replies_muted,
+                    updated_at = excluded.updated_at
+                """,
+                (repo, notification_id, 1 if replies_muted else 0, now),
+            )
+    finally:
+        conn.close()
+    return {
+        "repo": repo,
+        "notification_id": notification_id,
+        "replies_muted": replies_muted,
         "updated_at": now,
     }
 

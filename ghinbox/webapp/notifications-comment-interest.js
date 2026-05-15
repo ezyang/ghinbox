@@ -236,6 +236,7 @@
         }
 
         const lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
+        const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
         const isUnread = (comment) => {
             const timestamp = getCommentTimestampMs(comment);
             return Number.isNaN(lastReadAt) || timestamp > lastReadAt;
@@ -261,7 +262,8 @@
         if (
             notification.subject?.type === 'Issue' &&
             String(notification.reason || '').toLowerCase() === 'author' &&
-            hasUnreadCommentFromOtherUser
+            hasUnreadCommentFromOtherUser &&
+            !suppressParticipationReplies
         ) {
             return true;
         }
@@ -274,6 +276,9 @@
                 return true;
             }
             if (!isMainThreadComment(comment)) {
+                return false;
+            }
+            if (suppressParticipationReplies) {
                 return false;
             }
             const author = normalizeLogin(comment?.user?.login);

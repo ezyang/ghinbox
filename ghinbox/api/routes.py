@@ -15,7 +15,9 @@ from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_notification_bookmark,
+    get_notification_replies_muted,
     set_notification_bookmark,
+    set_notification_replies_muted,
 )
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
@@ -50,6 +52,21 @@ class NotificationBookmarkResponse(BaseModel):
     repo: str
     notification_id: str
     bookmarked: bool
+
+
+class NotificationRepliesMutedRequest(BaseModel):
+    """Request body for local Replies suppression state."""
+
+    replies_muted: bool
+
+
+class NotificationRepliesMutedResponse(BaseModel):
+    """Response from a local Replies suppression update."""
+
+    status: Literal["ok"]
+    repo: str
+    notification_id: str
+    replies_muted: bool
 
 
 def _apply_bookmarks(
@@ -348,4 +365,48 @@ async def set_bookmark(
         repo=repo_key,
         notification_id=result["notification_id"],
         bookmarked=result["bookmarked"],
+    )
+
+
+@router.get(
+    "/repo/{owner}/{repo}/replies-muted/{notification_id}",
+    response_model=NotificationRepliesMutedResponse,
+    summary="Get local Replies suppression state",
+)
+async def get_replies_muted(
+    owner: str,
+    repo: str,
+    notification_id: str,
+) -> NotificationRepliesMutedResponse:
+    repo_key = f"{owner}/{repo}"
+    return NotificationRepliesMutedResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=notification_id,
+        replies_muted=get_notification_replies_muted(repo_key, notification_id),
+    )
+
+
+@router.put(
+    "/repo/{owner}/{repo}/replies-muted/{notification_id}",
+    response_model=NotificationRepliesMutedResponse,
+    summary="Set local Replies suppression state",
+)
+async def set_replies_muted(
+    owner: str,
+    repo: str,
+    notification_id: str,
+    request: NotificationRepliesMutedRequest,
+) -> NotificationRepliesMutedResponse:
+    repo_key = f"{owner}/{repo}"
+    result = set_notification_replies_muted(
+        repo_key,
+        notification_id,
+        request.replies_muted,
+    )
+    return NotificationRepliesMutedResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=result["notification_id"],
+        replies_muted=result["replies_muted"],
     )

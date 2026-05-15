@@ -110,6 +110,36 @@ test('main-thread comments after the user are directed at the current user', () 
   );
 });
 
+test('muted participation replies still allow explicit mentions', () => {
+  const genericReply = [
+    comment(1, 'testuser', 'I am looking.'),
+    comment(6, 'alice', 'Could you also check this?'),
+  ];
+  const explicitMention = [
+    comment(1, 'testuser', 'I am looking.'),
+    comment(6, 'alice', '@testuser could you also check this?'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('Issue'), {
+      comments: genericReply,
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      suppressParticipationReplies: true,
+    }),
+    false
+  );
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('Issue'), {
+      comments: explicitMention,
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      suppressParticipationReplies: true,
+    }),
+    true
+  );
+});
+
 test('notification-for-current-user follows author, reason, mention, and participation signals', () => {
   assert.equal(
     isNotificationForCurrentUser(notification(), {

@@ -173,7 +173,8 @@
             background-color: var(--color-accent-fg);
         }
 
-        .notification-bookmark-btn {
+        .notification-bookmark-btn,
+        .notification-move-feed-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -185,7 +186,8 @@
             cursor: pointer;
         }
 
-        .notification-bookmark-btn:hover {
+        .notification-bookmark-btn:hover,
+        .notification-move-feed-btn:hover {
             background-color: var(--color-btn-hover-bg);
             border-color: var(--color-border-default);
             color: var(--color-fg-default);
@@ -195,23 +197,27 @@
             color: var(--color-accent-fg);
         }
 
-        .notification-bookmark-btn:disabled {
+        .notification-bookmark-btn:disabled,
+        .notification-move-feed-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
 
-        .notification-bookmark-btn svg {
+        .notification-bookmark-btn svg,
+        .notification-move-feed-btn svg {
             width: 16px;
             height: 16px;
         }
 
-        .notification-bookmark-btn-bottom {
+        .notification-bookmark-btn-bottom,
+        .notification-move-feed-btn-bottom {
             gap: 6px;
             font-size: 12px;
             padding: 6px 10px;
         }
 
-        .notification-bookmark-btn-bottom span {
+        .notification-bookmark-btn-bottom span,
+        .notification-move-feed-btn-bottom span {
             line-height: 1;
         }
 
@@ -1307,6 +1313,7 @@
                     (function () {
                         const bookmarkIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2.75C3 1.784 3.784 1 4.75 1h6.5c.966 0 1.75.784 1.75 1.75v11.5a.75.75 0 0 1-1.227.579L8 11.722l-3.773 3.107A.751.751 0 0 1 3 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.91l3.023-2.489a.75.75 0 0 1 .954 0l3.023 2.49V2.75a.25.25 0 0 0-.25-.25Z"></path></svg>';
                         const bookmarkFilledIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2.75C3 1.784 3.784 1 4.75 1h6.5c.966 0 1.75.784 1.75 1.75v11.5a.75.75 0 0 1-1.227.579L8 11.722l-3.773 3.107A.75.75 0 0 1 3 14.25Z"></path></svg>';
+                        const moveToFeedIcon = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 2A1.75 1.75 0 0 0 1 3.75v8.5C1 13.216 1.784 14 2.75 14h10.5A1.75 1.75 0 0 0 15 12.25v-8.5A1.75 1.75 0 0 0 13.25 2Zm0 1.5h10.5a.25.25 0 0 1 .25.25v1.5h-11v-1.5a.25.25 0 0 1 .25-.25Zm-.25 3.25h4v5.75H2.75a.25.25 0 0 1-.25-.25Zm5.5 5.75V6.75h5.5v5.5a.25.25 0 0 1-.25.25Z"></path></svg>';
 
                         if (DEFAULT_VIEW_FILTERS?.issues) {
                             DEFAULT_VIEW_FILTERS.issues.bookmark = 'new';
@@ -1402,6 +1409,89 @@
                             }
                         }
 
+                        async function setRepliesMutedState(notificationId, repliesMuted) {
+                            const repo = parseRepoInput(state.repo || elements.repoInput.value.trim());
+                            if (!repo) {
+                                throw new Error('Invalid repository');
+                            }
+                            const response = await fetch(
+                                \`/notifications/html/repo/\${encodeURIComponent(repo.owner)}/\${encodeURIComponent(repo.repo)}/replies-muted/\${encodeURIComponent(notificationId)}\`,
+                                {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ replies_muted: repliesMuted }),
+                                }
+                            );
+                            if (!response.ok) {
+                                const errorData = await response.json().catch(() => ({}));
+                                throw new Error(typeof errorData.detail === 'string' ? errorData.detail : \`HTTP \${response.status}\`);
+                            }
+                            return response.json();
+                        }
+
+                        async function handleMoveToFeedClick(notificationId, button) {
+                            const notification = state.notifications.find((item) => item.id === notificationId);
+                            if (!notification) {
+                                return;
+                            }
+                            button.disabled = true;
+                            const previous = Boolean(notification.ui?.replies_muted);
+                            notification.ui = { ...(notification.ui || {}), replies_muted: true };
+                            persistNotifications();
+                            render();
+                            try {
+                                await setRepliesMutedState(notificationId, true);
+                                showStatus('Moved participation replies to Feed', 'success', { autoDismiss: true });
+                            } catch (error) {
+                                notification.ui = { ...(notification.ui || {}), replies_muted: previous };
+                                persistNotifications();
+                                showStatus(\`Move to Feed failed: \${error.message || error}\`, 'error');
+                            } finally {
+                                render();
+                            }
+                        }
+
+                        function shouldShowMoveToFeed(notification) {
+                            if (
+                                state.view !== 'pr-notifications' ||
+                                state.view === 'cleaned' ||
+                                notification?.ui?.replies_muted ||
+                                !safeIsNotificationDirectedAtCurrentUser(notification)
+                            ) {
+                                return false;
+                            }
+                            const cached = state.commentCache.threads[getNotificationKey(notification)];
+                            return !COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+                                comments: getSortedNotificationComments(notification),
+                                currentUserLogin: state.currentUserLogin,
+                                lastReadAt: cached?.lastReadAt,
+                                suppressParticipationReplies: true,
+                            });
+                        }
+
+                        function makeMoveToFeedButton(notification, bottom) {
+                            const button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = bottom
+                                ? 'notification-move-feed-btn notification-move-feed-btn-bottom'
+                                : 'notification-move-feed-btn';
+                            button.setAttribute('aria-label', 'Move participation replies to Feed');
+                            button.title = 'Move participation replies to Feed';
+                            button.innerHTML = moveToFeedIcon;
+                            if (bottom) {
+                                const label = document.createElement('span');
+                                label.textContent = 'Move to Feed';
+                                button.appendChild(label);
+                            }
+                            button.addEventListener('click', (event) => {
+                                event.stopPropagation();
+                                withActionContext('Move to Feed (inline)', () =>
+                                    handleMoveToFeedClick(notification.id, button)
+                                );
+                            });
+                            return button;
+                        }
+
                         function makeBookmarkButton(notification, bottom) {
                             const bookmarked = isBookmarked(notification);
                             const button = document.createElement('button');
@@ -1458,11 +1548,17 @@
                                 const inlineActions = item.querySelector('.notification-actions-inline');
                                 if (inlineActions) {
                                     const doneButton = inlineActions.querySelector('.notification-done-btn');
+                                    if (shouldShowMoveToFeed(notification)) {
+                                        inlineActions.insertBefore(makeMoveToFeedButton(notification, false), doneButton || inlineActions.children[1] || null);
+                                    }
                                     inlineActions.insertBefore(makeBookmarkButton(notification, false), doneButton || inlineActions.children[1] || null);
                                 }
                                 const bottomActions = item.querySelector('.notification-actions-bottom');
                                 if (bottomActions) {
                                     const doneButton = bottomActions.querySelector('.notification-done-btn-bottom');
+                                    if (shouldShowMoveToFeed(notification)) {
+                                        bottomActions.insertBefore(makeMoveToFeedButton(notification, true), doneButton || null);
+                                    }
                                     bottomActions.insertBefore(makeBookmarkButton(notification, true), doneButton || null);
                                 }
                             });

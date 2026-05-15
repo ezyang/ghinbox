@@ -768,6 +768,7 @@ function isNotificationDirectedAtCurrentUser(notification) {
         comments,
         currentUserLogin: state.currentUserLogin,
         lastReadAt: state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt,
+        suppressParticipationReplies: notification?.ui?.replies_muted,
     });
 }
 

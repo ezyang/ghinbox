@@ -426,4 +426,51 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await expect(page.locator('[data-id="review-request:test/repo#3"]')).toBeVisible();
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
   });
+
+  test('moves generic participation replies back to Feed without unsubscribing', async ({
+    page,
+  }) => {
+    const repliesMutedBodies: unknown[] = [];
+    let actionCalled = false;
+
+    await page.route('**/notifications/html/repo/test/repo/replies-muted/**', async (route) => {
+      repliesMutedBodies.push(await route.request().postDataJSON());
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ok',
+          repo: 'test/repo',
+          notification_id: 'main-thread-immediate-reply',
+          replies_muted: true,
+        }),
+      });
+    });
+    await page.route('**/notifications/html/action', (route) => {
+      actionCalled = true;
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+    });
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="main-thread-immediate-reply"]')).toBeVisible();
+    await page
+      .locator('[data-id="main-thread-immediate-reply"] .notification-actions-inline .notification-move-feed-btn')
+      .click();
+
+    await expect.poll(() => repliesMutedBodies.length).toBe(1);
+    expect(repliesMutedBodies[0]).toEqual({ replies_muted: true });
+    expect(actionCalled).toBe(false);
+    await expect(page.locator('[data-id="main-thread-immediate-reply"]')).toBeHidden();
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('4');
+    await expect(page.locator('#view-issues .count')).toHaveText('3');
+
+    await page.locator('#view-issues').click();
+    await expect(page.locator('[data-id="main-thread-immediate-reply"]')).toBeVisible();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="main-thread-new-cc"]')).toBeVisible();
+    await expect(
+      page.locator('[data-id="main-thread-new-cc"] .notification-move-feed-btn')
+    ).toHaveCount(0);
+  });
 });
