@@ -27,6 +27,23 @@ const notificationsResponse = {
       actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
       ui: { saved: false, done: false },
     },
+    {
+      id: 'thread-pr-read-reply',
+      unread: true,
+      reason: 'comment',
+      updated_at: '2025-01-06T12:30:00Z',
+      last_read_at: '2025-01-06T12:00:00Z',
+      subject: {
+        title: 'Already read inline response PR',
+        url: 'https://github.com/test/repo/pull/21',
+        type: 'PullRequest',
+        number: 21,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+      ui: { saved: false, done: false },
+    },
   ],
   pagination: {
     before_cursor: null,
@@ -77,6 +94,48 @@ const commentCache = {
           created_at: '2025-01-06T11:00:00Z',
           updated_at: '2025-01-06T11:00:00Z',
           body: 'Separate note on another thread.',
+          user: { login: 'testuser' },
+        },
+      ],
+    },
+    'thread-pr-read-reply': {
+      notificationUpdatedAt: '2025-01-06T12:30:00Z',
+      lastReadAt: '2025-01-06T12:00:00Z',
+      unread: true,
+      allComments: true,
+      fetchedAt: new Date().toISOString(),
+      reviewDecision: null,
+      reviewDecisionFetchedAt: new Date().toISOString(),
+      comments: [
+        {
+          id: 300,
+          isReviewComment: true,
+          path: 'src/read.py',
+          line: 8,
+          created_at: '2025-01-06T09:00:00Z',
+          updated_at: '2025-01-06T09:00:00Z',
+          body: 'Could you take another look?',
+          user: { login: 'testuser' },
+        },
+        {
+          id: 301,
+          in_reply_to_id: 300,
+          isReviewComment: true,
+          path: 'src/read.py',
+          line: 8,
+          created_at: '2025-01-06T10:00:00Z',
+          updated_at: '2025-01-06T10:00:00Z',
+          body: 'This was handled earlier.',
+          user: { login: 'alice' },
+        },
+        {
+          id: 302,
+          isReviewComment: true,
+          path: 'src/read.py',
+          line: 9,
+          created_at: '2025-01-06T12:15:00Z',
+          updated_at: '2025-01-06T12:15:00Z',
+          body: 'I rechecked this.',
           user: { login: 'testuser' },
         },
       ],
@@ -148,6 +207,14 @@ test.describe('PR direct replies @classification', () => {
                 changedFiles: 1,
                 author: { login: 'alice' },
               },
+              pr21: {
+                reviewDecision: null,
+                authorAssociation: 'CONTRIBUTOR',
+                additions: 2,
+                deletions: 0,
+                changedFiles: 1,
+                author: { login: 'alice' },
+              },
             },
           },
         }),
@@ -165,12 +232,13 @@ test.describe('PR direct replies @classification', () => {
   }) => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
 
     await page.locator('#view-pr-notifications').click();
     const item = page.locator('[data-id="thread-pr-direct-reply"]');
     await expect(item.locator('.comment-item')).toHaveCount(1);
     await expect(item.locator('.comment-item')).toContainText('I pushed a simplification here.');
     await expect(item.locator('.comment-item')).not.toContainText('Separate note on another thread.');
+    await expect(page.locator('[data-id="thread-pr-read-reply"]')).toHaveCount(0);
   });
 });

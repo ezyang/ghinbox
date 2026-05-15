@@ -76,6 +76,24 @@ test('direct review thread replies include only replies after the user in each t
   );
 });
 
+test('directed PR replies must be unread and interesting', () => {
+  const comments = [
+    comment(1, 'testuser', 'Could you check this?', { isReviewComment: true }),
+    comment(2, 'alice', 'Already handled.', { isReviewComment: true, in_reply_to_id: 1 }),
+    comment(6, 'testuser', 'I rechecked this.', { isReviewComment: true }),
+    comment(7, 'github-actions[bot]', 'CI passed.', { isReviewComment: true, in_reply_to_id: 1 }),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification(), {
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+    }),
+    false
+  );
+});
+
 test('main-thread comments after the user are directed at the current user', () => {
   const comments = [
     comment(1, 'testuser', 'I am looking.'),

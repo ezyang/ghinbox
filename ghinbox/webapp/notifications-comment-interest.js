@@ -235,14 +235,23 @@
             return false;
         }
 
-        if (getDirectReviewThreadReplies(comments, currentUser).length > 0) {
+        const lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
+        const isUnread = (comment) => {
+            const timestamp = getCommentTimestampMs(comment);
+            return Number.isNaN(lastReadAt) || timestamp > lastReadAt;
+        };
+        const isInterestingUnreadComment = (comment) => isUnread(comment) &&
+            !isUninterestingComment(comment);
+
+        if (
+            getDirectReviewThreadReplies(comments, currentUser)
+                .some(isInterestingUnreadComment)
+        ) {
             return true;
         }
 
-        const lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
         const hasUnreadCommentFromOtherUser = comments.some((comment) => {
-            const timestamp = getCommentTimestampMs(comment);
-            if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
+            if (!isInterestingUnreadComment(comment)) {
                 return false;
             }
             const author = normalizeLogin(comment?.user?.login);
@@ -258,8 +267,7 @@
         }
 
         return comments.some((comment, index) => {
-            const timestamp = getCommentTimestampMs(comment);
-            if (!Number.isNaN(lastReadAt) && timestamp <= lastReadAt) {
+            if (!isInterestingUnreadComment(comment)) {
                 return false;
             }
             if (hasActionableCurrentUserMention(comment, currentUser)) {
