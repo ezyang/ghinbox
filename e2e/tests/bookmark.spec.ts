@@ -133,9 +133,12 @@ test.describe('Bookmark @mutation', () => {
       'aria-pressed',
       'true'
     );
-    await page
-      .locator('[data-id="bookmark-1"] .notification-actions-inline .notification-bookmark-btn')
-      .click();
+    const bookmarkButton = page.locator(
+      '[data-id="bookmark-1"] .notification-actions-inline .notification-bookmark-btn'
+    );
+    await expect(bookmarkButton).toHaveAttribute('title', 'Bookmark notification');
+    await expect(bookmarkButton).not.toHaveClass(/is-bookmarked/);
+    await bookmarkButton.click();
 
     await expect.poll(() => bookmarkBodies.length).toBe(1);
     expect(bookmarkBodies[0]).toEqual({ bookmarked: true });
@@ -146,10 +149,10 @@ test.describe('Bookmark @mutation', () => {
     await page.locator('[data-subfilter-group="bookmark"] [data-subfilter="bookmarked"]').click();
     await expect(page.locator('[data-id="bookmark-1"]')).toBeVisible();
     await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(bookmarkButton).toHaveAttribute('title', 'Remove bookmark');
+    await expect(bookmarkButton).toHaveClass(/is-bookmarked/);
 
-    await page
-      .locator('[data-id="bookmark-1"] .notification-actions-inline .notification-bookmark-btn')
-      .click();
+    await bookmarkButton.click();
     await expect.poll(() => bookmarkBodies.length).toBe(2);
     expect(bookmarkBodies[1]).toEqual({ bookmarked: false });
     await expect(page.locator('[data-id="bookmark-1"]')).toBeHidden();
