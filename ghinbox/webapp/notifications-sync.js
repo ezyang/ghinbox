@@ -693,20 +693,23 @@
             return date.toLocaleString();
         }
 
-        async function loadServerSnapshotOnInit() {
+        async function loadServerSnapshotOnInit({ forceApply = false } = {}) {
             const repo = parseRepoInput(state.repo || localStorage.getItem('ghnotif_repo') || '');
             if (!repo) {
-                return;
+                return false;
             }
             try {
                 const data = await fetchServerSnapshot(repo);
                 const snapshot = data?.snapshot;
+                let applied = false;
                 if (snapshot && Array.isArray(snapshot.notifications)) {
                     const localSyncedAt = localStorage.getItem(getServerSnapshotSyncedAtKey(repo));
                     const shouldApply =
+                        forceApply ||
                         state.notifications.length === 0 ||
                         (snapshot.synced_at && snapshot.synced_at !== localSyncedAt);
                     if (shouldApply && applyServerSnapshot(repo, snapshot)) {
+                        applied = true;
                         showStatus(
                             `Loaded server snapshot from ${formatSnapshotTimestamp(snapshot.synced_at)}`,
                             'info',
@@ -719,8 +722,10 @@
                         showStatus(`Full Sync failed: ${error.message || error}`, 'error');
                     });
                 }
+                return applied;
             } catch (error) {
                 console.error('Failed to load server snapshot:', error);
+                return false;
             }
         }
 

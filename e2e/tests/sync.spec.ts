@@ -1256,6 +1256,100 @@ test.describe('Sync Functionality @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
   });
 
+  test('startup prefers server snapshot over stale local cache without syncing', async ({ page }) => {
+    const staleNotification = {
+      id: 'stale-local-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-26T12:00:00Z',
+      subject: {
+        title: 'Stale local cache notification',
+        url: 'https://github.com/test/repo/issues/41',
+        type: 'Issue',
+        number: 41,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    const snapshotNotification = {
+      id: 'server-startup-current-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Current server snapshot notification',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let syncPosted = false;
+    let htmlFetched = false;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      if (route.request().method() === 'POST') {
+        syncPosted = true;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sync: { status: 'idle', mode: 'full' }, snapshot: null }),
+      });
+    });
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      htmlFetched = true;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(emptyResponse),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await seedNotificationsCache(page, [staleNotification]);
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
+      localStorage.setItem(
+        'ghnotif_server_snapshot_synced_at:test/repo',
+        '2024-12-27T12:01:00+00:00'
+      );
+    });
+    await page.reload();
+
+    await expect(page.locator('[data-id="server-startup-current-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="stale-local-1"]')).toHaveCount(0);
+    expect(syncPosted).toBe(false);
+    expect(htmlFetched).toBe(false);
+  });
+
   test('loads review-request entries from server snapshot into others PRs', async ({ page }) => {
     const reviewRequestNotification = {
       id: 'review-request:test/repo#10',

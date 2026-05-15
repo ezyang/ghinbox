@@ -421,6 +421,22 @@
             return [];
         }
 
+        async function loadInitialNotifications() {
+            if (typeof loadServerSnapshotOnInit === 'function') {
+                try {
+                    const loadedFromServer = await loadServerSnapshotOnInit({
+                        forceApply: true,
+                    });
+                    if (loadedFromServer) {
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Failed to load server snapshot:', error);
+                }
+            }
+            state.notifications = await loadNotificationsFromCache();
+        }
+
         // Initialize app
         async function init() {
             instrumentFetchForRateLimit();
@@ -431,8 +447,8 @@
             elements.repoInput.value = repoValue;
             state.repo = repoValue;
 
-            // Load cached notifications and comments from IndexedDB
-            state.notifications = await loadNotificationsFromCache();
+            // Prefer the current server-owned snapshot; fall back to the local cache offline.
+            await loadInitialNotifications();
             try {
                 state.commentCache = await loadCommentCache();
             } catch (error) {
@@ -658,13 +674,6 @@
 
             // Initial render
             render();
-            if (typeof loadServerSnapshotOnInit === 'function') {
-                loadServerSnapshotOnInit()
-                    .then(() => render())
-                    .catch((error) => {
-                        console.error('Failed to load server snapshot:', error);
-                    });
-            }
         }
 
         // Handle repo input changes
