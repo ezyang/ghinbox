@@ -10,10 +10,16 @@ using the specified account's authenticated session.
 """
 
 import argparse
+import os
+import socket
+import stat
 import sys
 from pathlib import Path
 
 import uvicorn
+from uvicorn import Config, Server
+from uvicorn.main import STARTUP_FAILURE
+from uvicorn.supervisors import ChangeReload
 
 from ghinbox.auth import (
     has_valid_auth,
@@ -24,6 +30,8 @@ from ghinbox.auth import (
 )
 from ghinbox.token import has_token, provision_token, verify_token
 
+DEFAULT_DEBUG_SOCKET_PATH = Path("auth_state") / "ghinbox-debug.sock"
+
 
 def _is_source_checkout() -> bool:
     """Check if running from a source checkout (has .git directory)."""
@@ -31,6 +39,80 @@ def _is_source_checkout() -> bool:
     package_dir = Path(__file__).parent.parent  # ghinbox/
     repo_root = package_dir.parent  # parent of ghinbox/
     return (repo_root / ".git").is_dir()
+
+
+def _bind_debug_socket(path: Path) -> socket.socket:
+    """Bind the local agent/debug Unix socket."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    if path.exists():
+        mode = path.stat().st_mode
+        if not stat.S_ISSOCK(mode):
+            raise RuntimeError(f"Debug socket path exists and is not a socket: {path}")
+
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.connect(str(path))
+        except OSError:
+            path.unlink()
+        else:
+            raise RuntimeError(f"Debug socket is already in use: {path}")
+        finally:
+            probe.close()
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(str(path))
+        os.chmod(path, 0o600)
+    except OSError:
+        sock.close()
+        raise
+
+    sock.set_inheritable(True)
+    return sock
+
+
+def _run_uvicorn(
+    *,
+    host: str,
+    port: int,
+    reload: bool,
+    debug_socket_path: Path | None,
+) -> None:
+    """Run Uvicorn with the normal TCP listener and optional debug UDS listener."""
+    if debug_socket_path is None:
+        uvicorn.run(
+            "ghinbox.api.app:app",
+            host=host,
+            port=port,
+            reload=reload,
+        )
+        return
+
+    os.environ["GHINBOX_DEBUG_SOCKET_ENABLED"] = "1"
+    config = Config("ghinbox.api.app:app", host=host, port=port, reload=reload)
+    server = Server(config=config)
+    sockets: list[socket.socket] = []
+
+    try:
+        sockets.append(config.bind_socket())
+        sockets.append(_bind_debug_socket(debug_socket_path))
+        print(f"Debug socket: {debug_socket_path}")
+
+        if config.should_reload:
+            ChangeReload(config, target=server.run, sockets=sockets).run()
+        else:
+            server.run(sockets=sockets)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for sock in sockets:
+            sock.close()
+        if debug_socket_path.exists():
+            debug_socket_path.unlink()
+
+    if not server.started and not config.should_reload:
+        sys.exit(STARTUP_FAILURE)
 
 
 def setup_default_account(headed: bool = False) -> tuple[bool, str | None]:
@@ -171,12 +253,23 @@ def main() -> int:
             "Disabled by default."
         ),
     )
+    parser.add_argument(
+        "--debug-socket",
+        default=str(DEFAULT_DEBUG_SOCKET_PATH),
+        help=(
+            "Unix domain socket for local shell/agent HTTP access that bypasses "
+            "the site password gate (default: auth_state/ghinbox-debug.sock)."
+        ),
+    )
+    parser.add_argument(
+        "--no-debug-socket",
+        action="store_true",
+        help="Disable the local debug Unix socket.",
+    )
 
     args = parser.parse_args()
 
     # Set env vars so the app can recreate fetcher after reload
-    import os
-
     if args.site_password:
         os.environ["GHINBOX_SITE_PASSWORD"] = args.site_password
     if args.snapshot_db_path:
@@ -309,6 +402,7 @@ def main() -> int:
     request_log_file = os.environ.get("GHINBOX_REQUEST_LOG_FILE")
     if not args.no_request_log and request_log_file:
         print(f"Request log: {request_log_file}")
+    debug_socket_path = None if args.no_debug_socket else Path(str(args.debug_socket))
     print()
 
     # Determine reload behavior:
@@ -322,11 +416,11 @@ def main() -> int:
     else:
         reload = _is_source_checkout()
 
-    uvicorn.run(
-        "ghinbox.api.app:app",
+    _run_uvicorn(
         host=args.host,
         port=args.port,
         reload=reload,
+        debug_socket_path=debug_socket_path,
     )
 
     return 0

@@ -28,6 +28,18 @@
 - There may be multiple coding agents running at the same time; don't worry
   too much about unexpected changes, we are running SCM checkpoints regularly.
 - Automatically commit your own changes at logical spots as you work.
+- Prod/debug access:
+  - The server exposes a local Unix domain socket for shell/agent HTTP access at
+    `auth_state/ghinbox-debug.sock` by default. It bypasses the site password
+    gate and is protected by filesystem permissions; do not proxy it through
+    nginx or expose it remotely.
+  - Prefer this socket for prod workshop/debug queries from this machine:
+    `curl --unix-socket auth_state/ghinbox-debug.sock http://ghinbox/debug/state`
+    and
+    `curl --unix-socket auth_state/ghinbox-debug.sock http://ghinbox/github/rest/user`.
+  - If the socket is missing, fall back to the site-auth cookie flow documented
+    in `docs/PROD_QUERY_RECIPES.md`, or check whether the server was started
+    with `--no-debug-socket`.
 - E2E test authoring rules:
   - Prefer helpers in `e2e/tests/app-fixture.ts` for auth/repo setup, API route
     mocks, cached app state, queue/subfilter clicks, and action endpoint mocks.

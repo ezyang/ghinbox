@@ -3,6 +3,22 @@
 These commands are for inspecting a running production ghinbox instance without
 opening the browser UI. They are intended for debugging and UI workshop sessions.
 
+Agents and local shells on the server host should prefer the Unix domain socket
+debug listener. It is HTTP-shaped, bypasses the site password gate, and is
+protected by filesystem permissions:
+
+```bash
+export GHINBOX_BASE=http://ghinbox
+export GHINBOX_CURL_SOCKET="--unix-socket auth_state/ghinbox-debug.sock"
+
+curl -sS ${GHINBOX_CURL_SOCKET} "${GHINBOX_BASE}/debug/state" | jq .
+curl -sS ${GHINBOX_CURL_SOCKET} "${GHINBOX_BASE}/github/rest/user" |
+  jq '{login, name}'
+```
+
+Do not proxy `auth_state/ghinbox-debug.sock` through nginx or expose it
+remotely. If the socket is unavailable, use the site password flow below.
+
 Set the base URL and authenticate through the site password gate:
 
 ```bash

@@ -3,6 +3,9 @@
 ghinbox exposes a small local debug API and JSONL request logging for live
 troubleshooting.  The debug API is served by the same FastAPI process and is
 protected by the site password when `--site-password` is configured.
+By default, the CLI also exposes the same HTTP app on
+`auth_state/ghinbox-debug.sock` for local shell/agent access. That socket
+bypasses the site password gate and must not be proxied remotely.
 
 ## Request logs
 
@@ -49,6 +52,13 @@ The file logger rotates at 5 MiB and keeps 3 backups.
 
 ```bash
 curl -sS -b cookies.txt http://127.0.0.1:8000/debug/state
+```
+
+From a local shell on the server host, prefer the Unix socket:
+
+```bash
+curl -sS --unix-socket auth_state/ghinbox-debug.sock \
+  http://ghinbox/debug/state
 ```
 
 Useful fields include whether test mode is enabled, whether site auth is

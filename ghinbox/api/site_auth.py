@@ -78,6 +78,9 @@ class SiteAuthMiddleware:
         self.app = app
         self._password: str | None = os.environ.get("GHINBOX_SITE_PASSWORD")
         self._test_mode: bool = os.environ.get("GHINBOX_TEST_MODE") == "1"
+        self._debug_socket_enabled: bool = (
+            os.environ.get("GHINBOX_DEBUG_SOCKET_ENABLED") == "1"
+        )
 
         if self._password:
             secret = _get_server_secret()
@@ -111,6 +114,13 @@ class SiteAuthMiddleware:
         except (BadSignature, SignatureExpired):
             return False
 
+    def _is_debug_socket_request(self, scope) -> bool:
+        return (
+            self._debug_socket_enabled
+            and scope.get("client") is None
+            and scope.get("server") is None
+        )
+
     @staticmethod
     def _wants_html(headers: list[tuple[bytes, bytes]]) -> bool:
         for key, value in headers:
@@ -133,6 +143,10 @@ class SiteAuthMiddleware:
         path: str = scope.get("path", "/")
 
         if self._is_exempt(path):
+            await self.app(scope, receive, send)
+            return
+
+        if self._is_debug_socket_request(scope):
             await self.app(scope, receive, send)
             return
 
