@@ -191,33 +191,20 @@ function scheduleCommentPrefetch(notifications) {
     if (!pending.length) {
         return;
     }
-    let queuedCount = 0;
+    const queuedNotifications = [];
     pending.forEach((notif) => {
         const key = getNotificationKey(notif);
         if (state.commentQueueKeys.has(key)) {
             return;
         }
-        queuedCount += 1;
         state.commentQueueKeys.add(key);
-        state.commentQueue.push(async () => {
-            let failed = false;
-            try {
-                updateCommentPrefetchWork({ inFlight: 1 });
-                await prefetchNotificationComments(notif);
-            } catch (error) {
-                failed = true;
-                console.error('Comment prefetch failed:', error);
-            } finally {
-                updateCommentPrefetchWork({
-                    completed: 1,
-                    failed: failed ? 1 : 0,
-                    inFlight: -1,
-                });
-                state.commentQueueKeys.delete(key);
-            }
-        });
+        queuedNotifications.push(notif);
     });
-    addCommentPrefetchWork(queuedCount);
+    if (!queuedNotifications.length) {
+        return;
+    }
+    state.commentQueue.push(() => prefetchNotificationCommentsBulk(queuedNotifications));
+    addCommentPrefetchWork(queuedNotifications.length);
     runCommentQueue();
 }
 
@@ -317,6 +304,45 @@ async function fetchAllIssueComments(repo, issueNumber, options = {}) {
     });
 
     return comments;
+}
+
+function buildBulkCommentRequestItem(notification) {
+    const issueNumber = getIssueNumber(notification);
+    if (!issueNumber) {
+        return null;
+    }
+    const repo = parseRepoInput(state.repo || '');
+    if (!repo) {
+        return null;
+    }
+    const { anchor, lastReadAt } = COMMENT_CACHE_POLICY.getCommentFetchWindow(notification);
+    return {
+        key: getNotificationKey(notification),
+        owner: repo.owner,
+        repo: repo.repo,
+        number: issueNumber,
+        is_pr: notification.subject?.type === 'PullRequest',
+        anchor,
+        last_read_at: lastReadAt,
+    };
+}
+
+async function fetchBulkNotificationComments(notifications) {
+    const items = notifications
+        .map(buildBulkCommentRequestItem)
+        .filter((item) => item !== null);
+    if (!items.length) {
+        return null;
+    }
+    const response = await fetch('/github/rest/comments/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+    });
+    if (!response.ok) {
+        return null;
+    }
+    return response.json();
 }
 
 async function fetchGraphql(query, variables) {
@@ -626,6 +652,89 @@ async function prefetchNotificationComments(notification) {
             cached,
             { error: error.message || String(error) }
         );
+    }
+}
+
+async function prefetchNotificationCommentsBulk(notifications) {
+    const pending = notifications.filter(shouldPrefetchNotificationComments);
+    if (!pending.length) {
+        updateCommentPrefetchWork({ completed: notifications.length });
+        notifications.forEach((notification) => {
+            state.commentQueueKeys.delete(getNotificationKey(notification));
+        });
+        return;
+    }
+    updateCommentPrefetchWork({ inFlight: pending.length });
+    let completed = 0;
+    let failed = 0;
+    try {
+        const bulkPayload = await fetchBulkNotificationComments(pending);
+        const threads = bulkPayload?.threads;
+        if (!threads || typeof threads !== 'object') {
+            await Promise.all(
+                pending.map(async (notification) => {
+                    try {
+                        await prefetchNotificationComments(notification);
+                    } finally {
+                        completed += 1;
+                        if (state.commentCache.threads[getNotificationKey(notification)]?.error) {
+                            failed += 1;
+                        }
+                    }
+                })
+            );
+            return;
+        }
+        pending.forEach((notification) => {
+            const threadId = getNotificationKey(notification);
+            const cached = state.commentCache.threads[threadId];
+            const result = threads[threadId];
+            completed += 1;
+            if (!result) {
+                failed += 1;
+                state.commentCache.threads[threadId] =
+                    COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
+                        error: 'Bulk comment fetch returned no result.',
+                    });
+                return;
+            }
+            if (result.error) {
+                failed += 1;
+                state.commentCache.threads[threadId] =
+                    COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
+                        error: result.error,
+                    });
+                return;
+            }
+            state.commentCache.threads[threadId] =
+                COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(notification, cached, {
+                    comments: Array.isArray(result.comments) ? result.comments : [],
+                    allComments: Boolean(result.allComments),
+                });
+        });
+    } catch (error) {
+        console.error('Bulk comment prefetch failed:', error);
+        await Promise.all(
+            pending.map(async (notification) => {
+                try {
+                    await prefetchNotificationComments(notification);
+                } finally {
+                    completed += 1;
+                    if (state.commentCache.threads[getNotificationKey(notification)]?.error) {
+                        failed += 1;
+                    }
+                }
+            })
+        );
+    } finally {
+        updateCommentPrefetchWork({
+            completed,
+            failed,
+            inFlight: -pending.length,
+        });
+        notifications.forEach((notification) => {
+            state.commentQueueKeys.delete(getNotificationKey(notification));
+        });
     }
 }
 

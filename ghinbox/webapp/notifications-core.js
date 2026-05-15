@@ -447,13 +447,15 @@
             elements.repoInput.value = repoValue;
             state.repo = repoValue;
 
-            // Prefer the current server-owned snapshot; fall back to the local cache offline.
-            await loadInitialNotifications();
             try {
                 state.commentCache = await loadCommentCache();
             } catch (error) {
                 console.error('Failed to load comment cache:', error);
             }
+            // Prefer the current server-owned snapshot; fall back to the local cache offline.
+            // Comment cache must be available first so startup snapshot hydration can skip
+            // fresh threads instead of immediately refetching them.
+            await loadInitialNotifications();
             state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
             const savedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
             if (savedAuthToken) {

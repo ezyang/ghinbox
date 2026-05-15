@@ -4,7 +4,9 @@ GitHub API proxy routes.
 Proxies requests to GitHub's REST and GraphQL APIs using the stored token.
 """
 
+import asyncio
 import os
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -14,6 +16,7 @@ from ghinbox.token import load_token
 router = APIRouter(prefix="/github", tags=["github-proxy"])
 
 GITHUB_API_BASE = "https://api.github.com"
+COMMENT_BULK_CONCURRENCY = 8
 
 # Shared httpx client (created lazily)
 _client: httpx.AsyncClient | None = None
@@ -33,6 +36,141 @@ def get_token() -> str | None:
     if not account:
         return None
     return load_token(account)
+
+
+async def _github_get_json(
+    client: httpx.AsyncClient,
+    token: str,
+    path: str,
+    params: dict[str, str] | None = None,
+) -> tuple[int, object]:
+    url = f"{GITHUB_API_BASE}/{path}"
+    if params:
+        url += f"?{urlencode(params)}"
+    response = await client.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if response.status_code >= 400:
+        return response.status_code, response.text
+    return response.status_code, response.json()
+
+
+def _issue_to_comment(issue: object) -> dict | None:
+    if not isinstance(issue, dict):
+        return None
+    return {
+        "id": issue.get("id") or f"issue-{issue.get('number') or 'unknown'}",
+        "user": issue.get("user"),
+        "body": issue.get("body") or "",
+        "created_at": issue.get("created_at"),
+        "updated_at": issue.get("updated_at"),
+        "isIssue": True,
+    }
+
+
+async def _fetch_bulk_comment_item(
+    client: httpx.AsyncClient,
+    token: str,
+    item: dict,
+) -> tuple[str, dict]:
+    key = str(item.get("key") or "")
+    owner = str(item.get("owner") or "")
+    repo = str(item.get("repo") or "")
+    number = item.get("number")
+    if not key or not owner or not repo or not isinstance(number, int):
+        return key, {"error": "Invalid bulk comment request item."}
+
+    is_pr = bool(item.get("is_pr"))
+    anchor = item.get("anchor")
+    last_read_at = item.get("last_read_at")
+    use_all_comments = bool(anchor or not last_read_at)
+    params = {} if use_all_comments else {"since": str(last_read_at)}
+    comments: list[object] = []
+
+    if use_all_comments:
+        status, issue = await _github_get_json(
+            client,
+            token,
+            f"repos/{owner}/{repo}/issues/{number}",
+        )
+        if status < 400:
+            issue_comment = _issue_to_comment(issue)
+            if issue_comment is not None:
+                comments.append(issue_comment)
+
+    status, issue_comments = await _github_get_json(
+        client,
+        token,
+        f"repos/{owner}/{repo}/issues/{number}/comments",
+        params,
+    )
+    if status >= 400:
+        return key, {
+            "error": f"Issue comments fetch failed ({status}): {issue_comments}"
+        }
+    if isinstance(issue_comments, list):
+        comments.extend(issue_comments)
+
+    if is_pr:
+        status, review_comments = await _github_get_json(
+            client,
+            token,
+            f"repos/{owner}/{repo}/pulls/{number}/comments",
+            params,
+        )
+        if status < 400 and isinstance(review_comments, list):
+            for comment in review_comments:
+                if isinstance(comment, dict):
+                    comment = {**comment, "isReviewComment": True}
+                comments.append(comment)
+
+    comments.sort(
+        key=lambda comment: (
+            comment.get("created_at") if isinstance(comment, dict) else None
+        )
+        or ""
+    )
+    return key, {"comments": comments, "allComments": use_all_comments}
+
+
+@router.post(
+    "/rest/comments/bulk",
+    summary="Bulk GitHub comment fetch",
+    description="Fetches issue and PR comments for multiple notifications.",
+)
+async def bulk_comments(request: Request) -> dict:
+    token = get_token()
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="No GitHub token configured. Start server with --account.",
+        )
+    token_value = token
+
+    payload = await request.json()
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise HTTPException(
+            status_code=400, detail="Expected JSON body with items list."
+        )
+
+    client = get_client()
+    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
+
+    async def run_item(item: object) -> tuple[str, dict]:
+        if not isinstance(item, dict):
+            return "", {"error": "Invalid bulk comment request item."}
+        async with limit:
+            return await _fetch_bulk_comment_item(client, token_value, item)
+
+    results = await asyncio.gather(*(run_item(item) for item in items))
+    threads = {key: result for key, result in results if key}
+    return {"threads": threads}
 
 
 @router.api_route(

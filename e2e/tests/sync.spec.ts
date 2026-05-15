@@ -4,6 +4,7 @@ import { join } from 'path';
 import {
   clearAppStorage,
   readNotificationsCache,
+  seedCommentCache,
   seedNotificationsCache,
 } from './storage-utils';
 
@@ -1254,6 +1255,175 @@ test.describe('Sync Functionality @slow @sync', () => {
 
     await expect(page.locator('[data-id="server-startup-1"]')).toBeVisible();
     await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
+  });
+
+  test('startup server snapshot reuses fresh local comment cache', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-cached-comments-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Loaded with cached comments',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let bulkCommentRequests = 0;
+    let individualCommentRequests = 0;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/github/rest/comments/bulk', (route) => {
+      bulkCommentRequests += 1;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ threads: {} }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      individualCommentRequests += 1;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await seedCommentCache(page, {
+      version: 1,
+      threads: {
+        'server-cached-comments-1': {
+          notificationUpdatedAt: '2024-12-27T12:00:00Z',
+          comments: [
+            {
+              id: 1001,
+              body: 'Already cached',
+              created_at: '2024-12-27T12:00:00Z',
+              updated_at: '2024-12-27T12:00:00Z',
+              user: { login: 'commenter' },
+            },
+          ],
+          allComments: true,
+          fetchedAt: new Date().toISOString(),
+        },
+      },
+    });
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+    });
+    await page.reload();
+
+    await expect(page.locator('[data-id="server-cached-comments-1"]')).toBeVisible();
+    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
+    expect(bulkCommentRequests).toBe(0);
+    expect(individualCommentRequests).toBe(0);
+  });
+
+  test('startup server snapshot fetches missing comments in bulk', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-bulk-comments-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Loaded with bulk comments',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let bulkCommentRequests = 0;
+    let individualCommentRequests = 0;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/github/rest/comments/bulk', async (route) => {
+      bulkCommentRequests += 1;
+      const body = route.request().postDataJSON();
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0]).toMatchObject({
+        key: 'server-bulk-comments-1',
+        owner: 'test',
+        repo: 'repo',
+        number: 42,
+        is_pr: false,
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          threads: {
+            'server-bulk-comments-1': {
+              comments: [
+                {
+                  id: 1002,
+                  body: 'Fetched in bulk',
+                  created_at: '2024-12-27T12:00:00Z',
+                  updated_at: '2024-12-27T12:00:00Z',
+                  user: { login: 'commenter' },
+                },
+              ],
+              allComments: true,
+            },
+          },
+        }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      individualCommentRequests += 1;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+    });
+    await page.reload();
+
+    await expect(page.locator('[data-id="server-bulk-comments-1"]')).toBeVisible();
+    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
+    await expect.poll(() => bulkCommentRequests).toBe(1);
+    expect(individualCommentRequests).toBe(0);
   });
 
   test('startup prefers server snapshot over stale local cache without syncing', async ({ page }) => {
