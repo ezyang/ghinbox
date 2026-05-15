@@ -29,6 +29,9 @@
   too much about unexpected changes, we are running SCM checkpoints regularly.
 - Automatically commit your own changes at logical spots as you work.
 - Prod/debug access:
+  - Do not start a sync against prod unless the user explicitly asks for it.
+    By default, inspect and interact with the server's existing local snapshot
+    state.
   - The server exposes a local Unix domain socket for shell/agent HTTP access at
     `auth_state/ghinbox-debug.sock` by default. It bypasses the site password
     gate and is protected by filesystem permissions; do not proxy it through
