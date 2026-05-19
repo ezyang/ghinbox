@@ -669,7 +669,12 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
     """
     import os
 
-    from ghinbox.api.fetcher import NotificationsFetcher, get_fetcher, set_fetcher
+    from ghinbox.api.fetcher import (
+        NotificationsFetcher,
+        get_fetcher,
+        run_fetcher_call,
+        set_fetcher,
+    )
 
     logger.warning("_initialize_fetcher_after_login called for account: %s", account)
 
@@ -688,7 +693,7 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
     if old_fetcher is not None:
         logger.warning("Closing existing fetcher to re-create with fresh auth state")
         try:
-            old_fetcher.stop()
+            await run_fetcher_call(old_fetcher.stop)
         except Exception as e:
             logger.warning("Error closing old fetcher: %s", e)
         set_fetcher(None)

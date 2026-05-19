@@ -3,6 +3,7 @@ E2E tests for the FastAPI notifications API.
 """
 
 from pathlib import Path
+import asyncio
 import os
 
 import pytest
@@ -10,6 +11,8 @@ from fastapi.testclient import TestClient
 
 from ghinbox.api.app import app
 from ghinbox.api.fetcher import ActionResult, FetchResult
+from ghinbox.api import fetcher as fetcher_module
+from ghinbox.api import login_routes
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -358,6 +361,52 @@ class TestNotificationActions:
         assert actions[0]["notification_ids"][0]["suffix"] == "notif-1"
         assert len(actions[0]["notification_ids"][0]["sha256"]) == 64
         assert "secret-token-123" not in str(actions[0])
+
+
+class TestLoginRefresh:
+    """Tests for refreshing GitHub browser-session auth."""
+
+    def test_initialize_fetcher_stops_old_fetcher_in_worker(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test refresh avoids calling Playwright sync APIs on the event loop."""
+        calls: list[str] = []
+
+        class OldFetcher:
+            def stop(self) -> None:
+                raise AssertionError("stop must be called through run_fetcher_call")
+
+        class NewFetcher:
+            def __init__(self, account: str, headless: bool) -> None:
+                calls.append(f"new:{account}:{headless}")
+
+        async def fake_run_fetcher_call(func, *args, **kwargs):
+            assert func == old_fetcher.stop
+            calls.append("worker-stop")
+
+        stored_fetcher = OldFetcher()
+        old_fetcher = stored_fetcher
+
+        def fake_get_fetcher():
+            return stored_fetcher
+
+        def fake_set_fetcher(fetcher):
+            calls.append(f"set:{type(fetcher).__name__ if fetcher else None}")
+
+        monkeypatch.setattr(fetcher_module, "get_fetcher", fake_get_fetcher)
+        monkeypatch.setattr(fetcher_module, "set_fetcher", fake_set_fetcher)
+        monkeypatch.setattr(fetcher_module, "NotificationsFetcher", NewFetcher)
+        monkeypatch.setattr(fetcher_module, "run_fetcher_call", fake_run_fetcher_call)
+
+        result = asyncio.run(login_routes._initialize_fetcher_after_login("default"))
+
+        assert result is True
+        assert calls == [
+            "worker-stop",
+            "set:None",
+            "new:default:True",
+            "set:NewFetcher",
+        ]
 
 
 class TestParseEndpoint:
