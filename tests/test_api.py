@@ -3,6 +3,7 @@ E2E tests for the FastAPI notifications API.
 """
 
 from pathlib import Path
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -254,6 +255,7 @@ class TestGetRepoNotifications:
         detail = response.json()["detail"]
         assert detail["error"] == "session_expired"
         assert "redirected" in detail["message"]
+        assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"
 
 
 class TestNotificationActions:

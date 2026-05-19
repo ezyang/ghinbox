@@ -148,3 +148,37 @@ def test_snapshot_sync_merges_review_request_search_results(
             "ui": {"saved": False, "done": False, "action_tokens": {}},
         }
     ]
+
+
+def test_snapshot_sync_marks_auth_needed_on_session_expiry(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeFetcher:
+        def fetch_repo_notifications(
+            self,
+            owner: str,
+            repo: str,
+            before: str | None = None,
+            after: str | None = None,
+        ) -> FetchResult:
+            raise AssertionError("run_fetcher_call should invoke this through the shim")
+
+    async def fake_run_fetcher_call(*args, **kwargs) -> FetchResult:
+        return FetchResult(
+            html="<html><title>Sign in to GitHub</title></html>",
+            url="https://github.com/notifications?query=repo:test/repo",
+            status="session_expired",
+            error="GitHub redirected notifications request to login.",
+        )
+
+    monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
+    monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
+
+    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+
+    state = snapshot_routes.get_sync_state("test/repo")
+    assert state["status"] == "error"
+    assert "redirected notifications request to login" in state["error"]
+    assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"

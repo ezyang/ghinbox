@@ -18,6 +18,7 @@ from ghinbox.api.snapshot_store import (
     save_snapshot,
     set_sync_state,
 )
+from ghinbox.api.routes import mark_github_session_expired
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
@@ -195,6 +196,11 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
                 repo=repo,
                 after=after,
             )
+            if result.status == "session_expired":
+                raise SessionExpiredError(
+                    result.error
+                    or "GitHub session has expired. Please re-authenticate."
+                )
             if result.status == "error":
                 raise RuntimeError(result.error or "Failed to fetch from GitHub")
 
@@ -266,6 +272,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
         )
+        mark_github_session_expired()
     except Exception as error:
         set_sync_state(
             repo_key,

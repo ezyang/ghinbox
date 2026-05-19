@@ -3,6 +3,7 @@ FastAPI route handlers for the HTML notifications API.
 """
 
 import time
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -88,6 +89,11 @@ class NotificationReadCommentWatermarkResponse(BaseModel):
     read_comment_watermark_at: str | None
 
 
+def mark_github_session_expired() -> None:
+    """Force the web login flow after GitHub browser-session expiry."""
+    os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+
+
 def _apply_bookmarks(
     response: NotificationsResponse, repo_key: str
 ) -> NotificationsResponse:
@@ -166,6 +172,7 @@ async def get_repo_notifications(
             after=after,
         )
         if result.status == "session_expired":
+            mark_github_session_expired()
             raise HTTPException(
                 status_code=401,
                 detail={
@@ -211,6 +218,7 @@ async def get_repo_notifications(
         )
         return _apply_bookmarks(parsed, f"{owner}/{repo}")
     except SessionExpiredError as e:
+        mark_github_session_expired()
         raise HTTPException(
             status_code=401,
             detail={
