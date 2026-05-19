@@ -2077,6 +2077,32 @@ test.describe('Error Handling @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('timeout');
   });
 
+  test('keeps error status visible when message text is clicked', async ({ page }) => {
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail:
+            'It looks like you are using Playwright Sync API inside the asyncio loop. Please use the Async API instead.',
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    const statusBar = page.locator('#status-bar');
+    await expect(statusBar).toContainText('Playwright Sync API inside the asyncio loop');
+    await expect(statusBar.locator('.status-close-btn')).toBeVisible();
+
+    await statusBar.locator('.status-message').click();
+    await expect(statusBar).toContainText('Playwright Sync API inside the asyncio loop');
+
+    await statusBar.locator('.status-close-btn').click();
+    await expect(statusBar).not.toBeVisible();
+  });
+
   test('loading state is hidden after error', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({

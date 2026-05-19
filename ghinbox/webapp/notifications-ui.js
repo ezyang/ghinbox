@@ -764,21 +764,24 @@
             }
             clearStatusAutoDismiss();
             elements.statusBar.classList.remove('status-pinned');
-            elements.statusBar.textContent = '';
+            elements.statusBar.replaceChildren();
             elements.statusBar.className = 'status-bar';
             state.statusState = null;
             state.lastPersistentStatus = null;
         }
 
-        elements.statusBar.addEventListener('click', () => {
+        elements.statusBar.addEventListener('click', (event) => {
             if (!elements.statusBar.classList.contains('visible')) {
+                return;
+            }
+            if (event.target.closest('.status-close-btn')) {
+                clearStatusBar();
                 return;
             }
             if (elements.statusBar.classList.contains('auto-dismiss')) {
                 freezeStatusAutoDismiss();
-                return;
             }
-            clearStatusBar();
+            event.stopPropagation();
         });
 
         // Show status message
@@ -811,7 +814,17 @@
             }
 
             function applyStatus(nextMessage, nextType, isFlash, flashId) {
-                elements.statusBar.textContent = nextMessage;
+                const messageElement = document.createElement('span');
+                messageElement.className = 'status-message';
+                messageElement.textContent = nextMessage;
+
+                const closeButton = document.createElement('button');
+                closeButton.type = 'button';
+                closeButton.className = 'status-close-btn';
+                closeButton.setAttribute('aria-label', 'Dismiss status');
+                closeButton.textContent = 'X';
+
+                elements.statusBar.replaceChildren(messageElement, closeButton);
                 elements.statusBar.className = `status-bar visible ${nextType}`;
                 state.statusState = {
                     message: nextMessage,
