@@ -43,6 +43,7 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                 CREATE TABLE IF NOT EXISTS notification_snapshots (
                     repo TEXT PRIMARY KEY,
                     data TEXT NOT NULL,
+                    comment_cache TEXT,
                     authenticity_token TEXT,
                     source_url TEXT,
                     generated_at TEXT NOT NULL,
@@ -85,6 +86,17 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                     """
                     ALTER TABLE notification_local_state
                     ADD COLUMN read_comment_watermark_at TEXT
+                    """
+                )
+            snapshot_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(notification_snapshots)")
+            }
+            if "comment_cache" not in snapshot_columns:
+                conn.execute(
+                    """
+                    ALTER TABLE notification_snapshots
+                    ADD COLUMN comment_cache TEXT
                     """
                 )
     finally:
@@ -142,7 +154,7 @@ def get_snapshot(repo: str, db_path: str | None = None) -> dict | None:
     try:
         row = conn.execute(
             """
-            SELECT data, authenticity_token, source_url, generated_at, synced_at
+            SELECT data, comment_cache, authenticity_token, source_url, generated_at, synced_at
             FROM notification_snapshots
             WHERE repo = ?
             """,
@@ -153,6 +165,9 @@ def get_snapshot(repo: str, db_path: str | None = None) -> dict | None:
         notifications = apply_local_state(repo, json.loads(row["data"]), db_path)
         return {
             "notifications": notifications,
+            "comment_cache": (
+                json.loads(row["comment_cache"]) if row["comment_cache"] else None
+            ),
             "authenticity_token": row["authenticity_token"],
             "source_url": row["source_url"],
             "generated_at": row["generated_at"],
@@ -166,6 +181,7 @@ def save_snapshot(
     repo: str,
     notifications: list[dict],
     *,
+    comment_cache: dict | None = None,
     authenticity_token: str | None = None,
     source_url: str | None = None,
     generated_at: str | None = None,
@@ -179,11 +195,12 @@ def save_snapshot(
             conn.execute(
                 """
                 INSERT INTO notification_snapshots (
-                    repo, data, authenticity_token, source_url, generated_at, synced_at
+                    repo, data, comment_cache, authenticity_token, source_url, generated_at, synced_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(repo) DO UPDATE SET
                     data = excluded.data,
+                    comment_cache = excluded.comment_cache,
                     authenticity_token = excluded.authenticity_token,
                     source_url = excluded.source_url,
                     generated_at = excluded.generated_at,
@@ -192,6 +209,7 @@ def save_snapshot(
                 (
                     repo,
                     json.dumps(notifications),
+                    json.dumps(comment_cache) if comment_cache is not None else None,
                     authenticity_token,
                     source_url,
                     generated_at or now,

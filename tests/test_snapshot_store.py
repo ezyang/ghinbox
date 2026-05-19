@@ -38,10 +38,21 @@ def test_snapshot_round_trip(db_path) -> None:
             "subject": {"title": "First", "type": "Issue"},
         }
     ]
+    comment_cache = {
+        "version": 1,
+        "threads": {
+            "notif-1": {
+                "comments": [{"id": 1, "body": "cached"}],
+                "allComments": True,
+                "fetchedAt": "2024-12-27T10:00:02+00:00",
+            }
+        },
+    }
 
     save_snapshot(
         "owner/repo",
         notifications,
+        comment_cache=comment_cache,
         authenticity_token="token",
         source_url="https://github.com/notifications",
         generated_at="2024-12-27T10:00:01+00:00",
@@ -52,6 +63,7 @@ def test_snapshot_round_trip(db_path) -> None:
 
     assert snapshot is not None
     assert snapshot["notifications"] == notifications
+    assert snapshot["comment_cache"] == comment_cache
     assert snapshot["authenticity_token"] == "token"
     assert snapshot["source_url"] == "https://github.com/notifications"
     assert snapshot["generated_at"] == "2024-12-27T10:00:01+00:00"

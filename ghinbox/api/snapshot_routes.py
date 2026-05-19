@@ -9,7 +9,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
-from ghinbox.api.github_proxy import GITHUB_API_BASE, get_client, get_token
+from ghinbox.api.github_proxy import (
+    COMMENT_BULK_CONCURRENCY,
+    GITHUB_API_BASE,
+    _fetch_bulk_comment_item,
+    get_client,
+    get_token,
+)
 from ghinbox.api.snapshot_store import (
     clear_snapshot_store,
     get_snapshot,
@@ -125,6 +131,102 @@ def _merge_review_request_notifications(
             "responsibility_source": "review-requested",
         }
     return merged
+
+
+def _get_comment_fetch_window(notification: dict) -> tuple[str | None, str | None]:
+    subject = notification.get("subject") if isinstance(notification, dict) else {}
+    ui = notification.get("ui") if isinstance(notification, dict) else {}
+    anchor = subject.get("anchor") if isinstance(subject, dict) else None
+    read_comment_watermark_at = (
+        ui.get("read_comment_watermark_at") if isinstance(ui, dict) else None
+    )
+    last_read_at = read_comment_watermark_at or notification.get("last_read_at")
+    return anchor, last_read_at
+
+
+def _notification_to_bulk_comment_item(
+    owner: str,
+    repo: str,
+    notification: dict,
+) -> dict | None:
+    subject = notification.get("subject") if isinstance(notification, dict) else {}
+    if not isinstance(subject, dict):
+        return None
+    number = subject.get("number")
+    if not isinstance(number, int):
+        return None
+    anchor, last_read_at = _get_comment_fetch_window(notification)
+    return {
+        "key": str(notification.get("id") or ""),
+        "owner": owner,
+        "repo": repo,
+        "number": number,
+        "is_pr": subject.get("type") == "PullRequest",
+        "anchor": anchor,
+        "last_read_at": last_read_at,
+    }
+
+
+def _build_comment_cache_entry(
+    notification: dict,
+    result: dict,
+    fetched_at: str,
+) -> dict:
+    anchor, last_read_at = _get_comment_fetch_window(notification)
+    entry = {
+        "notificationUpdatedAt": notification.get("updated_at"),
+        "anchor": anchor,
+        "lastReadAt": last_read_at,
+        "unread": notification.get("unread"),
+        "comments": result.get("comments")
+        if isinstance(result.get("comments"), list)
+        else [],
+        "allComments": bool(result.get("allComments")),
+        "fetchedAt": fetched_at,
+    }
+    if result.get("error"):
+        entry["error"] = result.get("error")
+    return entry
+
+
+async def _fetch_snapshot_comment_cache(
+    owner: str,
+    repo: str,
+    notifications: list[dict],
+) -> dict | None:
+    token = get_token()
+    if not token:
+        return None
+    token_value = token
+    items = [
+        item
+        for notification in notifications
+        if (item := _notification_to_bulk_comment_item(owner, repo, notification))
+        is not None
+    ]
+    if not items:
+        return {"version": 1, "threads": {}}
+
+    client = get_client()
+    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
+
+    async def run_item(item: dict) -> tuple[str, dict]:
+        async with limit:
+            return await _fetch_bulk_comment_item(client, token_value, item)
+
+    results = await asyncio.gather(*(run_item(item) for item in items))
+    notifications_by_key = {
+        str(notification.get("id") or ""): notification
+        for notification in notifications
+    }
+    fetched_at = _now()
+    threads = {}
+    for key, result in results:
+        notification = notifications_by_key.get(key)
+        if not notification:
+            continue
+        threads[key] = _build_comment_cache_entry(notification, result, fetched_at)
+    return {"version": 1, "threads": threads}
 
 
 async def _fetch_review_request_notifications(owner: str, repo: str) -> list[dict]:
@@ -245,9 +347,15 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             key=lambda notification: notification.get("updated_at", ""),
             reverse=True,
         )
+        comment_cache = await _fetch_snapshot_comment_cache(
+            owner,
+            repo,
+            all_notifications,
+        )
         save_snapshot(
             repo_key,
             all_notifications,
+            comment_cache=comment_cache,
             authenticity_token=authenticity_token,
             source_url=source_url,
             generated_at=generated_at,
