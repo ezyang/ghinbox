@@ -88,6 +88,7 @@
             repoInput: document.getElementById('repo-input'),
             syncBtn: document.getElementById('sync-btn'),
             fullSyncBtn: document.getElementById('full-sync-btn'),
+            serverRefreshBtn: document.getElementById('server-refresh-btn'),
             authStatus: document.getElementById('auth-status'),
             orderSelect: document.getElementById('order-select'),
             statusBar: document.getElementById('status-bar'),
@@ -546,6 +547,11 @@
             elements.fullSyncBtn.addEventListener('click', () => {
                 withActionContext('Full Sync', handleServerFullSync);
             });
+            if (elements.serverRefreshBtn) {
+                elements.serverRefreshBtn.addEventListener('click', () => {
+                    withActionContext('Server Refresh', handleServerSnapshotRefresh);
+                });
+            }
             elements.repoInput.addEventListener('input', handleRepoInput);
             elements.repoInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {

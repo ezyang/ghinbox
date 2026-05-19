@@ -806,6 +806,42 @@
                 render();
             }
         }
+
+        async function handleServerSnapshotRefresh() {
+            const repo = elements.repoInput.value.trim();
+            const parsed = parseRepoInput(repo);
+            if (!parsed) {
+                showStatus(repo ? 'Invalid format. Use owner/repo' : 'Please enter a repository (owner/repo)', 'error');
+                return;
+            }
+            if (state.loading) {
+                return;
+            }
+
+            state.repo = repo;
+            localStorage.setItem('ghnotif_repo', repo);
+            state.loading = true;
+            state.error = null;
+            render();
+            showStatus(`Loading server snapshot for ${repo}...`, 'info', { flash: true });
+
+            try {
+                const applied = await loadServerSnapshotOnInit({ forceApply: true });
+                if (applied) {
+                    showStatus(`Loaded ${state.notifications.length} notifications from server snapshot`, 'success');
+                    render();
+                    return;
+                }
+                showStatus('No server snapshot available', 'info');
+            } catch (error) {
+                const message = error.message || String(error);
+                state.error = message;
+                showStatus(`Server Refresh failed: ${message}`, 'error');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
         // Check authentication status
         const AUTH_CACHE_KEY = 'ghnotif_auth_cache';
         const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes

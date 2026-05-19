@@ -1207,6 +1207,108 @@ test.describe('Sync Functionality @slow @sync', () => {
     expect(htmlFetchCalled).toBe(false);
   });
 
+  test('server refresh applies server snapshot without syncing GitHub', async ({ page }) => {
+    const staleNotification = {
+      id: 'server-refresh-stale-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-26T12:00:00Z',
+      subject: {
+        title: 'Stale local notification',
+        url: 'https://github.com/test/repo/issues/41',
+        type: 'Issue',
+        number: 41,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    const snapshotNotification = {
+      id: 'server-refresh-current-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Current server snapshot notification',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let snapshotFetched = false;
+    let serveSnapshot = false;
+    let syncPosted = false;
+    let htmlFetched = false;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      snapshotFetched = true;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: serveSnapshot
+            ? {
+                notifications: [snapshotNotification],
+                authenticity_token: 'server-token',
+                synced_at: '2024-12-27T12:01:00+00:00',
+              }
+            : null,
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      if (route.request().method() === 'POST') {
+        syncPosted = true;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sync: { status: 'idle', mode: 'full' }, snapshot: null }),
+      });
+    });
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      htmlFetched = true;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(emptyResponse),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await seedNotificationsCache(page, [staleNotification]);
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
+    });
+    await page.reload();
+    await expect(page.locator('[data-id="server-refresh-stale-1"]')).toBeVisible();
+
+    snapshotFetched = false;
+    serveSnapshot = true;
+    await page.locator('#server-refresh-btn').click();
+
+    await expect(page.locator('[data-id="server-refresh-current-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="server-refresh-stale-1"]')).toHaveCount(0);
+    await expect(page.locator('#status-bar')).toContainText('Loaded 1 notifications from server snapshot');
+    expect(snapshotFetched).toBe(true);
+    expect(syncPosted).toBe(false);
+    expect(htmlFetched).toBe(false);
+  });
+
   test('loads server snapshot on startup when local cache is empty', async ({ page }) => {
     const snapshotNotification = {
       id: 'server-startup-1',

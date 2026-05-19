@@ -63,6 +63,7 @@ test.describe('UI Shell', () => {
     await expect(page.locator('.app-header h1')).toHaveText('ghinbox');
     await expect(page.locator('#repo-input')).toHaveAttribute('placeholder', 'owner/repo');
     await expect(page.locator('#sync-btn')).toHaveText('Quick Sync');
+    await expect(page.locator('#server-refresh-btn')).toHaveText('Server Refresh');
     await expect(page.locator('#rate-limit-box')).toContainText('Rate limit: core 42/60');
     // GraphQL rate limit is not fetched on init to save rate limit; shows 'unknown' until first sync
     await expect(page.locator('#rate-limit-box')).toContainText('graphql unknown');
