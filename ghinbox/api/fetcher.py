@@ -59,6 +59,7 @@ class ActionResult:
     status: str = "ok"
     error: str | None = None
     response_html: str | None = None
+    github_status_code: int | None = None
 
 
 def _safe_page_value(get_value: Callable[[], Any]) -> str | None:
@@ -490,6 +491,7 @@ class NotificationsFetcher:
                     status="error",
                     error=f"HTTP {status_code}",
                     response_html=content,
+                    github_status_code=status_code,
                 )
 
             lower_content = content.lower()
@@ -498,15 +500,21 @@ class NotificationsFetcher:
                     status="error",
                     error="GitHub returned 422 - token may be invalid or expired",
                     response_html=content,
+                    github_status_code=status_code,
                 )
             if "your browser did something unexpected" in lower_content:
                 return ActionResult(
                     status="error",
                     error="GitHub returned an unexpected error page",
                     response_html=content,
+                    github_status_code=status_code,
                 )
 
-            return ActionResult(status="ok", response_html=content)
+            return ActionResult(
+                status="ok",
+                response_html=content,
+                github_status_code=status_code,
+            )
 
         except Exception as e:
             error_text = f"{type(e).__name__}: {e}"

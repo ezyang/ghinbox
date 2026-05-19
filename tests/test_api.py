@@ -302,6 +302,61 @@ class TestNotificationActions:
             }
         ]
 
+    def test_submit_action_records_sanitized_audit_event(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that action logging records IDs without exposing the token."""
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                assert authenticity_token == "secret-token-123"
+                return ActionResult(status="ok", github_status_code=200)
+
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+
+        clear_response = client.post("/debug/notification-actions/clear")
+        assert clear_response.status_code == 200
+
+        action_response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": ["notif-1", "notif-3"],
+                "authenticity_token": "secret-token-123",
+            },
+        )
+        assert action_response.status_code == 200
+        request_id = action_response.headers["x-ghinbox-request-id"]
+
+        audit_response = client.get("/debug/notification-actions")
+        assert audit_response.status_code == 200
+        actions = audit_response.json()["actions"]
+
+        assert actions == [
+            {
+                "timestamp": actions[0]["timestamp"],
+                "event": "notification_action",
+                "request_id": request_id,
+                "action": "archive",
+                "notification_count": 2,
+                "notification_ids": actions[0]["notification_ids"],
+                "token_present": True,
+                "status": "ok",
+                "error": None,
+                "github_status_code": 200,
+                "duration_ms": actions[0]["duration_ms"],
+            }
+        ]
+        assert actions[0]["notification_ids"][0]["prefix"] == "notif-1"
+        assert actions[0]["notification_ids"][0]["suffix"] == "notif-1"
+        assert len(actions[0]["notification_ids"][0]["sha256"]) == 64
+        assert "secret-token-123" not in str(actions[0])
+
 
 class TestParseEndpoint:
     """Tests for GET /notifications/html/parse."""

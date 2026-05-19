@@ -8,10 +8,12 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi import Request
 from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
 from ghinbox.api.models import NotificationsResponse
+from ghinbox.api.observability import emit_notification_action_audit
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_notification_bookmark,
@@ -315,30 +317,54 @@ async def parse_fixture(
 )
 async def submit_action(
     request: NotificationActionRequest,
+    http_request: Request,
 ) -> NotificationActionResponse:
     """
     Submit a notification action to GitHub.
 
     Requires an active fetcher (server started with --account).
     """
-    fetcher = get_fetcher()
-    if fetcher is None:
-        raise HTTPException(
-            status_code=503,
-            detail="No fetcher configured. Start server with --account to enable actions.",
+    started = time.perf_counter()
+    status = "error"
+    error: str | None = None
+    github_status_code: int | None = None
+
+    try:
+        fetcher = get_fetcher()
+        if fetcher is None:
+            error = (
+                "No fetcher configured. Start server with --account to enable actions."
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=error,
+            )
+
+        result = await run_fetcher_call(
+            fetcher.submit_notification_action,
+            action=request.action,
+            notification_ids=request.notification_ids,
+            authenticity_token=request.authenticity_token,
         )
+        status = result.status
+        error = result.error
+        github_status_code = result.github_status_code
 
-    result = await run_fetcher_call(
-        fetcher.submit_notification_action,
-        action=request.action,
-        notification_ids=request.notification_ids,
-        authenticity_token=request.authenticity_token,
-    )
-
-    return NotificationActionResponse(
-        status=result.status,
-        error=result.error,
-    )
+        return NotificationActionResponse(
+            status=result.status,
+            error=result.error,
+        )
+    finally:
+        emit_notification_action_audit(
+            request_id=http_request.scope.get("ghinbox_request_id"),
+            action=request.action,
+            notification_ids=request.notification_ids,
+            token_present=bool(request.authenticity_token),
+            status=status,
+            error=error,
+            github_status_code=github_status_code,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
 
 
 @router.get(

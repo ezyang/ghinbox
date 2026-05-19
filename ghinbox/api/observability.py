@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import hashlib
 import time
 import uuid
 from collections import deque
@@ -58,6 +59,7 @@ class RecentRequestStore:
 
 
 recent_requests = RecentRequestStore()
+recent_notification_actions = RecentRequestStore()
 
 request_logger = logging.getLogger("ghinbox.requests")
 request_logger.setLevel(logging.INFO)
@@ -118,6 +120,7 @@ class ObservabilityMiddleware:
             return
 
         request_id = str(uuid.uuid4())
+        scope["ghinbox_request_id"] = request_id
         method = scope.get("method", "")
         path = scope.get("path", "")
         query_string = scope.get("query_string", b"").decode("latin-1")
@@ -155,6 +158,48 @@ class ObservabilityMiddleware:
                 request_logger.info(json.dumps(entry, separators=(",", ":")))
 
 
+def _notification_id_fingerprint(notification_id: str) -> dict[str, str]:
+    digest = hashlib.sha256(notification_id.encode("utf-8")).hexdigest()
+    return {
+        "sha256": digest,
+        "prefix": notification_id[:12],
+        "suffix": notification_id[-12:],
+    }
+
+
+def emit_notification_action_audit(
+    *,
+    request_id: str | None,
+    action: str,
+    notification_ids: list[str],
+    token_present: bool,
+    status: str,
+    error: str | None,
+    github_status_code: int | None,
+    duration_ms: float,
+) -> None:
+    """Record a sanitized notification action audit event."""
+    entry: dict[str, Any] = {
+        "timestamp": _utc_now_iso(),
+        "event": "notification_action",
+        "request_id": request_id,
+        "action": action,
+        "notification_count": len(notification_ids),
+        "notification_ids": [
+            _notification_id_fingerprint(notification_id)
+            for notification_id in notification_ids
+        ],
+        "token_present": token_present,
+        "status": status,
+        "error": error,
+        "github_status_code": github_status_code,
+        "duration_ms": round(duration_ms, 2),
+    }
+    recent_notification_actions.add(entry)
+    if request_logger.handlers:
+        request_logger.info(json.dumps(entry, separators=(",", ":")))
+
+
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
@@ -166,6 +211,23 @@ async def debug_requests(limit: int = 50) -> dict[str, Any]:
         "max_recent_requests": recent_requests.maxlen,
         "requests": recent_requests.snapshot(bounded_limit),
     }
+
+
+@router.get("/notification-actions")
+async def debug_notification_actions(limit: int = 50) -> dict[str, Any]:
+    """Return recent sanitized notification action audit events."""
+    bounded_limit = max(1, min(limit, recent_notification_actions.maxlen))
+    return {
+        "max_recent_actions": recent_notification_actions.maxlen,
+        "actions": recent_notification_actions.snapshot(bounded_limit),
+    }
+
+
+@router.post("/notification-actions/clear")
+async def clear_debug_notification_actions() -> dict[str, str]:
+    """Clear the in-memory notification action audit buffer."""
+    recent_notification_actions.clear()
+    return {"status": "ok"}
 
 
 @router.post("/requests/clear")
