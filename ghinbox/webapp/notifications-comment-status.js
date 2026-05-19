@@ -32,7 +32,8 @@
         if (notification.responsibility_source === 'review-requested') {
             return true;
         }
-        return String(notification.reason || '').toLowerCase() === 'review_requested';
+        const reason = String(notification.reason || '').toLowerCase();
+        return reason === 'review_requested' || reason === 'approved';
     }
 
     function getReviewDecision(cached) {
@@ -56,7 +57,8 @@
     function isNeedsReview(notification, cached) {
         return (
             isOpenPullRequest(notification) &&
-            isReviewResponsibility(notification)
+            isReviewResponsibility(notification) &&
+            !isApproved(notification, cached)
         );
     }
 

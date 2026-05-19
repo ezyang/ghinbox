@@ -158,7 +158,8 @@
             if (notification.subject?.type !== 'PullRequest') {
                 return false;
             }
-            return String(notification.reason || '').toLowerCase() === 'review_requested';
+            const reason = String(notification.reason || '').toLowerCase();
+            return reason === 'review_requested' || reason === 'approved';
         }
 
         function isNotificationNeedsReview(notification) {
@@ -172,7 +173,7 @@
             if (!isNotificationReviewResponsibility(notification)) {
                 return false;
             }
-            return true;
+            return !isNotificationApproved(notification);
         }
 
         function isNotificationForCurrentUser(notification) {
@@ -341,8 +342,7 @@
                 return classifier.isNotificationNeedsReview(notif);
             }
             if (stateFilter === 'approved') {
-                return classifier.isNotificationApproved(notif) &&
-                    !classifier.isNotificationReviewResponsibility(notif);
+                return classifier.isNotificationApproved(notif);
             }
             return true;
         });
@@ -568,8 +568,7 @@
                 stateCounts.needsReview++;
             }
             if (
-                classifier.isNotificationApproved(notif) &&
-                !classifier.isNotificationReviewResponsibility(notif)
+                classifier.isNotificationApproved(notif)
             ) {
                 stateCounts.approved++;
             }

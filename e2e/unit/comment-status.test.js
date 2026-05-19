@@ -60,16 +60,17 @@ test('reports pending and error status before comment data is renderable', () =>
   });
 });
 
-test('active review responsibilities stay needs-review despite aggregate review decisions', () => {
+test('approved review responsibilities are approved instead of needs-review', () => {
   const pr = notification('PullRequest', { reason: 'review_requested' });
   const approved = cached({ reviewDecision: 'APPROVED' });
   const changes = cached({ reviewDecision: 'CHANGES_REQUESTED' });
 
   assert.equal(isApproved(pr, approved), true);
   assert.deepEqual(getCommentStatus(pr, approved), {
-    label: 'Needs review',
-    className: 'needs-review',
+    label: 'Approved',
+    className: 'approved',
   });
+  assert.equal(isNeedsReview(pr, approved), false);
   assert.equal(isChangesRequested(pr, changes), true);
   assert.equal(isNeedsReview(pr, changes), true);
 
