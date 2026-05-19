@@ -60,7 +60,8 @@
 
     function getCommentFetchWindow(notification) {
         const anchor = notification?.subject?.anchor || null;
-        const lastReadAt = notification?.last_read_at || null;
+        const lastReadAt =
+            notification?.ui?.read_comment_watermark_at || notification?.last_read_at || null;
         return {
             anchor,
             lastReadAt,

@@ -63,6 +63,7 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                     notification_id TEXT NOT NULL,
                     bookmarked INTEGER NOT NULL DEFAULT 0,
                     replies_muted INTEGER NOT NULL DEFAULT 0,
+                    read_comment_watermark_at TEXT,
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (repo, notification_id)
                 );
@@ -79,6 +80,13 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                     ADD COLUMN replies_muted INTEGER NOT NULL DEFAULT 0
                     """
                 )
+            if "read_comment_watermark_at" not in columns:
+                conn.execute(
+                    """
+                    ALTER TABLE notification_local_state
+                    ADD COLUMN read_comment_watermark_at TEXT
+                    """
+                )
     finally:
         conn.close()
 
@@ -93,7 +101,7 @@ def apply_local_state(
     try:
         rows = conn.execute(
             """
-            SELECT notification_id, bookmarked, replies_muted
+            SELECT notification_id, bookmarked, replies_muted, read_comment_watermark_at
             FROM notification_local_state
             WHERE repo = ?
             """,
@@ -103,18 +111,26 @@ def apply_local_state(
         replies_muted = {
             row["notification_id"] for row in rows if bool(row["replies_muted"])
         }
+        read_comment_watermarks = {
+            row["notification_id"]: row["read_comment_watermark_at"]
+            for row in rows
+            if row["read_comment_watermark_at"]
+        }
     finally:
         conn.close()
 
-    if not bookmarked and not replies_muted:
+    if not bookmarked and not replies_muted and not read_comment_watermarks:
         return notifications
 
     result = []
     for notification in notifications:
         item = dict(notification)
         ui = dict(item.get("ui") or {})
-        ui["bookmarked"] = str(item.get("id")) in bookmarked
-        ui["replies_muted"] = str(item.get("id")) in replies_muted
+        notification_id = str(item.get("id"))
+        ui["bookmarked"] = notification_id in bookmarked
+        ui["replies_muted"] = notification_id in replies_muted
+        if notification_id in read_comment_watermarks:
+            ui["read_comment_watermark_at"] = read_comment_watermarks[notification_id]
         item["ui"] = ui
         result.append(item)
     return result
@@ -290,6 +306,65 @@ def set_notification_replies_muted(
         "repo": repo,
         "notification_id": notification_id,
         "replies_muted": replies_muted,
+        "updated_at": now,
+    }
+
+
+def get_notification_read_comment_watermark(
+    repo: str,
+    notification_id: str,
+    db_path: str | None = None,
+) -> str | None:
+    """Return the local read-comment watermark for a notification."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT read_comment_watermark_at
+            FROM notification_local_state
+            WHERE repo = ? AND notification_id = ?
+            """,
+            (repo, notification_id),
+        ).fetchone()
+        return (
+            str(row["read_comment_watermark_at"])
+            if row and row["read_comment_watermark_at"]
+            else None
+        )
+    finally:
+        conn.close()
+
+
+def set_notification_read_comment_watermark(
+    repo: str,
+    notification_id: str,
+    read_comment_watermark_at: str | None = None,
+    db_path: str | None = None,
+) -> dict:
+    """Persist the timestamp after which comments should be shown."""
+    watermark = read_comment_watermark_at or _now()
+    now = _now()
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO notification_local_state (
+                    repo, notification_id, read_comment_watermark_at, updated_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(repo, notification_id) DO UPDATE SET
+                    read_comment_watermark_at = excluded.read_comment_watermark_at,
+                    updated_at = excluded.updated_at
+                """,
+                (repo, notification_id, watermark, now),
+            )
+    finally:
+        conn.close()
+    return {
+        "repo": repo,
+        "notification_id": notification_id,
+        "read_comment_watermark_at": watermark,
         "updated_at": now,
     }
 

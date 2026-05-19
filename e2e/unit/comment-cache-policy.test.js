@@ -122,6 +122,30 @@ test('freshness helpers accept explicit null metadata and reject stale or absent
     }),
     expected: true,
   },
+  {
+    name: 'read comment watermark overrides GitHub last read time',
+    notification: notification('watermark', {
+      last_read_at: '2026-05-14T10:30:00Z',
+      ui: { read_comment_watermark_at: '2026-05-14T10:45:00Z' },
+    }),
+    cache: cached({
+      lastReadAt: '2026-05-14T10:45:00Z',
+      allComments: false,
+    }),
+    expected: false,
+  },
+  {
+    name: 'changed read comment watermark refreshes comments',
+    notification: notification('watermark-changed', {
+      last_read_at: '2026-05-14T10:30:00Z',
+      ui: { read_comment_watermark_at: '2026-05-14T10:46:00Z' },
+    }),
+    cache: cached({
+      lastReadAt: '2026-05-14T10:45:00Z',
+      allComments: false,
+    }),
+    expected: true,
+  },
 ].forEach((entry) => {
   test(`comment prefetch: ${entry.name}`, () => {
     assert.equal(

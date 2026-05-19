@@ -15,8 +15,10 @@ from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_notification_bookmark,
+    get_notification_read_comment_watermark,
     get_notification_replies_muted,
     set_notification_bookmark,
+    set_notification_read_comment_watermark,
     set_notification_replies_muted,
 )
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
@@ -67,6 +69,21 @@ class NotificationRepliesMutedResponse(BaseModel):
     repo: str
     notification_id: str
     replies_muted: bool
+
+
+class NotificationReadCommentWatermarkRequest(BaseModel):
+    """Request body for local read-comment watermark state."""
+
+    read_comment_watermark_at: str | None = None
+
+
+class NotificationReadCommentWatermarkResponse(BaseModel):
+    """Response from a local read-comment watermark update."""
+
+    status: Literal["ok"]
+    repo: str
+    notification_id: str
+    read_comment_watermark_at: str | None
 
 
 def _apply_bookmarks(
@@ -409,4 +426,51 @@ async def set_replies_muted(
         repo=repo_key,
         notification_id=result["notification_id"],
         replies_muted=result["replies_muted"],
+    )
+
+
+@router.get(
+    "/repo/{owner}/{repo}/read-comment-watermarks/{notification_id}",
+    response_model=NotificationReadCommentWatermarkResponse,
+    summary="Get local read-comment watermark",
+)
+async def get_read_comment_watermark(
+    owner: str,
+    repo: str,
+    notification_id: str,
+) -> NotificationReadCommentWatermarkResponse:
+    repo_key = f"{owner}/{repo}"
+    return NotificationReadCommentWatermarkResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=notification_id,
+        read_comment_watermark_at=get_notification_read_comment_watermark(
+            repo_key,
+            notification_id,
+        ),
+    )
+
+
+@router.put(
+    "/repo/{owner}/{repo}/read-comment-watermarks/{notification_id}",
+    response_model=NotificationReadCommentWatermarkResponse,
+    summary="Set local read-comment watermark",
+)
+async def set_read_comment_watermark(
+    owner: str,
+    repo: str,
+    notification_id: str,
+    request: NotificationReadCommentWatermarkRequest,
+) -> NotificationReadCommentWatermarkResponse:
+    repo_key = f"{owner}/{repo}"
+    result = set_notification_read_comment_watermark(
+        repo_key,
+        notification_id,
+        request.read_comment_watermark_at,
+    )
+    return NotificationReadCommentWatermarkResponse(
+        status="ok",
+        repo=repo_key,
+        notification_id=result["notification_id"],
+        read_comment_watermark_at=result["read_comment_watermark_at"],
     )

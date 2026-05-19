@@ -434,6 +434,7 @@
                     };
                 }
 
+                await persistReadCommentWatermarks(notifIds, notificationLookup);
                 return { success: true };
             } catch (e) {
                 return {
@@ -441,6 +442,51 @@
                     error: e.message || String(e),
                 };
             }
+        }
+
+        async function persistReadCommentWatermarks(notifIds, notificationLookup) {
+            const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
+            if (!repo) {
+                return;
+            }
+            const readAt = new Date().toISOString();
+            const results = await Promise.allSettled(
+                notifIds.map(async (notifId) => {
+                    const notification = notificationLookup?.get(notifId);
+                    if (notification) {
+                        notification.ui = {
+                            ...(notification.ui || {}),
+                            read_comment_watermark_at: readAt,
+                        };
+                    }
+                    const response = await fetch(
+                        `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/read-comment-watermarks/${encodeURIComponent(notifId)}`,
+                        {
+                            method: 'PUT',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                read_comment_watermark_at: readAt,
+                            }),
+                        }
+                    );
+                    if (!response.ok) {
+                        const detail = await response.text();
+                        throw new Error(
+                            `Failed to save read comment watermark (${response.status}): ${detail}`
+                        );
+                    }
+                })
+            );
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.warn(
+                        `[MarkDone] Failed to save read comment watermark for ${notifIds[index]}:`,
+                        result.reason
+                    );
+                }
+            });
         }
 
         async function processDoneBatch(selectedIds, notificationLookup) {
@@ -1018,6 +1064,7 @@
                     return { success: false, error };
                 }
 
+                await persistReadCommentWatermarks([notifId], new Map([[notifId, notif]]));
                 console.log(`[MarkDone] HTML action success for ${notifId}`);
                 return { success: true };
             } catch (e) {
