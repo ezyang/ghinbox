@@ -307,6 +307,40 @@ class TestNotificationActions:
             }
         ]
 
+    def test_submit_action_chunks_large_batches_for_github(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test large Mark done requests are split before posting to GitHub."""
+        calls: list[list[str]] = []
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                assert action == "archive"
+                assert authenticity_token == "token-123"
+                calls.append(notification_ids)
+                return ActionResult(status="ok", github_status_code=200)
+
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+
+        notification_ids = [f"notif-{index}" for index in range(41)]
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": notification_ids,
+                "authenticity_token": "token-123",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [notification_ids[:25], notification_ids[25:]]
+
     def test_submit_action_records_sanitized_audit_event(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

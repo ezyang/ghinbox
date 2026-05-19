@@ -27,6 +27,7 @@ from ghinbox.api.snapshot_store import (
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
+MAX_GITHUB_NOTIFICATION_ACTION_IDS = 25
 
 
 class NotificationActionRequest(BaseModel):
@@ -92,6 +93,10 @@ class NotificationReadCommentWatermarkResponse(BaseModel):
 def mark_github_session_expired() -> None:
     """Force the web login flow after GitHub browser-session expiry."""
     os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+
+
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
 
 
 def _apply_bookmarks(
@@ -348,19 +353,26 @@ async def submit_action(
                 detail=error,
             )
 
-        result = await run_fetcher_call(
-            fetcher.submit_notification_action,
-            action=request.action,
-            notification_ids=request.notification_ids,
-            authenticity_token=request.authenticity_token,
-        )
-        status = result.status
-        error = result.error
-        github_status_code = result.github_status_code
+        notification_id_chunks = _chunks(
+            request.notification_ids,
+            MAX_GITHUB_NOTIFICATION_ACTION_IDS,
+        ) or [[]]
+        for notification_id_chunk in notification_id_chunks:
+            result = await run_fetcher_call(
+                fetcher.submit_notification_action,
+                action=request.action,
+                notification_ids=notification_id_chunk,
+                authenticity_token=request.authenticity_token,
+            )
+            status = result.status
+            error = result.error
+            github_status_code = result.github_status_code
+            if result.status != "ok":
+                break
 
         return NotificationActionResponse(
-            status=result.status,
-            error=result.error,
+            status=status,
+            error=error,
         )
     finally:
         emit_notification_action_audit(
