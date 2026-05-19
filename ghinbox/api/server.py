@@ -20,6 +20,7 @@ import uvicorn
 from uvicorn import Config, Server
 from uvicorn.main import STARTUP_FAILURE
 from uvicorn.supervisors import ChangeReload
+from uvicorn.supervisors.statreload import StatReload
 
 from ghinbox.auth import (
     has_valid_auth,
@@ -31,6 +32,47 @@ from ghinbox.auth import (
 from ghinbox.token import has_token, provision_token, verify_token
 
 DEFAULT_DEBUG_SOCKET_PATH = Path("auth_state") / "ghinbox-debug.sock"
+RELOAD_FILE_SUFFIXES = frozenset({".py", ".html", ".js", ".css"})
+RELOAD_EXCLUDED_DIRS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "__pycache__",
+        "auth_state",
+        "logs",
+        "node_modules",
+        "playwright-report",
+        "test-results",
+    }
+)
+
+
+def _iter_reload_files(reload_dirs: list[Path]) -> list[Path]:
+    """Find source files watched by the stat-based autoreloader."""
+    files: list[Path] = []
+    for reload_dir in reload_dirs:
+        if not reload_dir.is_dir():
+            continue
+        for root, dirs, filenames in os.walk(reload_dir):
+            dirs[:] = [
+                dirname for dirname in dirs if dirname not in RELOAD_EXCLUDED_DIRS
+            ]
+            root_path = Path(root)
+            for filename in filenames:
+                path = root_path / filename
+                if path.suffix in RELOAD_FILE_SUFFIXES:
+                    files.append(path.resolve())
+    return files
+
+
+class GhinboxStatReload(StatReload):
+    """Stat-based reloader that also watches web source files."""
+
+    def iter_py_files(self):  # type: ignore[no-untyped-def]
+        yield from _iter_reload_files(self.config.reload_dirs)
 
 
 def _is_source_checkout() -> bool:
@@ -100,7 +142,10 @@ def _run_uvicorn(
         print(f"Debug socket: {debug_socket_path}")
 
         if config.should_reload:
-            ChangeReload(config, target=server.run, sockets=sockets).run()
+            reload_supervisor = (
+                GhinboxStatReload if ChangeReload is StatReload else ChangeReload
+            )
+            reload_supervisor(config, target=server.run, sockets=sockets).run()
         else:
             server.run(sockets=sockets)
     except KeyboardInterrupt:
