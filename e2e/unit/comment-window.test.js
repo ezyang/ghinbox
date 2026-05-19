@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   extractCommentIdFromAnchor,
   filterCommentsByAnchor,
+  filterCommentsByLastReadAt,
   getCommentWindowComments,
   getRenderableCommentState,
   isCommentTooOld,
@@ -94,6 +95,26 @@ test('uses anchor slicing only when cached comments include all comments', () =>
   assert.deepEqual(
     ids(getCommentWindowComments(notif, { allComments: false, comments })),
     [1, 2]
+  );
+});
+
+test('uses last-read slicing when all-comments cache has no anchor', () => {
+  const notif = notification('PullRequest', {
+    last_read_at: '2025-01-03T00:00:00Z',
+  });
+  const comments = [
+    comment(1, 'alice', 'Already read comment', {
+      updated_at: '2025-01-02T00:00:00Z',
+    }),
+    comment(2, 'bob', 'Unread comment', {
+      updated_at: '2025-01-03T00:00:01Z',
+    }),
+  ];
+
+  assert.deepEqual(ids(filterCommentsByLastReadAt(comments, notif.last_read_at)), [2]);
+  assert.deepEqual(
+    ids(getCommentWindowComments(notif, { allComments: true, comments })),
+    [2]
   );
 });
 

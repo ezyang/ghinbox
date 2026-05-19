@@ -66,10 +66,33 @@
         return anchorIndex === -1 ? comments : comments.slice(anchorIndex);
     }
 
+    function filterCommentsByLastReadAt(comments, lastReadAt) {
+        if (!lastReadAt || !comments || comments.length === 0) {
+            return comments;
+        }
+        const lastReadMs = Date.parse(lastReadAt);
+        if (Number.isNaN(lastReadMs)) {
+            return comments;
+        }
+        return comments.filter((comment) => {
+            const timestamp = comment?.updated_at || comment?.created_at;
+            if (!timestamp) {
+                return true;
+            }
+            const commentMs = Date.parse(timestamp);
+            return Number.isNaN(commentMs) || commentMs > lastReadMs;
+        });
+    }
+
     function getCommentWindowComments(notification, cached) {
         const anchor = cached?.anchor || notification?.subject?.anchor || null;
+        const lastReadAt = cached?.lastReadAt || notification?.last_read_at || null;
         const rawComments = cached?.comments || [];
-        return cached?.allComments ? filterCommentsByAnchor(rawComments, anchor) : rawComments;
+        if (!cached?.allComments) {
+            return rawComments;
+        }
+        const anchoredComments = filterCommentsByAnchor(rawComments, anchor);
+        return anchor ? anchoredComments : filterCommentsByLastReadAt(anchoredComments, lastReadAt);
     }
 
     function isCommentTooOld(comment, ageFilter, now = new Date()) {
@@ -138,6 +161,7 @@
     return {
         extractCommentIdFromAnchor,
         filterCommentsByAnchor,
+        filterCommentsByLastReadAt,
         getCommentWindowComments,
         getRenderableCommentState,
         isCommentTooOld,

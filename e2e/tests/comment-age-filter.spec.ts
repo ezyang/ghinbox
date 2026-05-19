@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { clearAppStorage, seedCommentCache } from './storage-utils';
+import { openNotificationsWithCachedData } from './app-fixture';
 
 // Create comments with different ages
 const now = new Date();
@@ -226,5 +227,91 @@ test.describe('Comment Age Filter', () => {
 
     const ageFilter = page.locator('#comment-age-filter-select');
     await expect(ageFilter).toHaveValue('3days');
+  });
+});
+
+test.describe('Comment Age Filter all-comments cache regression', () => {
+  test('does not render already-read all-comments cache entries as age-filtered unread comments', async ({
+    page,
+  }) => {
+    const lastReadAt = new Date('2026-05-19T01:17:50Z');
+    const oldCommentAt = new Date('2026-05-07T19:32:55Z');
+    const unreadBotAt = new Date('2026-05-19T01:17:51Z');
+    const notificationUpdatedAt = new Date('2026-05-19T01:18:00Z').toISOString();
+    const notification = {
+      id: 'thread-all-comments-stale',
+      unread: true,
+      reason: 'mention',
+      updated_at: notificationUpdatedAt,
+      last_read_at: lastReadAt.toISOString(),
+      subject: {
+        title: 'PR with stale all-comments cache',
+        url: 'https://github.com/test/repo/pull/42',
+        type: 'PullRequest',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+      ui: { saved: false, done: false },
+    };
+
+    await openNotificationsWithCachedData(page, {
+      expectedCount: 1,
+      notifications: {
+        source_url: 'https://github.com/notifications?query=repo:test/repo',
+        generated_at: new Date('2026-05-19T01:18:00Z').toISOString(),
+        repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+        notifications: [notification],
+        pagination: {
+          before_cursor: null,
+          after_cursor: null,
+          has_previous: false,
+          has_next: false,
+        },
+      },
+      commentCache: {
+        version: 1,
+        threads: {
+          'thread-all-comments-stale': {
+            notificationUpdatedAt,
+            lastReadAt: lastReadAt.toISOString(),
+            unread: true,
+            allComments: true,
+            fetchedAt: new Date().toISOString(),
+            comments: [
+              {
+                id: 1,
+                user: { login: 'alice' },
+                body: 'Old human PR body that should already be read',
+                created_at: oldCommentAt.toISOString(),
+                updated_at: oldCommentAt.toISOString(),
+                isIssue: true,
+              },
+              {
+                id: 2,
+                user: { login: 'pytorch-bot[bot]' },
+                body: '<!-- drci-comment-start -->',
+                created_at: oldCommentAt.toISOString(),
+                updated_at: unreadBotAt.toISOString(),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await page.evaluate(() => {
+      localStorage.setItem('ghnotif_comment_expand_issues', 'true');
+      localStorage.setItem('ghnotif_comment_age_filter', '1day');
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator('[data-id="thread-all-comments-stale"]')).toBeVisible();
+    await expect(page.locator('[data-id="thread-all-comments-stale"] .comment-tag')).toContainText(
+      'Only you or bots (1)'
+    );
+    await expect(page.locator('.comment-item')).toHaveText('No interesting unread comments found.');
+    await expect(page.locator('.comment-item')).not.toContainText('All comments filtered by age.');
   });
 });

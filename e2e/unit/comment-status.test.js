@@ -192,3 +192,29 @@ test('uses anchor-windowed comments for counts', () => {
     className: 'uninteresting',
   });
 });
+
+test('uses last-read-windowed all-comments cache for counts', () => {
+  const notif = notification('PullRequest', {
+    last_read_at: '2025-01-03T00:00:00Z',
+  });
+  const status = getCommentStatus(
+    notif,
+    cached({
+      allComments: true,
+      lastReadAt: '2025-01-03T00:00:00Z',
+      comments: [
+        comment(1, 'alice', 'Old human comment', {
+          updated_at: '2025-01-02T00:00:00Z',
+        }),
+        comment(2, 'dependabot[bot]', 'Unread bot note', {
+          updated_at: '2025-01-03T00:00:01Z',
+        }),
+      ],
+    })
+  );
+
+  assert.deepEqual(status, {
+    label: 'Bot comments only (1)',
+    className: 'uninteresting',
+  });
+});
