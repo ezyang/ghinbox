@@ -775,9 +775,9 @@ function getDiffstatInfo(notification) {
 }
 
 function getCommentItems(notification) {
-    const isIssue = notification.subject?.type === 'Issue';
-    const isPR = notification.subject?.type === 'PullRequest';
-    const shouldExpand = (isIssue && state.commentExpandIssues) || (isPR && state.commentExpandPrs);
+    const shouldExpand =
+        (state.view === 'issues' && state.commentExpandIssues) ||
+        (state.view !== 'issues' && state.commentExpandPrs);
     if (!shouldExpand) {
         return '';
     }

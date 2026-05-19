@@ -427,6 +427,28 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
   });
 
+  test('comment expansion follows Feed and Replies queues instead of issue and PR types', async ({
+    page,
+  }) => {
+    await expect(page.locator('label[for="comment-expand-issues-toggle"]')).toContainText(
+      'Show Feed comments'
+    );
+    await expect(page.locator('label[for="comment-expand-prs-toggle"]')).toContainText(
+      'Show Replies comments'
+    );
+
+    await page.locator('#comment-expand-issues-toggle').uncheck();
+    await page.locator('#comment-expand-prs-toggle').check();
+
+    await expect(page.locator('[data-id="main-thread-later-chatter"] .comment-item')).toHaveCount(0);
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="mid-thread-mention"]')).toBeVisible();
+    await expect(page.locator('[data-id="mid-thread-mention"] .comment-item')).toContainText(
+      '@testuser can you take a look at this?'
+    );
+  });
+
   test('moves generic participation replies back to Feed without unsubscribing', async ({
     page,
   }) => {
