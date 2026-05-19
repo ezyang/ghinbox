@@ -1199,7 +1199,7 @@ test.describe('Sync Functionality @slow @sync', () => {
     await page.locator('#full-sync-btn').click();
 
     await expect.poll(() => runningStatusPolled).toBe(true);
-    await expect(page.locator('#status-bar')).not.toContainText('Full Sync running on server', { timeout: 1200 });
+    await expect(page.locator('#status-bar')).toContainText('Full Sync running on server', { timeout: 1200 });
     finishSync!();
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
     await expect(page.locator('[data-id="server-1"]')).toBeVisible();

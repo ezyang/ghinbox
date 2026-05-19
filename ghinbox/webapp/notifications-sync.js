@@ -744,6 +744,18 @@
                 const data = await response.json();
                 const sync = data.sync || {};
                 if (sync.status === 'running') {
+                    const details = [];
+                    if (Number.isFinite(sync.pages_fetched)) {
+                        details.push(`${sync.pages_fetched} pages`);
+                    }
+                    if (Number.isFinite(sync.notifications_count)) {
+                        details.push(`${sync.notifications_count} notifications`);
+                    }
+                    const detailText = details.length > 0 ? ` (${details.join(', ')})` : '';
+                    showStatus(
+                        `Full Sync running on server for ${repo.owner}/${repo.repo}${detailText}...`,
+                        'info'
+                    );
                     await new Promise(resolve => setTimeout(resolve, 1500));
                     continue;
                 }
@@ -791,6 +803,7 @@
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
+                showStatus(`Full Sync running on server for ${repo}...`, 'info');
                 await pollServerSync(parsed);
             } catch (error) {
                 const message = error.message || String(error);
