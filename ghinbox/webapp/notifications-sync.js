@@ -442,7 +442,6 @@
                 'is:pr',
                 'is:open',
                 'user-review-requested:@me',
-                '-review:approved',
             ].join(' ');
             return `/github/rest/search/issues?q=${encodeURIComponent(query)}&per_page=100`;
         }

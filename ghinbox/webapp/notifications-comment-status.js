@@ -56,9 +56,7 @@
     function isNeedsReview(notification, cached) {
         return (
             isOpenPullRequest(notification) &&
-            isReviewResponsibility(notification) &&
-            !isApproved(notification, cached) &&
-            !isChangesRequested(notification, cached)
+            isReviewResponsibility(notification)
         );
     }
 
@@ -104,6 +102,23 @@
 
         const comments = getStatusComments(notification, cached);
         const count = comments.length;
+        const directReplies = commentInterest.getDirectReviewThreadReplies(
+            comments,
+            options.currentUserLogin
+        );
+        if (directReplies.length > 0) {
+            return {
+                label: directReplies.length === 1
+                    ? 'Reply to you'
+                    : `Replies to you (${directReplies.length})`,
+                className: 'interesting',
+            };
+        }
+
+        if (isNeedsReview(notification, cached)) {
+            return { label: 'Needs review', className: 'needs-review' };
+        }
+
         if (isApproved(notification, cached)) {
             return { label: 'Approved', className: 'approved' };
         }
@@ -121,23 +136,6 @@
                 label: count > 0 ? `${reasonLabel} (${count})` : reasonLabel,
                 className: 'uninteresting',
             };
-        }
-
-        const directReplies = commentInterest.getDirectReviewThreadReplies(
-            comments,
-            options.currentUserLogin
-        );
-        if (directReplies.length > 0) {
-            return {
-                label: directReplies.length === 1
-                    ? 'Reply to you'
-                    : `Replies to you (${directReplies.length})`,
-                className: 'interesting',
-            };
-        }
-
-        if (isNeedsReview(notification, cached)) {
-            return { label: 'Needs review', className: 'needs-review' };
         }
 
         return { label: `Interesting (${count})`, className: 'interesting' };

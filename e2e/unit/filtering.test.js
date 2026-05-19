@@ -42,9 +42,7 @@ const baseDeps = {
   isNotificationApproved: (notification) => notification.id === 'approved-pr',
   isNotificationChangesRequested: (notification) => notification.id === 'changes-requested-pr',
   isNotificationReviewResponsibility: (notification) =>
-    notification.reason === 'review_requested' ||
-    notification.id === 'approved-pr' ||
-    notification.id === 'changes-requested-pr',
+    notification.reason === 'review_requested',
   isNotificationFromCommitter: (notification) => notification.id === 'review-pr',
   hasNotificationAuthorPermission: (notification) =>
     notification.id === 'review-pr' || notification.id === 'external-pr',
@@ -93,10 +91,10 @@ test('normalizes persisted legacy and partial view filters', () => {
 
 test('classifies notifications into view counts', () => {
   assert.deepEqual(getViewCounts(input()), {
-    issues: 3,
+    issues: 5,
     myPrs: 1,
     prNotifications: 1,
-    othersPrs: 6,
+    othersPrs: 4,
     trash: 0,
   });
 });
@@ -106,13 +104,13 @@ test('classifies notifications into view counts', () => {
     name: 'feed hides review responsibility and replies',
     view: 'issues',
     filters: {},
-    expected: ['issue-open', 'issue-closed', 'my-pr'],
+    expected: ['issue-open', 'issue-closed', 'my-pr', 'approved-pr', 'changes-requested-pr'],
   },
   {
     name: 'feed open filter includes open issues and own open PRs',
     view: 'issues',
     filters: { issues: { state: 'open' } },
-    expected: ['issue-open', 'my-pr'],
+    expected: ['issue-open', 'my-pr', 'approved-pr', 'changes-requested-pr'],
   },
   {
     name: 'feed closed filter includes closed issues',
@@ -121,16 +119,16 @@ test('classifies notifications into view counts', () => {
     expected: ['issue-closed'],
   },
   {
-    name: 'reviews needs-review excludes approved, draft, merged, and changes-requested PRs',
+    name: 'reviews needs-review follows active review responsibility, not aggregate review decision',
     view: 'others-prs',
     filters: { 'others-prs': { state: 'needs-review' } },
     expected: ['review-pr', 'external-pr'],
   },
   {
-    name: 'reviews done filter matches draft, closed, and changes-requested review requests',
+    name: 'reviews done filter matches draft and closed review requests',
     view: 'others-prs',
     filters: { 'others-prs': { state: 'done' } },
-    expected: ['draft-pr', 'merged-pr', 'changes-requested-pr'],
+    expected: ['draft-pr', 'merged-pr'],
   },
   {
     name: 'reviews author filter separates committers',
@@ -175,7 +173,7 @@ test('sorts review notifications by size with stable nulls last', () => {
       viewFilters: normalizeViewFilters({ 'others-prs': { state: 'all' } }),
       orderBy: 'size',
     }))),
-    ['approved-pr', 'review-pr', 'draft-pr', 'merged-pr', 'changes-requested-pr', 'external-pr']
+    ['review-pr', 'draft-pr', 'merged-pr', 'external-pr']
   );
 });
 
@@ -195,7 +193,7 @@ test('computes subfilter counts after cross-filters', () => {
     approved: 0,
   });
   assert.deepEqual(counts.author, {
-    all: 6,
+    all: 4,
     committer: 1,
     external: 1,
   });

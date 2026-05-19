@@ -28,9 +28,7 @@ def db_path(monkeypatch: pytest.MonkeyPatch):
 def test_review_request_search_query_matches_client() -> None:
     query = snapshot_routes._build_review_request_search_query("pytorch", "pytorch")
 
-    assert query == (
-        "repo:pytorch/pytorch is:pr is:open user-review-requested:@me -review:approved"
-    )
+    assert query == "repo:pytorch/pytorch is:pr is:open user-review-requested:@me"
 
 
 def test_search_item_becomes_synthetic_review_request_notification() -> None:

@@ -135,8 +135,8 @@ test.describe('PR responsibility queue @classification @mutation', () => {
       expect(decodeURIComponent(route.request().url())).toContain(
         'user-review-requested:@me'
       );
-      expect(decodeURIComponent(route.request().url())).toContain(
-        '-review:approved'
+      expect(decodeURIComponent(route.request().url())).not.toContain(
+        'review:approved'
       );
       route.fulfill({
         status: 200,
@@ -258,7 +258,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     expect(actionBody?.notification_ids).toEqual(['notif-review-10']);
   });
 
-  test('shows review-requested PRs without notifications and buckets approved or done PRs', async ({
+  test('keeps active review-requested PRs in needs-review despite aggregate review decisions', async ({
     page,
   }) => {
     await page.locator('#repo-input').fill('test/repo');
@@ -269,17 +269,18 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     const stateFilters = page.locator(
       '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
     );
-    await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
-    await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('1');
+    await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('3');
+    await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('0');
+    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('0');
 
     await stateFilters.locator('[data-subfilter="needs-review"]').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('.notification-item')).toHaveCount(3);
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#11"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#12"]')).toBeVisible();
 
     await stateFilters.locator('[data-subfilter="done"]').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
-    await expect(page.locator('[data-id="review-request:test/repo#12"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
   test('remove me exits a synthetic responsibility item without notification actions', async ({

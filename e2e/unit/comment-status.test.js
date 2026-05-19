@@ -60,18 +60,24 @@ test('reports pending and error status before comment data is renderable', () =>
   });
 });
 
-test('classifies approved and changes-requested review decisions for open PRs only', () => {
+test('active review responsibilities stay needs-review despite aggregate review decisions', () => {
   const pr = notification('PullRequest', { reason: 'review_requested' });
   const approved = cached({ reviewDecision: 'APPROVED' });
   const changes = cached({ reviewDecision: 'CHANGES_REQUESTED' });
 
   assert.equal(isApproved(pr, approved), true);
   assert.deepEqual(getCommentStatus(pr, approved), {
+    label: 'Needs review',
+    className: 'needs-review',
+  });
+  assert.equal(isChangesRequested(pr, changes), true);
+  assert.equal(isNeedsReview(pr, changes), true);
+
+  const mention = notification('PullRequest', { reason: 'mention' });
+  assert.deepEqual(getCommentStatus(mention, approved), {
     label: 'Approved',
     className: 'approved',
   });
-  assert.equal(isChangesRequested(pr, changes), true);
-  assert.equal(isNeedsReview(pr, changes), false);
 
   const closed = notification('PullRequest', {
     reason: 'review_requested',

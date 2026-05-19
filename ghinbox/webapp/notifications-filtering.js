@@ -172,12 +172,6 @@
             if (!isNotificationReviewResponsibility(notification)) {
                 return false;
             }
-            if (isNotificationApproved(notification)) {
-                return false;
-            }
-            if (isNotificationChangesRequested(notification)) {
-                return false;
-            }
             return true;
         }
 
@@ -198,9 +192,7 @@
             return notification.subject?.type === 'PullRequest' &&
                 (
                     isSyntheticResponsibilityNotification(notification) ||
-                    isNotificationReviewResponsibility(notification) ||
-                    isNotificationApproved(notification) ||
-                    isNotificationChangesRequested(notification)
+                    isNotificationReviewResponsibility(notification)
                 );
         }
 
@@ -343,14 +335,14 @@
             if (stateFilter === 'done') {
                 return notifState === 'draft' ||
                     notifState === 'closed' ||
-                    notifState === 'merged' ||
-                    classifier.isNotificationChangesRequested(notif);
+                    notifState === 'merged';
             }
             if (stateFilter === 'needs-review') {
                 return classifier.isNotificationNeedsReview(notif);
             }
             if (stateFilter === 'approved') {
-                return classifier.isNotificationApproved(notif);
+                return classifier.isNotificationApproved(notif) &&
+                    !classifier.isNotificationReviewResponsibility(notif);
             }
             return true;
         });
@@ -568,15 +560,17 @@
             if (
                 notifState === 'draft' ||
                 notifState === 'closed' ||
-                notifState === 'merged' ||
-                classifier.isNotificationChangesRequested(notif)
+                notifState === 'merged'
             ) {
                 stateCounts.done++;
             }
             if (classifier.isNotificationNeedsReview(notif)) {
                 stateCounts.needsReview++;
             }
-            if (classifier.isNotificationApproved(notif)) {
+            if (
+                classifier.isNotificationApproved(notif) &&
+                !classifier.isNotificationReviewResponsibility(notif)
+            ) {
                 stateCounts.approved++;
             }
         });

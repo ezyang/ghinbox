@@ -54,7 +54,6 @@ def _build_review_request_search_query(owner: str, repo: str) -> str:
             "is:pr",
             "is:open",
             "user-review-requested:@me",
-            "-review:approved",
         ]
     )
 
