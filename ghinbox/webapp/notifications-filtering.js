@@ -30,6 +30,23 @@
     };
 
     const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'];
+    const VALID_STATE_BY_VIEW = {
+        'issues': new Set(['all', 'open', 'closed']),
+        'my-prs': new Set(['all']),
+        'pr-notifications': new Set(['all', 'open', 'closed']),
+        'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
+        'cleaned': new Set(['all']),
+    };
+
+    function normalizeStateFilter(view, stateFilter) {
+        if (view === 'others-prs' && (stateFilter === 'draft' || stateFilter === 'closed')) {
+            return 'done';
+        }
+        if (VALID_STATE_BY_VIEW[view]?.has(stateFilter)) {
+            return stateFilter;
+        }
+        return DEFAULT_VIEW_FILTERS[view]?.state || 'all';
+    }
 
     function cloneDefaultViewFilters() {
         return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
@@ -43,7 +60,7 @@
         VIEW_NAMES.forEach((view) => {
             const value = raw[view];
             if (typeof value === 'string') {
-                normalized[view].state = value;
+                normalized[view].state = normalizeStateFilter(view, value);
                 return;
             }
             if (value && typeof value === 'object') {
@@ -51,6 +68,7 @@
                     ...normalized[view],
                     ...value,
                 };
+                normalized[view].state = normalizeStateFilter(view, normalized[view].state);
             }
         });
         return normalized;
@@ -322,6 +340,12 @@
             if (stateFilter === 'draft') {
                 return notifState === 'draft';
             }
+            if (stateFilter === 'done') {
+                return notifState === 'draft' ||
+                    notifState === 'closed' ||
+                    notifState === 'merged' ||
+                    classifier.isNotificationChangesRequested(notif);
+            }
             if (stateFilter === 'needs-review') {
                 return classifier.isNotificationNeedsReview(notif);
             }
@@ -477,6 +501,7 @@
                     open: 0,
                     closed: 0,
                     draft: 0,
+                    done: 0,
                     needsReview: 0,
                     approved: 0,
                 },
@@ -504,6 +529,7 @@
             open: 0,
             closed: 0,
             draft: 0,
+            done: 0,
             needsReview: 0,
             approved: 0,
         };
@@ -538,6 +564,14 @@
             }
             if (notifState === 'draft') {
                 stateCounts.draft++;
+            }
+            if (
+                notifState === 'draft' ||
+                notifState === 'closed' ||
+                notifState === 'merged' ||
+                classifier.isNotificationChangesRequested(notif)
+            ) {
+                stateCounts.done++;
             }
             if (classifier.isNotificationNeedsReview(notif)) {
                 stateCounts.needsReview++;
@@ -603,8 +637,7 @@
         } else if (view === 'others-prs') {
             options.push({ value: 'needs-review', label: 'Needs review' });
             options.push({ value: 'approved', label: 'Approved' });
-            options.push({ value: 'draft', label: 'Draft' });
-            options.push({ value: 'closed', label: 'Closed' });
+            options.push({ value: 'done', label: 'Done' });
         }
         return options;
     }

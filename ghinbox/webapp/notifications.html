@@ -863,17 +863,10 @@
                         </button>
                         <button
                             class="subfilter-tab"
-                            data-subfilter="draft"
+                            data-subfilter="done"
                             aria-pressed="false"
                         >
-                            Draft <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="closed"
-                            aria-pressed="false"
-                        >
-                            Closed <span class="count">0</span>
+                            Done <span class="count">0</span>
                         </button>
                     </nav>
                     <nav class="subfilter-tabs hidden" role="group" aria-label="Filter reviews by author" data-for-view="others-prs" data-subfilter-group="author">
@@ -1101,7 +1094,7 @@
                 'issues': new Set(['all', 'open', 'closed']),
                 'my-prs': new Set(['all']),
                 'pr-notifications': new Set(['all', 'open', 'closed']),
-                'others-prs': new Set(['all', 'needs-review', 'approved', 'draft', 'closed']),
+                'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
                 'cleaned': new Set(['all']),
             };
             const VALID_AUTHOR = new Set(['all', 'committer', 'external']);
@@ -1121,6 +1114,16 @@
                 'cleaned': { state: 'cleaned_state', order: 'cleaned_order' },
             };
 
+            function normalizeStateFilter(view, stateFilter) {
+                if (view === 'others-prs' && (stateFilter === 'draft' || stateFilter === 'closed')) {
+                    return 'done';
+                }
+                if (VALID_STATE_BY_VIEW[view]?.has(stateFilter)) {
+                    return stateFilter;
+                }
+                return DEFAULT_VIEW_FILTERS[view]?.state || 'all';
+            }
+
             function cloneDefaults() {
                 return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
             }
@@ -1133,7 +1136,7 @@
                 ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].forEach((view) => {
                     const value = raw[view];
                     if (typeof value === 'string') {
-                        normalized[view].state = value;
+                        normalized[view].state = normalizeStateFilter(view, value);
                         return;
                     }
                     if (value && typeof value === 'object') {
@@ -1141,6 +1144,7 @@
                             ...normalized[view],
                             ...value,
                         };
+                        normalized[view].state = normalizeStateFilter(view, normalized[view].state);
                     }
                 });
                 return normalized;
@@ -1269,8 +1273,8 @@
                     const config = VIEW_QUERY_KEYS[viewName];
                     const stateParam = params.get(config.state) ||
                         (viewName === normalizedView ? legacyState : null);
-                    if (stateParam && VALID_STATE_BY_VIEW[viewName]?.has(stateParam)) {
-                        filters[viewName].state = stateParam;
+                    if (stateParam) {
+                        filters[viewName].state = normalizeStateFilter(viewName, stateParam);
                         hasFilterParams = true;
                     }
 

@@ -331,8 +331,8 @@ test.describe('Triage queues @classification @mutation', () => {
     // Not visible in Needs Review subfilter (default for Others' PRs)
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
-    // Not visible in Closed subfilter
-    await othersPrsSubfilters.locator('[data-subfilter="closed"]').click();
+    // Not visible in Done subfilter
+    await othersPrsSubfilters.locator('[data-subfilter="done"]').click();
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
     // Visible in Approved subfilter

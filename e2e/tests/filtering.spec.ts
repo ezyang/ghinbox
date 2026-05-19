@@ -125,8 +125,9 @@ test.describe('Filtering @classification', () => {
       await expect(othersPrsAuthor).not.toHaveClass(/hidden/);
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"]')).toBeVisible();
       await expect(othersPrsStatus.locator('[data-subfilter="approved"]')).toBeVisible();
-      await expect(othersPrsStatus.locator('[data-subfilter="draft"]')).toBeVisible();
-      await expect(othersPrsStatus.locator('[data-subfilter="closed"]')).toBeVisible();
+      await expect(othersPrsStatus.locator('[data-subfilter="done"]')).toBeVisible();
+      await expect(othersPrsStatus.locator('[data-subfilter="draft"]')).toHaveCount(0);
+      await expect(othersPrsStatus.locator('[data-subfilter="closed"]')).toHaveCount(0);
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"]')).toBeVisible();
       await expect(othersPrsAuthor.locator('[data-subfilter="external"]')).toBeVisible();
     });
@@ -262,8 +263,7 @@ test.describe('Filtering @classification', () => {
 
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
       await expect(othersPrsStatus.locator('[data-subfilter="approved"] .count')).toHaveText('0');
-      await expect(othersPrsStatus.locator('[data-subfilter="draft"] .count')).toHaveText('0');
-      await expect(othersPrsStatus.locator('[data-subfilter="closed"] .count')).toHaveText('0');
+      await expect(othersPrsStatus.locator('[data-subfilter="done"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="external"] .count')).toHaveText('0');
     });

@@ -258,7 +258,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     expect(actionBody?.notification_ids).toEqual(['notif-review-10']);
   });
 
-  test('shows review-requested PRs without notifications and excludes approved or changes-requested PRs', async ({
+  test('shows review-requested PRs without notifications and buckets approved or done PRs', async ({
     page,
   }) => {
     await page.locator('#repo-input').fill('test/repo');
@@ -271,10 +271,15 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     );
     await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
     await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
+    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('1');
 
     await stateFilters.locator('[data-subfilter="needs-review"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
+
+    await stateFilters.locator('[data-subfilter="done"]').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="review-request:test/repo#12"]')).toBeVisible();
   });
 
   test('remove me exits a synthetic responsibility item without notification actions', async ({
