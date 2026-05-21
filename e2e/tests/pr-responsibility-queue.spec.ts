@@ -287,6 +287,32 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
+  test('does not use search timestamp as review-request comment watermark', async ({
+    page,
+  }) => {
+    const issueCommentRequests: string[] = [];
+
+    await page.unroute('**/github/rest/repos/test/repo/issues/*/comments*');
+    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
+      issueCommentRequests.push(route.request().url());
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    await expect
+      .poll(() => issueCommentRequests.find((url) => url.includes('/issues/10/comments')))
+      .toBeTruthy();
+    expect(
+      issueCommentRequests.find((url) => url.includes('/issues/10/comments'))
+    ).not.toContain('since=');
+  });
+
   test('remove me exits a synthetic responsibility item without notification actions', async ({
     page,
   }) => {

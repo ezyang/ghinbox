@@ -455,7 +455,7 @@
                 reason: 'review_requested',
                 responsibility_source: 'review-requested',
                 updated_at: item.updated_at || item.created_at || new Date().toISOString(),
-                last_read_at: item.updated_at || item.created_at || null,
+                last_read_at: null,
                 subject: {
                     title: item.title || `Pull request #${item.number}`,
                     url: item.html_url || `https://github.com/${repo.owner}/${repo.repo}/pull/${item.number}`,

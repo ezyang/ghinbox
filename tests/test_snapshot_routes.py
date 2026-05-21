@@ -8,7 +8,11 @@ import pytest
 
 from ghinbox.api import snapshot_routes
 from ghinbox.api.fetcher import FetchResult
-from ghinbox.api.snapshot_store import get_snapshot, init_snapshot_db
+from ghinbox.api.snapshot_store import (
+    get_snapshot,
+    init_snapshot_db,
+    set_notification_read_comment_watermark,
+)
 
 
 @pytest.fixture
@@ -57,6 +61,7 @@ def test_search_item_becomes_synthetic_review_request_notification() -> None:
     assert notification["subject"]["type"] == "PullRequest"
     assert notification["subject"]["number"] == 10
     assert notification["subject"]["state"] == "open"
+    assert notification["last_read_at"] is None
     assert notification["actors"] == [
         {
             "login": "alice",
@@ -100,7 +105,7 @@ def test_snapshot_sync_merges_review_request_search_results(
                 "reason": "review_requested",
                 "responsibility_source": "review-requested",
                 "updated_at": "2025-01-05T12:00:00Z",
-                "last_read_at": "2025-01-05T12:00:00Z",
+                "last_read_at": None,
                 "subject": {
                     "title": "Needs review",
                     "url": "https://github.com/test/repo/pull/10",
@@ -114,12 +119,35 @@ def test_snapshot_sync_merges_review_request_search_results(
             }
         ]
 
+    set_notification_read_comment_watermark(
+        "test/repo",
+        "review-request:test/repo#10",
+        "2025-01-05T11:30:00Z",
+        db_path,
+    )
+    captured_comment_cache_notifications: list[dict] = []
+
+    async def fake_fetch_snapshot_comment_cache(
+        owner: str,
+        repo: str,
+        notifications: list[dict],
+    ) -> dict:
+        assert owner == "test"
+        assert repo == "repo"
+        captured_comment_cache_notifications.extend(notifications)
+        return {"version": 1, "threads": {}}
+
     monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
     monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
     monkeypatch.setattr(
         snapshot_routes,
         "_fetch_review_request_notifications",
         fake_review_requests,
+    )
+    monkeypatch.setattr(
+        snapshot_routes,
+        "_fetch_snapshot_comment_cache",
+        fake_fetch_snapshot_comment_cache,
     )
 
     asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
@@ -133,7 +161,7 @@ def test_snapshot_sync_merges_review_request_search_results(
             "reason": "review_requested",
             "responsibility_source": "review-requested",
             "updated_at": "2025-01-05T12:00:00Z",
-            "last_read_at": "2025-01-05T12:00:00Z",
+            "last_read_at": None,
             "subject": {
                 "title": "Needs review",
                 "url": "https://github.com/test/repo/pull/10",
@@ -143,9 +171,20 @@ def test_snapshot_sync_merges_review_request_search_results(
                 "state_reason": None,
             },
             "actors": [],
-            "ui": {"saved": False, "done": False, "action_tokens": {}},
+            "ui": {
+                "saved": False,
+                "done": False,
+                "action_tokens": {},
+                "bookmarked": False,
+                "replies_muted": False,
+                "read_comment_watermark_at": "2025-01-05T11:30:00Z",
+            },
         }
     ]
+    assert (
+        captured_comment_cache_notifications[0]["ui"]["read_comment_watermark_at"]
+        == "2025-01-05T11:30:00Z"
+    )
 
 
 def test_snapshot_comment_cache_uses_bulk_comment_fetch(

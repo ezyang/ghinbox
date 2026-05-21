@@ -17,6 +17,7 @@ from ghinbox.api.github_proxy import (
     get_token,
 )
 from ghinbox.api.snapshot_store import (
+    apply_local_state,
     clear_snapshot_store,
     get_snapshot,
     get_sync_state,
@@ -75,7 +76,7 @@ def _search_item_to_review_request_notification(
         "reason": "review_requested",
         "responsibility_source": "review-requested",
         "updated_at": updated_at,
-        "last_read_at": item.get("updated_at") or item.get("created_at"),
+        "last_read_at": None,
         "subject": {
             "title": item.get("title") or f"Pull request #{number}",
             "url": item.get("html_url")
@@ -346,10 +347,11 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             key=lambda notification: notification.get("updated_at", ""),
             reverse=True,
         )
+        notifications_for_comment_cache = apply_local_state(repo_key, all_notifications)
         comment_cache = await _fetch_snapshot_comment_cache(
             owner,
             repo,
-            all_notifications,
+            notifications_for_comment_cache,
         )
         save_snapshot(
             repo_key,
