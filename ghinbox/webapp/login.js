@@ -391,22 +391,21 @@
         const urlParams = new URLSearchParams(window.location.search);
         const sessionRefresh = urlParams.get('session_refresh') === '1';
 
-        // Check if we actually need to login (skip if session_refresh requested)
-        if (!sessionRefresh) {
-            try {
-                const authStatus = await checkNeedsLogin();
-                if (!authStatus.needs_login) {
-                    const hasCurrentUser = await checkCurrentUser();
-                    if (hasCurrentUser) {
-                        // Already logged in, redirect
-                        window.location.href = '/app/';
-                        return;
-                    }
+        // Always load the configured account. During session_refresh we still
+        // need to save the refreshed GitHub cookies under the server's account.
+        try {
+            const authStatus = await checkNeedsLogin();
+            currentAccount = authStatus.account || 'default';
+            if (!sessionRefresh && !authStatus.needs_login) {
+                const hasCurrentUser = await checkCurrentUser();
+                if (hasCurrentUser) {
+                    // Already logged in, redirect
+                    window.location.href = '/app/';
+                    return;
                 }
-                currentAccount = authStatus.account || 'default';
-            } catch (e) {
-                // Proceed with login anyway
             }
+        } catch (e) {
+            // Proceed with login anyway
         }
 
         // Set up event listeners

@@ -257,6 +257,54 @@ test.describe('Login Page Navigation', () => {
     await expect(page.locator('#auth-status')).toHaveClass(/authenticated/);
   });
 
+  test('session refresh login uses configured account when starting GitHub login', async ({
+    page,
+  }) => {
+    let startedAccount: string | undefined;
+
+    await page.route('**/auth/needs-login', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          needs_login: false,
+          account: 'work-account',
+        }),
+      });
+    });
+
+    await page.route('**/auth/login/start', async (route) => {
+      const body = route.request().postDataJSON() as { account?: string };
+      startedAccount = body.account;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'initialized',
+          session_id: 'refresh-session',
+        }),
+      });
+    });
+
+    await page.route('**/auth/login/credentials', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'error',
+          error: 'stop after start',
+        }),
+      });
+    });
+
+    await page.goto('login.html?session_refresh=1');
+    await page.locator('#username').fill('testuser');
+    await page.locator('#password').fill('password');
+    await page.locator('#credentials-form button[type="submit"]').click();
+
+    await expect.poll(() => startedAccount).toBe('work-account');
+  });
+
   test('back to login button returns to credentials form', async ({ page }) => {
     // Mock needs-login to keep login page visible
     await page.route('**/auth/needs-login', (route) => {
