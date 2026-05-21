@@ -52,7 +52,7 @@ const notificationBackedReviewRequest = {
 };
 
 const reviewRequestSearch = {
-  total_count: 3,
+  total_count: 4,
   incomplete_results: false,
   items: [
     {
@@ -86,6 +86,17 @@ const reviewRequestSearch = {
       updated_at: '2025-01-05T10:00:00Z',
       created_at: '2025-01-05T08:00:00Z',
       user: { login: 'carol', avatar_url: 'https://avatars.githubusercontent.com/u/3?v=4' },
+      pull_request: {},
+    },
+    {
+      number: 13,
+      title: 'Approved but merge queued',
+      html_url: 'https://github.com/test/repo/pull/13',
+      state: 'open',
+      draft: false,
+      updated_at: '2025-01-05T09:00:00Z',
+      created_at: '2025-01-05T07:00:00Z',
+      user: { login: 'dana', avatar_url: 'https://avatars.githubusercontent.com/u/4?v=4' },
       pull_request: {},
     },
   ],
@@ -198,6 +209,16 @@ test.describe('PR responsibility queue @classification @mutation', () => {
                   deletions: 3,
                   changedFiles: 2,
                   author: { login: 'carol' },
+                  labels: { nodes: [] },
+                },
+                pr13: {
+                  reviewDecision: 'APPROVED',
+                  authorAssociation: 'CONTRIBUTOR',
+                  additions: 20,
+                  deletions: 4,
+                  changedFiles: 2,
+                  author: { login: 'dana' },
+                  labels: { nodes: [{ name: 'mergedog' }] },
                 },
               },
             },
@@ -263,7 +284,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
   }) => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
 
     await page.locator('#view-others-prs').click();
     const stateFilters = page.locator(
@@ -271,7 +292,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     );
     await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('2');
     await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('0');
+    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('1');
 
     await stateFilters.locator('[data-subfilter="needs-review"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -282,9 +303,11 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await stateFilters.locator('[data-subfilter="approved"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="review-request:test/repo#11"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#13"]')).not.toBeAttached();
 
     await stateFilters.locator('[data-subfilter="done"]').click();
-    await expect(page.locator('.notification-item')).toHaveCount(0);
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="review-request:test/repo#13"]')).toBeVisible();
   });
 
   test('does not use search timestamp as review-request comment watermark', async ({
@@ -304,7 +327,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
     await expect
       .poll(() => issueCommentRequests.find((url) => url.includes('/issues/10/comments')))
       .toBeTruthy();
@@ -334,7 +357,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
 
     await page.locator('#view-others-prs').click();
     const stateFilters = page.locator(

@@ -90,6 +90,21 @@ test('approved review responsibilities are approved instead of needs-review', ()
   assert.equal(isNeedsReview(closed, cached()), false);
 });
 
+test('mergedog-labeled PRs are neither approved nor needs-review', () => {
+  const pr = notification('PullRequest', { reason: 'review_requested' });
+  const approved = cached({
+    reviewDecision: 'APPROVED',
+    labelNames: ['mergedog'],
+  });
+
+  assert.equal(isApproved(pr, approved), false);
+  assert.equal(isNeedsReview(pr, approved), false);
+  assert.deepEqual(getCommentStatus(pr, approved), {
+    label: 'Interesting (1)',
+    className: 'interesting',
+  });
+});
+
 test('approval-required PyTorch merge failures block approved status', () => {
   const pr = notification('PullRequest', { reason: 'review_requested' });
   const blocked = cached({

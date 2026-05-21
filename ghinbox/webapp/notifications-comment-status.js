@@ -40,6 +40,23 @@
         return String(cached?.reviewDecision || '').toUpperCase();
     }
 
+    function getLabelNames(notification, cached) {
+        const labels = Array.isArray(cached?.labelNames)
+            ? cached.labelNames
+            : Array.isArray(notification?.labels)
+                ? notification.labels.map((label) =>
+                    typeof label === 'string' ? label : label?.name
+                )
+                : [];
+        return labels
+            .map((label) => String(label || '').trim().toLowerCase())
+            .filter(Boolean);
+    }
+
+    function hasMergedogLabel(notification, cached) {
+        return getLabelNames(notification, cached).includes('mergedog');
+    }
+
     function normalizeLogin(login) {
         return String(login || '').trim().toLowerCase();
     }
@@ -105,6 +122,7 @@
         }
         return (
             getReviewDecision(cached) === 'APPROVED' &&
+            !hasMergedogLabel(notification, cached) &&
             !hasUnresolvedApprovalQualificationFailure(cached)
         );
     }
@@ -120,6 +138,7 @@
         return (
             isOpenPullRequest(notification) &&
             isReviewResponsibility(notification) &&
+            !hasMergedogLabel(notification, cached) &&
             !isApproved(notification, cached)
         );
     }
@@ -210,6 +229,7 @@
         getStatusComments,
         getUninterestingReason,
         hasUnresolvedApprovalQualificationFailure,
+        hasMergedogLabel,
         isApproved,
         isChangesRequested,
         isNeedsReview,

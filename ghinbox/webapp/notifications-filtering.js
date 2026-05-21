@@ -151,6 +151,34 @@
                 : false;
         }
 
+        function getLabelNames(notification) {
+            const cached = cachedFor(notification);
+            const labels = Array.isArray(cached?.labelNames)
+                ? cached.labelNames
+                : Array.isArray(notification?.labels)
+                    ? notification.labels.map((label) =>
+                        typeof label === 'string' ? label : label?.name
+                    )
+                    : [];
+            return labels
+                .map((label) => String(label || '').trim().toLowerCase())
+                .filter(Boolean);
+        }
+
+        function hasMergedogLabel(notification) {
+            return getLabelNames(notification).includes('mergedog');
+        }
+
+        function isNotificationDone(notification) {
+            const notifState = notification.subject?.state;
+            return (
+                notifState === 'draft' ||
+                notifState === 'closed' ||
+                notifState === 'merged' ||
+                hasMergedogLabel(notification)
+            );
+        }
+
         function isNotificationReviewResponsibility(notification) {
             if (deps.isNotificationReviewResponsibility) {
                 return deps.isNotificationReviewResponsibility(notification);
@@ -168,6 +196,9 @@
             }
             const notifState = notification.subject?.state;
             if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
+                return false;
+            }
+            if (isNotificationDone(notification)) {
                 return false;
             }
             if (!isNotificationReviewResponsibility(notification)) {
@@ -289,9 +320,7 @@
 
             return (
                 isNotificationApproved(notification) ||
-                notifState === 'draft' ||
-                notifState === 'closed' ||
-                notifState === 'merged'
+                isNotificationDone(notification)
             );
         }
 
@@ -305,6 +334,7 @@
             isNotificationApproved,
             isNotificationChangesRequested,
             isNotificationDirectedAtCurrentUser,
+            isNotificationDone,
             isNotificationForCurrentUser,
             isNotificationFromCommitter,
             isNotificationFromExternal,
@@ -334,15 +364,14 @@
                 return notifState === 'draft';
             }
             if (stateFilter === 'done') {
-                return notifState === 'draft' ||
-                    notifState === 'closed' ||
-                    notifState === 'merged';
+                return classifier.isNotificationDone(notif);
             }
             if (stateFilter === 'needs-review') {
                 return classifier.isNotificationNeedsReview(notif);
             }
             if (stateFilter === 'approved') {
-                return classifier.isNotificationApproved(notif);
+                return !classifier.isNotificationDone(notif) &&
+                    classifier.isNotificationApproved(notif);
             }
             return true;
         });
@@ -558,9 +587,7 @@
                 stateCounts.draft++;
             }
             if (
-                notifState === 'draft' ||
-                notifState === 'closed' ||
-                notifState === 'merged'
+                classifier.isNotificationDone(notif)
             ) {
                 stateCounts.done++;
             }
@@ -568,6 +595,7 @@
                 stateCounts.needsReview++;
             }
             if (
+                !classifier.isNotificationDone(notif) &&
                 classifier.isNotificationApproved(notif)
             ) {
                 stateCounts.approved++;

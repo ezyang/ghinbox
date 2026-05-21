@@ -32,6 +32,10 @@ const fixtures = [
   notification('draft-pr', 'PullRequest', 'draft', 'review_requested'),
   notification('merged-pr', 'PullRequest', 'merged', 'review_requested'),
   notification('approved-pr', 'PullRequest', 'open'),
+  notification('approved-review-pr', 'PullRequest', 'open', 'review_requested'),
+  notification('mergedog-pr', 'PullRequest', 'open', 'review_requested', {
+    labels: [{ name: 'mergedog' }],
+  }),
   notification('changes-requested-pr', 'PullRequest', 'open'),
   notification('reply-pr', 'PullRequest', 'open'),
   notification('external-pr', 'PullRequest', 'open', 'review_requested'),
@@ -39,7 +43,8 @@ const fixtures = [
 
 const baseDeps = {
   isNotificationDirectedAtCurrentUser: (notification) => notification.id === 'reply-pr',
-  isNotificationApproved: (notification) => notification.id === 'approved-pr',
+  isNotificationApproved: (notification) =>
+    notification.id === 'approved-review-pr' || notification.id === 'mergedog-pr',
   isNotificationChangesRequested: (notification) => notification.id === 'changes-requested-pr',
   isNotificationReviewResponsibility: (notification) =>
     notification.reason === 'review_requested',
@@ -53,7 +58,7 @@ const baseDeps = {
   getNotificationSize: (notification) =>
     ({
       'review-pr': 30,
-      'approved-pr': 10,
+      'approved-review-pr': 10,
       'external-pr': null,
     })[notification.id] ?? null,
 };
@@ -94,7 +99,7 @@ test('classifies notifications into view counts', () => {
     issues: 5,
     myPrs: 1,
     prNotifications: 1,
-    othersPrs: 4,
+    othersPrs: 6,
     trash: 0,
   });
 });
@@ -125,10 +130,16 @@ test('classifies notifications into view counts', () => {
     expected: ['review-pr', 'external-pr'],
   },
   {
-    name: 'reviews done filter matches draft and closed review requests',
+    name: 'reviews approved excludes mergedog PRs',
+    view: 'others-prs',
+    filters: { 'others-prs': { state: 'approved' } },
+    expected: ['approved-review-pr'],
+  },
+  {
+    name: 'reviews done filter matches draft, closed, and mergedog review requests',
     view: 'others-prs',
     filters: { 'others-prs': { state: 'done' } },
-    expected: ['draft-pr', 'merged-pr'],
+    expected: ['draft-pr', 'merged-pr', 'mergedog-pr'],
   },
   {
     name: 'reviews author filter separates committers',
@@ -173,7 +184,7 @@ test('sorts review notifications by size with stable nulls last', () => {
       viewFilters: normalizeViewFilters({ 'others-prs': { state: 'all' } }),
       orderBy: 'size',
     }))),
-    ['review-pr', 'draft-pr', 'merged-pr', 'external-pr']
+    ['approved-review-pr', 'review-pr', 'draft-pr', 'merged-pr', 'mergedog-pr', 'external-pr']
   );
 });
 
@@ -193,7 +204,7 @@ test('computes subfilter counts after cross-filters', () => {
     approved: 0,
   });
   assert.deepEqual(counts.author, {
-    all: 4,
+    all: 6,
     committer: 1,
     external: 1,
   });

@@ -375,7 +375,7 @@ function buildReviewDecisionQuery(issueNumbers) {
     const fields = issueNumbers
         .map(
             (issueNumber) =>
-                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation additions deletions changedFiles author { login } }`
+                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation additions deletions changedFiles author { login } labels(first: 20) { nodes { name } } }`
         )
         .join('\n');
     return `
@@ -397,6 +397,7 @@ function setReviewDecisionCache(
     reviewDecision,
     authorAssociation,
     authorLogin,
+    labelNames,
     options = {}
 ) {
     const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
@@ -410,6 +411,8 @@ function setReviewDecisionCache(
         reviewDecisionFetchedAt: nowIso,
         authorLogin,
         authorLoginFetchedAt: nowIso,
+        labelNames: Array.isArray(labelNames) ? labelNames : existing.labelNames,
+        labelNamesFetchedAt: nowIso,
         diffstatFetchedAt: nowIso,
     };
     if (includeAuthorAssociation && authorAssociation !== null && authorAssociation !== undefined) {
@@ -499,6 +502,11 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
                     deletions: entry?.deletions ?? null,
                     changedFiles: entry?.changedFiles ?? null,
                     authorLogin: entry?.author?.login ?? null,
+                    labelNames: Array.isArray(entry?.labels?.nodes)
+                        ? entry.labels.nodes
+                            .map((label) => label?.name)
+                            .filter((name) => typeof name === 'string')
+                        : [],
                 });
             });
             notifications.forEach((notif) => {
@@ -512,6 +520,7 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
                     entry.reviewDecision,
                     entry.authorAssociation,
                     entry.authorLogin,
+                    entry.labelNames,
                     { includeAuthorAssociation }
                 );
                 const threadId = getNotificationKey(notif);
