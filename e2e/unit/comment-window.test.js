@@ -140,6 +140,30 @@ test('renderable state filters own comments before applying visibility filters',
   assert.deepEqual(ids(state.comments), [3]);
 });
 
+test('renderable empty state explains comments hidden after latest own comment', () => {
+  const state = getRenderableCommentState(
+    notification('PullRequest', { last_read_at: null }),
+    {
+      allComments: true,
+      comments: [
+        comment(1, 'reviewer', 'Before'),
+        comment(2, 'testuser', 'Looking now.'),
+      ],
+    },
+    {
+      currentUserLogin: 'testuser',
+      hideUninteresting: false,
+      ageFilter: 'all',
+    }
+  );
+
+  assert.deepEqual(state, {
+    kind: 'empty',
+    label: 'No comments found.',
+    detail: 'Cached 2 comments; none remain after your latest comment.',
+  });
+});
+
 test('renderable state reports hide-uninteresting and age empty labels', () => {
   const botOnlyState = getRenderableCommentState(
     notification('Issue'),

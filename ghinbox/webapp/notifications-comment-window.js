@@ -118,6 +118,51 @@
         return nowMs - parsed > threshold;
     }
 
+    function pluralize(count, singular, plural = `${singular}s`) {
+        return `${count} ${count === 1 ? singular : plural}`;
+    }
+
+    function normalizeLogin(login) {
+        return login ? String(login).toLowerCase() : '';
+    }
+
+    function getLatestOwnCommentIndex(comments, currentUserLogin) {
+        const login = normalizeLogin(currentUserLogin);
+        if (!login || !Array.isArray(comments)) {
+            return -1;
+        }
+        let latestIndex = -1;
+        comments.forEach((comment, index) => {
+            const author = normalizeLogin(comment?.user?.login);
+            if (author === login) {
+                latestIndex = index;
+            }
+        });
+        return latestIndex;
+    }
+
+    function getEmptyCommentDetail(cached, unreadComments, relevantComments, options = {}) {
+        const rawCount = Array.isArray(cached?.comments) ? cached.comments.length : 0;
+        const unreadCount = Array.isArray(unreadComments) ? unreadComments.length : 0;
+        if (rawCount === 0) {
+            return '';
+        }
+        if (unreadCount === 0) {
+            return `Cached ${pluralize(rawCount, 'comment')}; none are in the current unread window.`;
+        }
+        if (relevantComments.length > 0) {
+            return '';
+        }
+        const latestOwnIndex = getLatestOwnCommentIndex(
+            unreadComments,
+            options.currentUserLogin
+        );
+        if (latestOwnIndex === unreadComments.length - 1) {
+            return `Cached ${pluralize(rawCount, 'comment')}; none remain after your latest comment.`;
+        }
+        return `Cached ${pluralize(rawCount, 'comment')}; ${pluralize(unreadCount, 'comment')} in the current window, but none matched the relevance filter.`;
+    }
+
     function getRenderableCommentState(notification, cached, options = {}) {
         if (!cached) {
             return { kind: 'pending', label: 'Comments: pending...' };
@@ -138,6 +183,7 @@
             return {
                 kind: 'empty',
                 label: hasFilter ? 'No unread comments found.' : 'No comments found.',
+                detail: getEmptyCommentDetail(cached, unreadComments, comments, options),
             };
         }
 

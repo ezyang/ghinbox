@@ -791,7 +791,10 @@ function getCommentItems(notification) {
         return `<li class="comment-item">Comments error: ${escapeHtml(commentState.error)}</li>`;
     }
     if (commentState.kind !== 'comments') {
-        return `<li class="comment-item">${commentState.label}</li>`;
+        const detail = commentState.detail
+            ? `<div class="comment-empty-detail">${escapeHtml(commentState.detail)}</div>`
+            : '';
+        return `<li class="comment-item comment-empty">${escapeHtml(commentState.label)}${detail}</li>`;
     }
     return commentState.comments
         .map((comment) => {
