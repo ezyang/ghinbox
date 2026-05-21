@@ -709,6 +709,10 @@
                     <input type="checkbox" id="comment-expand-prs-toggle">
                     Show Replies comments
                 </label>
+                <label class="comment-expand" for="comment-expand-reviews-toggle">
+                    <input type="checkbox" id="comment-expand-reviews-toggle">
+                    Show Reviews comments
+                </label>
                 <label class="comment-hide" for="comment-hide-uninteresting-toggle">
                     <input type="checkbox" id="comment-hide-uninteresting-toggle">
                     Hide uninteresting comments
@@ -1614,6 +1618,98 @@
                         render = function () {
                             originalRender();
                             enhanceBookmarkControls();
+                        };
+                    })();
+                <\/script>`
+            );
+            document.write(
+                `<script>
+                    (function () {
+                        const COMMENT_EXPAND_REVIEWS_KEY = 'ghnotif_comment_expand_reviews';
+                        const reviewsToggle = document.getElementById('comment-expand-reviews-toggle');
+
+                        state.commentExpandReviews = localStorage.getItem(COMMENT_EXPAND_REVIEWS_KEY) !== 'false';
+                        elements.commentExpandReviewsToggle = reviewsToggle;
+                        if (reviewsToggle) {
+                            reviewsToggle.checked = state.commentExpandReviews;
+                            reviewsToggle.addEventListener('change', (event) => {
+                                state.commentExpandReviews = event.target.checked;
+                                localStorage.setItem(COMMENT_EXPAND_REVIEWS_KEY, String(state.commentExpandReviews));
+                                render();
+                            });
+                        }
+
+                        const originalGetCommentItems = getCommentItems;
+                        getCommentItems = function (notification) {
+                            const previousIssues = state.commentExpandIssues;
+                            const previousPrs = state.commentExpandPrs;
+                            if (state.view === 'others-prs') {
+                                state.commentExpandPrs = Boolean(state.commentExpandReviews);
+                            }
+                            if (isMobileViewport()) {
+                                const itemExpanded = state.commentBodyExpanded.has(notification.id);
+                                if (state.view === 'issues') {
+                                    state.commentExpandIssues = itemExpanded;
+                                } else {
+                                    state.commentExpandPrs = itemExpanded;
+                                }
+                            }
+                            try {
+                                return originalGetCommentItems(notification);
+                            } finally {
+                                state.commentExpandIssues = previousIssues;
+                                state.commentExpandPrs = previousPrs;
+                            }
+                        };
+
+                        function shouldIgnoreMobileToggle(event) {
+                            return Boolean(
+                                event.target.closest('a, button, input, label, select, textarea')
+                            );
+                        }
+
+                        function enhanceMobileCommentToggles() {
+                            document.querySelectorAll('.notification-item').forEach((item) => {
+                                const notificationId = item.getAttribute('data-id');
+                                if (!notificationId) {
+                                    return;
+                                }
+                                const expanded = state.commentBodyExpanded.has(notificationId);
+                                item.classList.toggle('mobile-expanded', expanded);
+                                item.setAttribute('aria-expanded', String(expanded));
+                                if (item.dataset.mobileCommentToggleBound) {
+                                    return;
+                                }
+                                item.dataset.mobileCommentToggleBound = '1';
+                                item.addEventListener('click', (event) => {
+                                    if (
+                                        !isMobileViewport() ||
+                                        state.mobileSelectMode ||
+                                        shouldIgnoreMobileToggle(event)
+                                    ) {
+                                        return;
+                                    }
+                                    const id = item.getAttribute('data-id');
+                                    if (!id) {
+                                        return;
+                                    }
+                                    if (state.commentBodyExpanded.has(id)) {
+                                        state.commentBodyExpanded.delete(id);
+                                    } else {
+                                        state.commentBodyExpanded.add(id);
+                                    }
+                                    render();
+                                });
+                            });
+                        }
+
+                        const originalRenderForCommentControls = render;
+                        render = function () {
+                            originalRenderForCommentControls();
+                            enhanceMobileCommentToggles();
+                            if (reviewsToggle) {
+                                reviewsToggle.checked = state.commentExpandReviews;
+                            }
                         };
                     })();
                 <\/script>`

@@ -449,6 +449,26 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     );
   });
 
+  test('Review comment expansion has its own control', async ({ page }) => {
+    await expect(page.locator('label[for="comment-expand-reviews-toggle"]')).toContainText(
+      'Show Reviews comments'
+    );
+
+    await page.locator('#comment-expand-prs-toggle').uncheck();
+    await page.locator('#comment-expand-reviews-toggle').check();
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="mid-thread-mention"] .comment-item')).toHaveCount(0);
+
+    await page.locator('#view-others-prs').click();
+    await expect(page.locator('[data-id="review-request:test/repo#3"] .comment-item')).toContainText(
+      'No comments found.'
+    );
+
+    await page.locator('#comment-expand-reviews-toggle').uncheck();
+    await expect(page.locator('[data-id="review-request:test/repo#3"] .comment-item')).toHaveCount(0);
+  });
+
   test('moves generic participation replies back to Feed without unsubscribing', async ({
     page,
   }) => {

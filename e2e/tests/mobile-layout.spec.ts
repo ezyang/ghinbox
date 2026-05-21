@@ -105,6 +105,8 @@ test.describe('Mobile layout @layout', () => {
 
   test('stacks meta and actions below the title', async ({ page }) => {
     const item = page.locator('.notification-item').first();
+    await item.click({ position: { x: 8, y: 8 } });
+
     const icon = item.locator('.notification-icon');
     const title = item.locator('.notification-title');
     const meta = item.locator('.notification-meta');
@@ -150,6 +152,8 @@ test.describe('Mobile layout @layout', () => {
   });
 
   test('avoids horizontal scroll and uses full comment width', async ({ page }) => {
+    await page.locator('.notification-item').first().click({ position: { x: 8, y: 8 } });
+
     const metrics = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       innerWidth: window.innerWidth,
@@ -230,5 +234,24 @@ test.describe('Mobile layout @layout', () => {
     expect(safeBookmarkFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
     expect(safeStateFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
     expect(safeStateFilterBox.y).toBeGreaterThan(safeBookmarkFilterBox.y);
+  });
+
+  test('toggles comments by tapping the entry but not the title link', async ({ page }) => {
+    const item = page.locator('.notification-item').first();
+    const title = item.locator('.notification-title');
+
+    await title.evaluate((element) => {
+      element.addEventListener('click', (event) => event.preventDefault());
+    });
+    await title.click();
+    await expect(item.locator('.comment-item')).toHaveCount(0);
+
+    await item.click({ position: { x: 8, y: 8 } });
+    await expect(item.locator('.comment-item')).toContainText(
+      'Please take a look at this.'
+    );
+
+    await item.click({ position: { x: 8, y: 8 } });
+    await expect(item.locator('.comment-item')).toHaveCount(0);
   });
 });
