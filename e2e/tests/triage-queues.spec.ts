@@ -426,6 +426,138 @@ test.describe('Triage queues GraphQL review decisions @classification', () => {
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
   });
 
+  test('approval-required merge failures stay out of approved queue', async ({ page }) => {
+    const blockedApprovedNotifications = {
+      ...notificationsResponse,
+      notifications: [
+        ...notificationsResponse.notifications,
+        {
+          id: 'thread-pr-unqualified-approval',
+          unread: true,
+          reason: 'review_requested',
+          updated_at: '2025-01-04T00:00:00Z',
+          last_read_at: '2025-01-01T00:00:00Z',
+          subject: {
+            title: 'Approved by unqualified reviewer',
+            url: 'https://github.com/test/repo/pull/3',
+            type: 'PullRequest',
+            number: 3,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [],
+          ui: {
+            saved: false,
+            done: false,
+            action_tokens: {
+              archive: 'test-csrf-token',
+              unarchive: 'test-csrf-token',
+              subscribe: 'test-csrf-token',
+              unsubscribe: 'test-csrf-token',
+            },
+          },
+        },
+      ],
+    };
+    const blockedApprovedCommentCache = {
+      version: 1,
+      threads: {
+        'thread-pr-1': {
+          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
+          lastReadAt: notificationsResponse.notifications[0].last_read_at,
+          unread: true,
+          allComments: false,
+          fetchedAt: new Date().toISOString(),
+          comments: [],
+          reviews: [],
+          reviewDecision: 'REVIEW_REQUIRED',
+          reviewDecisionFetchedAt: new Date().toISOString(),
+        },
+        'thread-pr-2': {
+          notificationUpdatedAt: notificationsResponse.notifications[1].updated_at,
+          lastReadAt: notificationsResponse.notifications[1].last_read_at,
+          unread: true,
+          allComments: false,
+          fetchedAt: new Date().toISOString(),
+          comments: [],
+          reviews: [
+            {
+              id: 101,
+              state: 'APPROVED',
+              submitted_at: '2025-01-02T12:00:00Z',
+              user: { login: 'reviewer1' },
+            },
+          ],
+          reviewDecision: 'APPROVED',
+          reviewDecisionFetchedAt: new Date().toISOString(),
+        },
+        'thread-pr-unqualified-approval': {
+          notificationUpdatedAt: '2025-01-04T00:00:00Z',
+          lastReadAt: '2025-01-01T00:00:00Z',
+          unread: true,
+          allComments: true,
+          fetchedAt: new Date().toISOString(),
+          comments: [
+            {
+              id: 201,
+              user: { login: 'pytorchmergebot' },
+              body: [
+                '## Merge failed',
+                '**Reason**: Approvers from one of the following sets are needed:',
+                '- superuser (pytorch/metamates)',
+                '- Core Reviewers (mruberry, lezcano, Skylion007, ngimel, peterbell10, ...)',
+                '- Core Maintainers (soumith, gchanan, ezyang, malfet, albanD, ...)',
+              ].join('\n'),
+              created_at: '2025-01-03T12:00:00Z',
+              updated_at: '2025-01-03T12:00:00Z',
+            },
+          ],
+          reviews: [
+            {
+              id: 202,
+              state: 'APPROVED',
+              submitted_at: '2025-01-03T11:00:00Z',
+              user: { login: 'lakshayg' },
+            },
+          ],
+          reviewDecision: 'APPROVED',
+          reviewDecisionFetchedAt: new Date().toISOString(),
+        },
+      },
+    };
+
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(blockedApprovedNotifications),
+      });
+    });
+
+    await page.goto('notifications.html');
+    await clearAppStorage(page);
+    await seedCommentCache(page, blockedApprovedCommentCache);
+    await page.reload();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect
+      .poll(async () => {
+        const cached = await readNotificationsCache(page);
+        return Array.isArray(cached) ? cached.length : 0;
+      })
+      .toBe(3);
+
+    await page.locator('#view-others-prs').click();
+    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
+    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
+    await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('2');
+
+    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
+    await expect(page.locator('[data-id="thread-pr-unqualified-approval"]')).not.toBeAttached();
+  });
+
   test('approved filter excludes closed PRs', async ({ page }) => {
     // Add a closed PR with approved review decision
     const closedApprovedNotifications = {

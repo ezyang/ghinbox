@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   getCommentStatus,
   getUninterestingReason,
+  hasUnresolvedApprovalQualificationFailure,
   isApproved,
   isChangesRequested,
   isNeedsReview,
@@ -87,6 +88,59 @@ test('approved review responsibilities are approved instead of needs-review', ()
   assert.equal(isApproved(closed, approved), false);
   assert.equal(isChangesRequested(closed, changes), false);
   assert.equal(isNeedsReview(closed, cached()), false);
+});
+
+test('approval-required PyTorch merge failures block approved status', () => {
+  const pr = notification('PullRequest', { reason: 'review_requested' });
+  const blocked = cached({
+    reviewDecision: 'APPROVED',
+    comments: [
+      comment(
+        1,
+        'pytorchmergebot',
+        [
+          '## Merge failed',
+          '**Reason**: Approvers from one of the following sets are needed:',
+          '- superuser (pytorch/metamates)',
+          '- Core Reviewers (mruberry, lezcano, Skylion007, ngimel, peterbell10, ...)',
+          '- Core Maintainers (soumith, gchanan, ezyang, malfet, albanD, ...)',
+        ].join('\n')
+      ),
+    ],
+  });
+
+  assert.equal(hasUnresolvedApprovalQualificationFailure(blocked), true);
+  assert.equal(isApproved(pr, blocked), false);
+  assert.equal(isNeedsReview(pr, blocked), true);
+  assert.deepEqual(getCommentStatus(pr, blocked), {
+    label: 'Needs review',
+    className: 'needs-review',
+  });
+});
+
+test('later PyTorch merge attempt clears stale approval-required failure', () => {
+  const pr = notification('PullRequest', { reason: 'review_requested' });
+  const approved = cached({
+    reviewDecision: 'APPROVED',
+    comments: [
+      comment(
+        1,
+        'pytorchmergebot',
+        [
+          '## Merge failed',
+          '**Reason**: Approvers from one of the following sets are needed:',
+        ].join('\n'),
+        { created_at: '2025-01-01T01:00:00Z', updated_at: '2025-01-01T01:00:00Z' }
+      ),
+      comment(2, 'pytorchmergebot', '### Merge started', {
+        created_at: '2025-01-01T02:00:00Z',
+        updated_at: '2025-01-01T02:00:00Z',
+      }),
+    ],
+  });
+
+  assert.equal(hasUnresolvedApprovalQualificationFailure(approved), false);
+  assert.equal(isApproved(pr, approved), true);
 });
 
 test('labels uninteresting statuses with reason-specific copy and counts', () => {

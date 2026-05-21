@@ -40,11 +40,73 @@
         return String(cached?.reviewDecision || '').toUpperCase();
     }
 
+    function normalizeLogin(login) {
+        return String(login || '').trim().toLowerCase();
+    }
+
+    function getCommentTimestampMs(comment) {
+        const timestamp = comment?.updated_at || comment?.created_at || null;
+        if (!timestamp) {
+            return null;
+        }
+        const timestampMs = Date.parse(timestamp);
+        return Number.isNaN(timestampMs) ? null : timestampMs;
+    }
+
+    function isPyTorchMergeBotComment(comment) {
+        const login = normalizeLogin(comment?.user?.login);
+        return login === 'pytorchmergebot' || login === 'pytorch-bot[bot]';
+    }
+
+    function isApprovalQualificationMergeFailure(comment) {
+        if (!isPyTorchMergeBotComment(comment)) {
+            return false;
+        }
+        const body = String(comment?.body || '');
+        return (
+            /\bmerge failed\b/i.test(body) &&
+            /approvers from one of the following sets are needed/i.test(body)
+        );
+    }
+
+    function isMergeStartedComment(comment) {
+        if (!isPyTorchMergeBotComment(comment)) {
+            return false;
+        }
+        return /\bmerge started\b/i.test(String(comment?.body || ''));
+    }
+
+    function hasUnresolvedApprovalQualificationFailure(cached) {
+        const comments = Array.isArray(cached?.comments) ? cached.comments : [];
+        let latestFailureMs = null;
+        let latestMergeStartedMs = null;
+
+        comments.forEach((comment) => {
+            const timestampMs = getCommentTimestampMs(comment);
+            if (isApprovalQualificationMergeFailure(comment)) {
+                latestFailureMs = Math.max(latestFailureMs ?? timestampMs ?? 0, timestampMs ?? 0);
+            } else if (isMergeStartedComment(comment)) {
+                latestMergeStartedMs = Math.max(
+                    latestMergeStartedMs ?? timestampMs ?? 0,
+                    timestampMs ?? 0
+                );
+            }
+        });
+
+        if (latestFailureMs === null) {
+            return false;
+        }
+        return latestMergeStartedMs === null || latestFailureMs > latestMergeStartedMs;
+    }
+
     function isApproved(notification, cached) {
         if (!isOpenPullRequest(notification) || !cached || cached.error) {
             return false;
         }
-        return getReviewDecision(cached) === 'APPROVED';
+        return (
+            getReviewDecision(cached) === 'APPROVED' &&
+            !hasUnresolvedApprovalQualificationFailure(cached)
+        );
     }
 
     function isChangesRequested(notification, cached) {
@@ -147,6 +209,7 @@
         getCommentStatus,
         getStatusComments,
         getUninterestingReason,
+        hasUnresolvedApprovalQualificationFailure,
         isApproved,
         isChangesRequested,
         isNeedsReview,
