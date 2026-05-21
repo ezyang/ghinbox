@@ -15,6 +15,9 @@ auth_state
 playwright-report/
 test-results/
 
+# Local server logs
+logs/
+
 # Playwright artifacts (Node.js E2E tests)
 e2e/node_modules/
 e2e/playwright-report/
