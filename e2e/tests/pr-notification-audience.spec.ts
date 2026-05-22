@@ -32,6 +32,7 @@ const notificationsResponse = {
     makePrNotification('mentioned-pr', 11, 'Mentioned PR update'),
     makePrNotification('reply-pr', 12, 'Inline reply update'),
     makePrNotification('others-pr', 13, 'Unrelated PR update'),
+    makePrNotification('pr-main-thread-chatter', 14, 'Top-level PR discussion after my comment'),
   ],
   pagination: {
     before_cursor: null,
@@ -118,6 +119,28 @@ const commentCache = {
           id: 130,
           created_at: '2025-01-07T10:00:00Z',
           body: 'General update for reviewers.',
+          user: { login: 'bob' },
+        },
+      ],
+    },
+    'pr-main-thread-chatter': {
+      notificationUpdatedAt: '2025-01-07T12:00:00Z',
+      lastReadAt: '2025-01-07T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      authorLogin: 'alice',
+      authorLoginFetchedAt: freshIso,
+      comments: [
+        {
+          id: 140,
+          created_at: '2025-01-07T09:00:00Z',
+          body: 'Some tests would be nice.',
+          user: { login: 'testuser' },
+        },
+        {
+          id: 141,
+          created_at: '2025-01-07T10:00:00Z',
+          body: 'I checked the runtime estimation path.',
           user: { login: 'bob' },
         },
       ],
@@ -213,6 +236,14 @@ test.describe('Replies queue classification @classification', () => {
                 changedFiles: 1,
                 author: { login: 'alice' },
               },
+              pr14: {
+                reviewDecision: null,
+                authorAssociation: 'CONTRIBUTOR',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'alice' },
+              },
             },
           },
         }),
@@ -228,12 +259,12 @@ test.describe('Replies queue classification @classification', () => {
     await page.reload();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
     await page.locator('#view-pr-notifications').click();
   });
 
   test('shows directed PR mentions and thread replies in Replies', async ({ page }) => {
-    await expect(page.locator('#view-issues .count')).toHaveText('2');
+    await expect(page.locator('#view-issues .count')).toHaveText('3');
     await expect(page.locator('#view-pr-notifications .count')).toHaveText('2');
     await expect(page.locator('#view-others-prs .count')).toHaveText('0');
     await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -242,11 +273,13 @@ test.describe('Replies queue classification @classification', () => {
     await expect(page.locator('[data-id="mentioned-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="reply-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
+    await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toHaveCount(0);
 
     await page.locator('#view-issues').click();
-    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('.notification-item')).toHaveCount(3);
     await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toBeVisible();
+    await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toBeVisible();
   });
 
   test('empty Replies state is shown when the open filter excludes replies', async ({ page }) => {

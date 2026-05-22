@@ -110,6 +110,22 @@ test('main-thread comments after the user are directed at the current user', () 
   );
 });
 
+test('top-level PR comments after the user are not directed replies', () => {
+  const comments = [
+    comment(1, 'testuser', 'Some tests would be nice.'),
+    comment(6, 'alice', 'I checked the runtime estimation path.'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest'), {
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+    }),
+    false
+  );
+});
+
 test('muted participation replies still allow explicit mentions', () => {
   const genericReply = [
     comment(1, 'testuser', 'I am looking.'),

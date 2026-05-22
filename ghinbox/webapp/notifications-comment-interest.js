@@ -275,6 +275,9 @@
             if (hasActionableCurrentUserMention(comment, currentUser)) {
                 return true;
             }
+            if (notification.subject?.type !== 'Issue') {
+                return false;
+            }
             if (!isMainThreadComment(comment)) {
                 return false;
             }
