@@ -516,3 +516,246 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     ).toHaveCount(0);
   });
 });
+
+test.describe('Needs review duplicate cleanup @classification @mutation', () => {
+  test('cleans Feed duplicates for Needs review PRs while keeping directed Replies', async ({
+    page,
+  }) => {
+    const response = {
+      source_url: 'https://github.com/notifications?query=repo:test/repo',
+      generated_at: '2026-05-14T00:00:00Z',
+      repository: {
+        owner: 'test',
+        name: 'repo',
+        full_name: 'test/repo',
+      },
+      notifications: [
+        {
+          id: 'feed-review-duplicate',
+          unread: true,
+          reason: 'comment',
+          updated_at: '2026-05-14T12:00:00Z',
+          last_read_at: '2026-05-14T08:00:00Z',
+          subject: {
+            title: 'Needs review with feed chatter',
+            url: 'https://github.com/test/repo/pull/1',
+            type: 'PullRequest',
+            number: 1,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+          ui: {
+            saved: false,
+            done: false,
+            action_tokens: {
+              archive: 'test-csrf-token',
+              unarchive: 'test-csrf-token',
+              subscribe: 'test-csrf-token',
+              unsubscribe: 'test-csrf-token',
+            },
+          },
+        },
+        {
+          id: 'reply-review-duplicate',
+          unread: true,
+          reason: 'comment',
+          updated_at: '2026-05-14T12:10:00Z',
+          last_read_at: '2026-05-14T08:00:00Z',
+          subject: {
+            title: 'Needs review with directed reply',
+            url: 'https://github.com/test/repo/pull/2',
+            type: 'PullRequest',
+            number: 2,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [{ login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' }],
+          ui: {
+            saved: false,
+            done: false,
+            action_tokens: {
+              archive: 'test-csrf-token',
+              unarchive: 'test-csrf-token',
+              subscribe: 'test-csrf-token',
+              unsubscribe: 'test-csrf-token',
+            },
+          },
+        },
+      ],
+      pagination: {
+        before_cursor: null,
+        after_cursor: null,
+        has_previous: false,
+        has_next: false,
+      },
+    };
+    const search = {
+      total_count: 2,
+      incomplete_results: false,
+      items: [
+        {
+          number: 1,
+          title: 'Needs review with feed chatter',
+          html_url: 'https://github.com/test/repo/pull/1',
+          state: 'open',
+          draft: false,
+          updated_at: '2026-05-14T11:00:00Z',
+          created_at: '2026-05-14T10:00:00Z',
+          user: { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+          pull_request: {},
+        },
+        {
+          number: 2,
+          title: 'Needs review with directed reply',
+          html_url: 'https://github.com/test/repo/pull/2',
+          state: 'open',
+          draft: false,
+          updated_at: '2026-05-14T11:10:00Z',
+          created_at: '2026-05-14T10:10:00Z',
+          user: { login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' },
+          pull_request: {},
+        },
+      ],
+    };
+    const cache = {
+      version: 1,
+      threads: {
+        'feed-review-duplicate': {
+          notificationUpdatedAt: '2026-05-14T12:00:00Z',
+          lastReadAt: '2026-05-14T08:00:00Z',
+          fetchedAt: freshIso,
+          allComments: true,
+          authorLogin: 'alice',
+          comments: [
+            {
+              id: 100,
+              created_at: '2026-05-14T09:00:00Z',
+              updated_at: '2026-05-14T09:00:00Z',
+              body: 'General update for reviewers.',
+              user: { login: 'alice' },
+            },
+          ],
+        },
+        'reply-review-duplicate': {
+          notificationUpdatedAt: '2026-05-14T12:10:00Z',
+          lastReadAt: '2026-05-14T08:00:00Z',
+          fetchedAt: freshIso,
+          allComments: true,
+          authorLogin: 'bob',
+          comments: [
+            {
+              id: 200,
+              created_at: '2026-05-14T09:00:00Z',
+              updated_at: '2026-05-14T09:00:00Z',
+              body: '@testuser I answered your review question.',
+              user: { login: 'bob' },
+            },
+          ],
+        },
+      },
+    };
+    let archivedIds: string[] = [];
+
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'ghnotif_auth_cache',
+        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
+      );
+    });
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+    await page.route('**/github/rest/rate_limit', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ resources: {} }),
+      });
+    });
+    await page.route('**/notifications/html/repo/test/repo/read-comment-watermarks/**', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+    });
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'archive') {
+        archivedIds = body.notification_ids;
+      }
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
+    });
+    await page.route('**/notifications/html/repo/test/repo', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
+    });
+    await page.route('**/github/rest/search/issues**', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(search) });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.route('**/github/rest/repos/test/repo/pulls/*/comments*', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.route('**/github/rest/repos/test/repo/collaborators/*/permission', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ permission: 'write', role_name: 'write' }),
+      });
+    });
+    await page.route('**/github/graphql', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: { limit: 5000, remaining: 4999, resetAt: '2026-05-14T00:00:00Z' },
+            repository: {
+              pr1: {
+                reviewDecision: null,
+                authorAssociation: 'MEMBER',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'alice' },
+                labels: { nodes: [] },
+              },
+              pr2: {
+                reviewDecision: null,
+                authorAssociation: 'MEMBER',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'bob' },
+                labels: { nodes: [] },
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('notifications.html');
+    await clearAppStorage(page);
+    await seedCommentCache(page, cache);
+    await page.reload();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
+    expect(archivedIds).toEqual(['feed-review-duplicate']);
+    await expect(page.locator('#view-issues .count')).toHaveText('0');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('2');
+    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+
+    await page.locator('#view-pr-notifications').click();
+    await expect(page.locator('[data-id="reply-review-duplicate"]')).toBeVisible();
+
+    await page.locator('#view-cleaned').click();
+    await expect(page.locator('[data-id="feed-review-duplicate"]')).toBeVisible();
+  });
+});

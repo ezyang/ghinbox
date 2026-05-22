@@ -661,8 +661,9 @@
                     );
                 }
 
+                let reviewRequests = [];
                 try {
-                    const reviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                    reviewRequests = await fetchReviewRequestNotifications(repoInfo);
                     mergedNotifications = mergeReviewRequestNotifications(
                         mergedNotifications,
                         reviewRequests,
@@ -705,6 +706,14 @@
                     });
                 }
 
+                const needsReviewPrNumbers = await getReviewRequestNeedsReviewNumbers(
+                    repoInfo,
+                    reviewRequests,
+                    syncLabel
+                );
+                notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
+                    needsReviewPrNumbers,
+                });
                 notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
 
                 state.notifications = notifications;

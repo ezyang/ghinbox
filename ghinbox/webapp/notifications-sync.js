@@ -498,6 +498,60 @@
                 .map((item) => searchItemToResponsibilityNotification(repo, item));
         }
 
+        async function getReviewRequestNeedsReviewNumbers(repo, reviewRequests, syncLabel) {
+            const numbers = Array.from(new Set(
+                reviewRequests
+                    .map((notification) => getIssueNumber(notification))
+                    .filter((issueNumber) => typeof issueNumber === 'number')
+            ));
+            if (numbers.length === 0 || typeof buildReviewDecisionQuery !== 'function') {
+                return new Set();
+            }
+            try {
+                showStatus(
+                    `${syncLabel}: checking which review requests need review`,
+                    'info',
+                    { flash: true }
+                );
+                const data = await fetchGraphqlForSync(buildReviewDecisionQuery(numbers), {
+                    owner: repo.owner,
+                    name: repo.repo,
+                });
+                const repoData = data?.repository || {};
+                const needsReviewNumbers = new Set();
+                reviewRequests.forEach((notification) => {
+                    const number = getIssueNumber(notification);
+                    if (typeof number !== 'number') {
+                        return;
+                    }
+                    const state = notification.subject?.state;
+                    if (state === 'draft' || state === 'closed' || state === 'merged') {
+                        return;
+                    }
+                    const entry = repoData[`pr${number}`] || {};
+                    const labels = Array.isArray(entry?.labels?.nodes)
+                        ? entry.labels.nodes.map((label) => String(label?.name || '').toLowerCase())
+                        : [];
+                    if (labels.includes('mergedog')) {
+                        return;
+                    }
+                    if (entry?.reviewDecision === 'APPROVED') {
+                        return;
+                    }
+                    needsReviewNumbers.add(number);
+                });
+                return needsReviewNumbers;
+            } catch (error) {
+                console.error('Review request metadata check failed:', error);
+                showStatus(
+                    `${syncLabel}: review request metadata check failed: ${error.message || error}`,
+                    'error',
+                    { flash: true }
+                );
+                return new Set();
+            }
+        }
+
         function mergeReviewRequestNotifications(notifications, reviewRequests, repo) {
             if (!reviewRequests.length) {
                 return notifications;
@@ -1092,13 +1146,14 @@
                     );
                 }
 
+                let reviewRequests = [];
                 try {
                     showStatus(
                         `${syncLabel}: checking review requests assigned to you`,
                         'info',
                         { flash: true }
                     );
-                    const reviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                    reviewRequests = await fetchReviewRequestNotifications(repoInfo);
                     mergedNotifications = mergeReviewRequestNotifications(
                         mergedNotifications,
                         reviewRequests,
@@ -1180,6 +1235,14 @@
                     });
                 }
 
+                const needsReviewPrNumbers = await getReviewRequestNeedsReviewNumbers(
+                    repoInfo,
+                    reviewRequests,
+                    syncLabel
+                );
+                notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
+                    needsReviewPrNumbers,
+                });
                 notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
 
                 state.notifications = notifications;

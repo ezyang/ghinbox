@@ -987,12 +987,94 @@
             return makeNotificationClassifier().isTrashNotification(notification);
         }
 
+        function getPullRequestNumber(notification) {
+            if (notification?.subject?.type !== 'PullRequest') {
+                return null;
+            }
+            const number = notification.subject?.number;
+            return typeof number === 'number' ? number : null;
+        }
+
+        function getNeedsReviewFeedDuplicates(notifications, options = {}) {
+            const classifier = makeNotificationClassifier();
+            const needsReviewPrs = options.needsReviewPrNumbers instanceof Set
+                ? options.needsReviewPrNumbers
+                : new Set();
+            if (!(options.needsReviewPrNumbers instanceof Set)) {
+                notifications.forEach((notification) => {
+                    const number = getPullRequestNumber(notification);
+                    if (number === null) {
+                        return;
+                    }
+                    if (classifier.isNotificationNeedsReview(notification)) {
+                        needsReviewPrs.add(number);
+                    }
+                });
+            }
+            if (needsReviewPrs.size === 0) {
+                return [];
+            }
+            return notifications.filter((notification) => {
+                const number = getPullRequestNumber(notification);
+                return (
+                    number !== null &&
+                    needsReviewPrs.has(number) &&
+                    classifier.matchesView(notification, 'issues')
+                );
+            });
+        }
+
         function addTrashNotifications(notifications) {
             const existingIds = new Set(
                 state.trashNotifications.map(notification => notification.id)
             );
             const additions = notifications.filter(notification => !existingIds.has(notification.id));
             state.trashNotifications = state.trashNotifications.concat(additions);
+        }
+
+        async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options = {}) {
+            if (typeof processDoneBatch !== 'function') {
+                return notifications;
+            }
+
+            const duplicates = getNeedsReviewFeedDuplicates(notifications, options);
+            if (duplicates.length === 0) {
+                return notifications;
+            }
+
+            showStatus(
+                `${syncLabel}: cleaning ${duplicates.length} Feed duplicate${duplicates.length === 1 ? '' : 's'} already covered by Needs review`,
+                'info',
+                { flash: true }
+            );
+
+            const duplicateIds = duplicates.map(notification => notification.id);
+            const notificationLookup = new Map(
+                notifications.map(notification => [notification.id, notification])
+            );
+            await processDoneBatch(duplicateIds, notificationLookup);
+
+            const successfulIds = new Set(doneQueue.successfulIds || []);
+            if (successfulIds.size === 0) {
+                showStatus(
+                    `${syncLabel}: failed to clean Needs review Feed duplicate${duplicates.length === 1 ? '' : 's'}`,
+                    'error',
+                    { flash: true }
+                );
+                return notifications;
+            }
+
+            const archivedNotifications = duplicates.filter(notification =>
+                successfulIds.has(notification.id)
+            );
+            addTrashNotifications(archivedNotifications);
+            pushToUndoStack('done', archivedNotifications);
+            showStatus(
+                `${syncLabel}: cleaned ${successfulIds.size} Needs review Feed duplicate${successfulIds.size === 1 ? '' : 's'}`,
+                'success',
+                { flash: true }
+            );
+            return notifications.filter(notification => !successfulIds.has(notification.id));
         }
 
         async function autoMarkTrashNotificationsDone(
