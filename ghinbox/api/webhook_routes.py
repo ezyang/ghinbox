@@ -9,6 +9,7 @@ import os
 import subprocess
 import threading
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -34,6 +35,27 @@ def _verify_signature(payload: bytes, signature: str | None, secret: str) -> Non
     )
     if not hmac.compare_digest(expected, signature):
         raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+
+def _decode_event(payload: bytes, content_type: str) -> dict:
+    decoded_payload = payload
+    if content_type.partition(";")[0].strip().lower() == (
+        "application/x-www-form-urlencoded"
+    ):
+        try:
+            form = parse_qs(payload.decode("utf-8"), strict_parsing=True)
+            decoded_payload = form["payload"][0].encode("utf-8")
+        except (KeyError, UnicodeDecodeError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid webhook payload")
+    try:
+        event = json.loads(decoded_payload)
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=400, detail="Invalid webhook payload"
+        ) from error
+    if not isinstance(event, dict):
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+    return event
 
 
 def _git(*args: str) -> str:
@@ -82,13 +104,7 @@ async def receive_push_webhook(request: Request):
 
     payload = await request.body()
     _verify_signature(payload, request.headers.get("x-hub-signature-256"), secret)
-
-    try:
-        event = json.loads(payload)
-    except json.JSONDecodeError as error:
-        raise HTTPException(
-            status_code=400, detail="Invalid webhook payload"
-        ) from error
+    event = _decode_event(payload, request.headers.get("content-type", ""))
 
     event_repository = event.get("repository", {}).get("full_name")
     if event_repository != repository:

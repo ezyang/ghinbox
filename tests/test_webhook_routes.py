@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from urllib.parse import urlencode
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +24,23 @@ def _headers(payload: bytes, *, secret: str = SECRET) -> dict[str, str]:
         "X-Hub-Signature-256": f"sha256={signature}",
         "Content-Type": "application/json",
     }
+
+
+def _form_payload(*, ref: str = "refs/heads/main") -> bytes:
+    return urlencode({"payload": _payload(ref=ref).decode()}).encode()
+
+
+def _ping_payload() -> bytes:
+    return urlencode(
+        {
+            "payload": json.dumps(
+                {
+                    "zen": "Keep it logically awesome.",
+                    "repository": {"full_name": REPOSITORY},
+                }
+            )
+        }
+    ).encode()
 
 
 def _configure(monkeypatch) -> None:
@@ -81,6 +99,45 @@ def test_invalid_signature_is_rejected(monkeypatch) -> None:
     )
 
     assert response.status_code == 403
+
+
+def test_signed_form_encoded_ping_is_acknowledged_without_update(monkeypatch) -> None:
+    _configure(monkeypatch)
+    monkeypatch.setattr(
+        webhook_routes,
+        "update_from_origin_main",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected update")),
+    )
+    payload = _ping_payload()
+    headers = _headers(payload)
+    headers["X-GitHub-Event"] = "ping"
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+    response = TestClient(app).post(
+        "/webhooks/github/push",
+        content=payload,
+        headers=headers,
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "ignored", "reason": "not push"}
+
+
+def test_signed_form_encoded_main_push_updates_checkout(monkeypatch) -> None:
+    _configure(monkeypatch)
+    monkeypatch.setattr(webhook_routes, "update_from_origin_main", lambda: "updated")
+    payload = _form_payload()
+    headers = _headers(payload)
+    headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+    response = TestClient(app).post(
+        "/webhooks/github/push",
+        content=payload,
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "updated"}
 
 
 def test_update_fetches_and_fast_forwards_only(monkeypatch) -> None:

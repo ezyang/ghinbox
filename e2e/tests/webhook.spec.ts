@@ -26,4 +26,30 @@ test.describe('GitHub deployment webhook', () => {
       reason: 'not main',
     });
   });
+
+  test('accepts GitHub form-encoded ping delivery without deploying @smoke', async ({ request }) => {
+    const event = JSON.stringify({
+      zen: 'Keep it logically awesome.',
+      repository: { full_name: 'ezyang/ghinbox' },
+    });
+    const payload = new URLSearchParams({ payload: event }).toString();
+    const signature = createHmac('sha256', 'e2e-webhook-secret')
+      .update(payload)
+      .digest('hex');
+
+    const response = await request.post('/webhooks/github/push', {
+      data: payload,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-GitHub-Event': 'ping',
+        'X-Hub-Signature-256': `sha256=${signature}`,
+      },
+    });
+
+    expect(response.status()).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      status: 'ignored',
+      reason: 'not push',
+    });
+  });
 });

@@ -44,7 +44,8 @@ needs to store the file elsewhere.
 In the GitHub repository webhook settings:
 
 - Payload URL: `https://ghinbox.cranbury.ezyang.com/webhooks/github/push`
-- Content type: `application/json`
+- Content type: `application/json` preferred; `application/x-www-form-urlencoded`
+  is also accepted
 - Secret: the value of `GHINBOX_WEBHOOK_SECRET`
 - Events: only `push`
 
