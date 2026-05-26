@@ -17,7 +17,9 @@ async def _ok_app(scope, receive, send) -> None:
     await send({"type": "http.response.body", "body": b"ok"})
 
 
-def _request(middleware: SiteAuthMiddleware, *, client, server) -> int:
+def _request(
+    middleware: SiteAuthMiddleware, *, client, server, path: str = "/debug/state"
+) -> int:
     messages = []
 
     async def receive():
@@ -29,7 +31,7 @@ def _request(middleware: SiteAuthMiddleware, *, client, server) -> int:
     scope = {
         "type": "http",
         "method": "GET",
-        "path": "/debug/state",
+        "path": path,
         "headers": [],
         "client": client,
         "server": server,
@@ -47,6 +49,31 @@ def test_site_auth_allows_debug_socket_requests(monkeypatch) -> None:
     assert _request(middleware, client=None, server=None) == 200
     assert (
         _request(middleware, client=("127.0.0.1", 12345), server=("127.0.0.1", 8000))
+        == 401
+    )
+
+
+def test_site_auth_allows_public_github_webhook_endpoint(monkeypatch) -> None:
+    monkeypatch.setenv("GHINBOX_SITE_PASSWORD", "secret")
+
+    middleware = SiteAuthMiddleware(_ok_app)
+
+    assert (
+        _request(
+            middleware,
+            client=("127.0.0.1", 12345),
+            server=("127.0.0.1", 8000),
+            path="/webhooks/github/push",
+        )
+        == 200
+    )
+    assert (
+        _request(
+            middleware,
+            client=("127.0.0.1", 12345),
+            server=("127.0.0.1", 8000),
+            path="/webhooks/github/other",
+        )
         == 401
     )
 

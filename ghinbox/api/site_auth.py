@@ -35,6 +35,7 @@ PBKDF2_ITERATIONS = 600_000
 
 # Paths that are always accessible without authentication
 EXEMPT_PREFIXES = ("/site-auth/", "/health")
+EXEMPT_PATHS = frozenset({"/webhooks/github/push"})
 
 
 def _get_server_secret() -> bytes:
@@ -92,6 +93,8 @@ class SiteAuthMiddleware:
     # -- helpers ------------------------------------------------------------
 
     def _is_exempt(self, path: str) -> bool:
+        if path in EXEMPT_PATHS:
+            return True
         for prefix in EXEMPT_PREFIXES:
             if path.startswith(prefix):
                 return True

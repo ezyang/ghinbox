@@ -58,6 +58,9 @@ with recent requests or log lines.
 See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) for curl examples, log
 format, and the current scope of captured data.
 
+For push-triggered updates from GitHub, see
+[docs/DEPLOYMENT_WEBHOOK.md](docs/DEPLOYMENT_WEBHOOK.md).
+
 ## Contributing
 
 See CONTRIBUTING.md
