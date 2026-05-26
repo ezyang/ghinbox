@@ -8,11 +8,14 @@ import logging
 import os
 import subprocess
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+
+from ghinbox.api.observability import emit_deployment_audit
 
 router = APIRouter(prefix="/webhooks/github", tags=["deployment"])
 logger = logging.getLogger(__name__)
@@ -24,6 +27,15 @@ _update_lock = threading.Lock()
 
 class UpdateError(RuntimeError):
     """Raised when the checkout cannot be safely updated."""
+
+
+@dataclass(frozen=True)
+class DeploymentResult:
+    """Successful update result suitable for sanitized audit records."""
+
+    status: str
+    previous_head: str
+    current_head: str
 
 
 def _verify_signature(payload: bytes, signature: str | None, secret: str) -> None:
@@ -75,7 +87,7 @@ def _git(*args: str) -> str:
     return result.stdout.strip()
 
 
-def update_from_origin_main() -> str:
+def update_from_origin_main() -> DeploymentResult:
     """Fast-forward a clean local main checkout to origin/main."""
     with _update_lock:
         if _git("branch", "--show-current") != "main":
@@ -87,9 +99,8 @@ def update_from_origin_main() -> str:
         _git("fetch", "origin", "refs/heads/main:refs/remotes/origin/main")
         _git("merge", "--ff-only", "origin/main")
         current_head = _git("rev-parse", "HEAD")
-        if current_head == previous_head:
-            return "already_current"
-        return "updated"
+        status = "already_current" if current_head == previous_head else "updated"
+        return DeploymentResult(status, previous_head, current_head)
 
 
 @router.post("/push")
@@ -110,18 +121,60 @@ async def receive_push_webhook(request: Request):
     if event_repository != repository:
         raise HTTPException(status_code=403, detail="Unexpected webhook repository")
 
-    if request.headers.get("x-github-event") != "push":
+    request_id = request.scope.get("ghinbox_request_id")
+    delivery_id = request.headers.get("x-github-delivery")
+    github_event = request.headers.get("x-github-event")
+    ref = event.get("ref")
+    if github_event != "push":
+        emit_deployment_audit(
+            request_id=request_id,
+            delivery_id=delivery_id,
+            github_event=github_event,
+            repository=event_repository,
+            ref=ref,
+            status="ignored",
+            reason="not push",
+        )
         return JSONResponse(
             status_code=202, content={"status": "ignored", "reason": "not push"}
         )
-    if event.get("ref") != MAIN_REF:
+    if ref != MAIN_REF:
+        emit_deployment_audit(
+            request_id=request_id,
+            delivery_id=delivery_id,
+            github_event=github_event,
+            repository=event_repository,
+            ref=ref,
+            status="ignored",
+            reason="not main",
+        )
         return JSONResponse(
             status_code=202, content={"status": "ignored", "reason": "not main"}
         )
 
     try:
-        status = await asyncio.to_thread(update_from_origin_main)
+        result = await asyncio.to_thread(update_from_origin_main)
     except UpdateError as error:
+        emit_deployment_audit(
+            request_id=request_id,
+            delivery_id=delivery_id,
+            github_event=github_event,
+            repository=event_repository,
+            ref=ref,
+            status="rejected",
+            reason=str(error),
+        )
         logger.warning("Webhook update rejected: %s", error)
         raise HTTPException(status_code=409, detail=str(error)) from error
-    return {"status": status}
+    emit_deployment_audit(
+        request_id=request_id,
+        delivery_id=delivery_id,
+        github_event=github_event,
+        repository=event_repository,
+        ref=ref,
+        status=result.status,
+        reason=None,
+        previous_head=result.previous_head,
+        current_head=result.current_head,
+    )
+    return {"status": result.status}

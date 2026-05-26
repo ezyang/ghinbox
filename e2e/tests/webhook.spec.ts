@@ -51,5 +51,17 @@ test.describe('GitHub deployment webhook', () => {
       status: 'ignored',
       reason: 'not push',
     });
+
+    const requestId = response.headers()['x-ghinbox-request-id'];
+    const auditResponse = await request.get('/debug/deployments');
+    expect(auditResponse.status()).toBe(200);
+    const deployments = (await auditResponse.json()).deployments;
+    const audit = deployments.find((entry: { request_id: string }) => entry.request_id === requestId);
+    expect(audit).toEqual(expect.objectContaining({
+      github_event: 'ping',
+      repository: 'ezyang/ghinbox',
+      status: 'ignored',
+      reason: 'not push',
+    }));
   });
 });

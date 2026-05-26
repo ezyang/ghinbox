@@ -81,6 +81,15 @@ curl -sS -b cookies.txt 'http://127.0.0.1:8000/debug/requests?limit=20'
 curl -sS -X POST -b cookies.txt http://127.0.0.1:8000/debug/requests/clear
 ```
 
+`GET /debug/deployments` reports signed webhook deployment decisions without
+recording request bodies or secrets. It includes GitHub delivery and request
+IDs, repository/ref, outcome, and commit IDs for accepted updates:
+
+```bash
+curl -sS --unix-socket auth_state/ghinbox-debug.sock \
+  http://ghinbox/debug/deployments
+```
+
 Every HTTP response includes an `x-ghinbox-request-id` header.  Use that value
 to connect a browser/API failure with `/debug/requests` or a JSONL log line.
 

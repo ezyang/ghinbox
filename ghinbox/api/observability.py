@@ -60,6 +60,7 @@ class RecentRequestStore:
 
 recent_requests = RecentRequestStore()
 recent_notification_actions = RecentRequestStore()
+recent_deployments = RecentRequestStore()
 
 request_logger = logging.getLogger("ghinbox.requests")
 request_logger.setLevel(logging.INFO)
@@ -200,6 +201,37 @@ def emit_notification_action_audit(
         request_logger.info(json.dumps(entry, separators=(",", ":")))
 
 
+def emit_deployment_audit(
+    *,
+    request_id: str | None,
+    delivery_id: str | None,
+    github_event: str | None,
+    repository: str | None,
+    ref: str | None,
+    status: str,
+    reason: str | None,
+    previous_head: str | None = None,
+    current_head: str | None = None,
+) -> None:
+    """Record a sanitized webhook deployment audit event."""
+    entry: dict[str, Any] = {
+        "timestamp": _utc_now_iso(),
+        "event": "webhook_deployment",
+        "request_id": request_id,
+        "delivery_id": delivery_id,
+        "github_event": github_event,
+        "repository": repository,
+        "ref": ref,
+        "status": status,
+        "reason": reason,
+        "previous_head": previous_head,
+        "current_head": current_head,
+    }
+    recent_deployments.add(entry)
+    if request_logger.handlers:
+        request_logger.info(json.dumps(entry, separators=(",", ":")))
+
+
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
@@ -227,6 +259,23 @@ async def debug_notification_actions(limit: int = 50) -> dict[str, Any]:
 async def clear_debug_notification_actions() -> dict[str, str]:
     """Clear the in-memory notification action audit buffer."""
     recent_notification_actions.clear()
+    return {"status": "ok"}
+
+
+@router.get("/deployments")
+async def debug_deployments(limit: int = 50) -> dict[str, Any]:
+    """Return recent sanitized webhook deployment audit events."""
+    bounded_limit = max(1, min(limit, recent_deployments.maxlen))
+    return {
+        "max_recent_deployments": recent_deployments.maxlen,
+        "deployments": recent_deployments.snapshot(bounded_limit),
+    }
+
+
+@router.post("/deployments/clear")
+async def clear_debug_deployments() -> dict[str, str]:
+    """Clear the in-memory webhook deployment audit buffer."""
+    recent_deployments.clear()
     return {"status": "ok"}
 
 

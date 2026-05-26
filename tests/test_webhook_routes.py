@@ -54,19 +54,40 @@ def test_signed_main_push_updates_checkout(monkeypatch) -> None:
     monkeypatch.setattr(
         webhook_routes,
         "update_from_origin_main",
-        lambda: calls.append(None) or "updated",
+        lambda: calls.append(None)
+        or webhook_routes.DeploymentResult("updated", "old-head", "new-head"),
     )
     payload = _payload()
+    client = TestClient(app)
+    assert client.post("/debug/deployments/clear").status_code == 200
 
-    response = TestClient(app).post(
+    response = client.post(
         "/webhooks/github/push",
         content=payload,
-        headers=_headers(payload),
+        headers={**_headers(payload), "X-GitHub-Delivery": "delivery-1"},
     )
 
     assert response.status_code == 200
     assert response.json() == {"status": "updated"}
     assert calls == [None]
+    audit_response = client.get("/debug/deployments")
+    assert audit_response.status_code == 200
+    deployments = audit_response.json()["deployments"]
+    assert deployments == [
+        {
+            "timestamp": deployments[0]["timestamp"],
+            "event": "webhook_deployment",
+            "request_id": response.headers["x-ghinbox-request-id"],
+            "delivery_id": "delivery-1",
+            "github_event": "push",
+            "repository": REPOSITORY,
+            "ref": "refs/heads/main",
+            "status": "updated",
+            "reason": None,
+            "previous_head": "old-head",
+            "current_head": "new-head",
+        }
+    ]
 
 
 def test_signed_non_main_push_is_ignored(monkeypatch) -> None:
@@ -77,8 +98,10 @@ def test_signed_non_main_push_is_ignored(monkeypatch) -> None:
         lambda: (_ for _ in ()).throw(AssertionError("unexpected update")),
     )
     payload = _payload(ref="refs/heads/feature")
+    client = TestClient(app)
+    assert client.post("/debug/deployments/clear").status_code == 200
 
-    response = TestClient(app).post(
+    response = client.post(
         "/webhooks/github/push",
         content=payload,
         headers=_headers(payload),
@@ -86,6 +109,10 @@ def test_signed_non_main_push_is_ignored(monkeypatch) -> None:
 
     assert response.status_code == 202
     assert response.json() == {"status": "ignored", "reason": "not main"}
+    deployment = client.get("/debug/deployments").json()["deployments"][0]
+    assert deployment["status"] == "ignored"
+    assert deployment["reason"] == "not main"
+    assert deployment["ref"] == "refs/heads/feature"
 
 
 def test_invalid_signature_is_rejected(monkeypatch) -> None:
@@ -125,7 +152,11 @@ def test_signed_form_encoded_ping_is_acknowledged_without_update(monkeypatch) ->
 
 def test_signed_form_encoded_main_push_updates_checkout(monkeypatch) -> None:
     _configure(monkeypatch)
-    monkeypatch.setattr(webhook_routes, "update_from_origin_main", lambda: "updated")
+    monkeypatch.setattr(
+        webhook_routes,
+        "update_from_origin_main",
+        lambda: webhook_routes.DeploymentResult("updated", "old-head", "new-head"),
+    )
     payload = _form_payload()
     headers = _headers(payload)
     headers["Content-Type"] = "application/x-www-form-urlencoded"
@@ -150,7 +181,9 @@ def test_update_fetches_and_fast_forwards_only(monkeypatch) -> None:
 
     monkeypatch.setattr(webhook_routes, "_git", fake_git)
 
-    assert webhook_routes.update_from_origin_main() == "updated"
+    assert webhook_routes.update_from_origin_main() == webhook_routes.DeploymentResult(
+        "updated", "old-head", "new-head"
+    )
     assert calls == [
         ("branch", "--show-current"),
         ("status", "--porcelain", "--untracked-files=normal"),
