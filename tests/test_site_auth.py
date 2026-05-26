@@ -3,6 +3,7 @@ import socket
 import stat
 
 from ghinbox.api.server import _bind_debug_socket
+from ghinbox.api import site_auth
 from ghinbox.api.site_auth import SiteAuthMiddleware
 
 
@@ -93,3 +94,15 @@ def test_bind_debug_socket_replaces_stale_socket(tmp_path) -> None:
     finally:
         sock.close()
         path.unlink()
+
+
+def test_server_secret_storage_is_private(tmp_path, monkeypatch) -> None:
+    auth_state_dir = tmp_path / "auth_state"
+    secret_key_file = auth_state_dir / "site_secret.key"
+    monkeypatch.setattr(site_auth, "AUTH_STATE_DIR", auth_state_dir)
+    monkeypatch.setattr(site_auth, "SECRET_KEY_FILE", secret_key_file)
+
+    site_auth._get_server_secret()
+
+    assert stat.S_IMODE(auth_state_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(secret_key_file.stat().st_mode) == 0o600

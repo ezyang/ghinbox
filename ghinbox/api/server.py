@@ -32,6 +32,14 @@ from ghinbox.auth import (
 from ghinbox.token import has_token, provision_token, verify_token
 
 DEFAULT_DEBUG_SOCKET_PATH = Path("auth_state") / "ghinbox-debug.sock"
+DEFAULT_ENV_FILE_PATH = Path("auth_state") / "ghinbox.env"
+ENV_FILE_KEYS = frozenset(
+    {
+        "GHINBOX_SITE_PASSWORD",
+        "GHINBOX_WEBHOOK_SECRET",
+        "GHINBOX_WEBHOOK_REPOSITORY",
+    }
+)
 RELOAD_FILE_SUFFIXES = frozenset({".py", ".html", ".js", ".css"})
 RELOAD_EXCLUDED_DIRS = frozenset(
     {
@@ -48,6 +56,27 @@ RELOAD_EXCLUDED_DIRS = frozenset(
         "test-results",
     }
 )
+
+
+def _load_env_file(path: Path) -> None:
+    """Load approved deployment values from a private local environment file."""
+    if not path.exists():
+        return
+    if path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+        raise RuntimeError(f"Environment file must not be accessible by others: {path}")
+
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), 1
+    ):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, separator, value = stripped.partition("=")
+        if not separator or key not in ENV_FILE_KEYS or not value:
+            raise RuntimeError(
+                f"Invalid environment file entry at {path}:{line_number}"
+            )
+        os.environ.setdefault(key, value)
 
 
 def _iter_reload_files(reload_dirs: list[Path]) -> list[Path]:
@@ -272,6 +301,14 @@ def main() -> int:
         help="Require this password to access the site (cookie-based gate)",
     )
     parser.add_argument(
+        "--env-file",
+        default=str(DEFAULT_ENV_FILE_PATH),
+        help=(
+            "Private local environment file for site/webhook secrets "
+            "(default: auth_state/ghinbox.env)."
+        ),
+    )
+    parser.add_argument(
         "--log-file",
         default=None,
         help=(
@@ -313,6 +350,11 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    try:
+        _load_env_file(Path(args.env_file))
+    except RuntimeError as error:
+        parser.error(str(error))
 
     # Set env vars so the app can recreate fetcher after reload
     if args.site_password:

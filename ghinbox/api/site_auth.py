@@ -40,11 +40,14 @@ EXEMPT_PATHS = frozenset({"/webhooks/github/push"})
 
 def _get_server_secret() -> bytes:
     """Return (and lazily create) a persistent 32-byte server secret."""
+    AUTH_STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    AUTH_STATE_DIR.chmod(0o700)
     if SECRET_KEY_FILE.exists():
+        SECRET_KEY_FILE.chmod(0o600)
         return SECRET_KEY_FILE.read_bytes()
-    AUTH_STATE_DIR.mkdir(parents=True, exist_ok=True)
     secret = secrets.token_bytes(32)
     SECRET_KEY_FILE.write_bytes(secret)
+    SECRET_KEY_FILE.chmod(0o600)
     return secret
 
 

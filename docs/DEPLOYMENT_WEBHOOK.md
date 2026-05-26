@@ -14,13 +14,32 @@ behind site authentication.
 
 ## Configuration
 
-Provide the webhook secret and the only repository accepted by the endpoint:
+The server loads a private local settings file at `auth_state/ghinbox.env` by
+default. Keep both the site password and webhook secret there so they are not
+exposed in process arguments:
 
 ```bash
-export GHINBOX_WEBHOOK_SECRET="$(openssl rand -hex 32)"
-export GHINBOX_WEBHOOK_REPOSITORY="ezyang/ghinbox"
-uv run ghinbox --site-password "$GHINBOX_SITE_PASSWORD"
+install -m 600 /dev/null auth_state/ghinbox.env
+$EDITOR auth_state/ghinbox.env
 ```
+
+```text
+GHINBOX_SITE_PASSWORD=<site access password>
+GHINBOX_WEBHOOK_SECRET=<output of: openssl rand -hex 32>
+GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox
+```
+
+`auth_state/` is gitignored and the server rejects an environment file
+accessible by group or other users. Values are literal text without shell
+quoting or variable expansion. Start the service without passing secrets on
+the command line:
+
+```bash
+uv run ghinbox --reload
+```
+
+Use `--env-file /path/to/other/private.env` only when a process supervisor
+needs to store the file elsewhere.
 
 In the GitHub repository webhook settings:
 

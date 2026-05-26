@@ -12,8 +12,12 @@ bypasses the site password gate and must not be proxied remotely.
 When started through the CLI, ghinbox writes request metadata to
 `logs/ghinbox.log` by default:
 
+Configure `GHINBOX_SITE_PASSWORD` in the private `auth_state/ghinbox.env`
+launch settings file described in
+[DEPLOYMENT_WEBHOOK.md](DEPLOYMENT_WEBHOOK.md), then run:
+
 ```bash
-uv run ghinbox --site-password "$GHINBOX_SITE_PASSWORD"
+uv run ghinbox
 ```
 
 Each line is a JSON object with:

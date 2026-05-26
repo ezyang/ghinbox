@@ -8,8 +8,8 @@ __pycache__
 .specstory
 .claude
 
-# Playwright credential storage (contains sensitive auth state)
-auth_state
+# Local authentication and launch state (contains secrets)
+/auth_state/
 
 # Playwright artifacts (Python)
 playwright-report/
