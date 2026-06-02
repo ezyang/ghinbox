@@ -562,6 +562,9 @@
         .order-control {
             margin-left: auto;
             padding: 0 var(--notifications-padding) 0 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .subfilter-tab {
@@ -1177,6 +1180,9 @@
                     </nav>
                 </div>
                 <div class="order-control">
+                    <button id="reload-reviews-btn" class="btn btn-small" type="button" style="display: none;">
+                        Reload reviews
+                    </button>
                     <label for="order-select">Order:</label>
                     <select id="order-select" aria-label="Order notifications">
                         <option value="recent">Newest first</option>
@@ -2043,6 +2049,138 @@
                         };
                         // Don't overwrite checkAuth - let the loaded scripts define it
                         // They will handle fetching from API and caching
+                    })();
+                <\/script>`
+            );
+            document.write(
+                `<script>
+                    (function () {
+                        const reloadReviewsBtn = document.getElementById('reload-reviews-btn');
+                        if (!reloadReviewsBtn) {
+                            return;
+                        }
+
+                        function parseCurrentRepo() {
+                            const repoValue = (elements?.repoInput?.value || state?.repo || '').trim();
+                            const parts = repoValue.split('/');
+                            if (parts.length !== 2 || !parts[0] || !parts[1]) {
+                                return null;
+                            }
+                            return {
+                                owner: parts[0],
+                                repo: parts[1],
+                                fullName: repoValue,
+                            };
+                        }
+
+                        function isSyntheticReviewRequest(notification) {
+                            return notification?.responsibility_source === 'review-requested' &&
+                                String(notification?.id || '').startsWith('review-request:');
+                        }
+
+                        function getReviewQueueNotifications(notifications) {
+                            const classifier = typeof makeNotificationClassifier === 'function'
+                                ? makeNotificationClassifier()
+                                : GhinboxFiltering.makeClassifier({
+                                    currentUserLogin: state.currentUserLogin,
+                                    commentCache: state.commentCache,
+                                });
+                            return notifications.filter((notification) =>
+                                classifier.isNotificationReviewQueue(notification)
+                            );
+                        }
+
+                        function updateReloadReviewsButton() {
+                            reloadReviewsBtn.style.display =
+                                state?.view === 'others-prs' ? 'inline-flex' : 'none';
+                            reloadReviewsBtn.disabled = Boolean(state?.loading || state?.reviewsReloading);
+                        }
+
+                        async function handleReloadReviews() {
+                            const repo = parseCurrentRepo();
+                            if (!repo) {
+                                showStatus('Invalid format. Use owner/repo', 'error');
+                                return;
+                            }
+                            if (state.loading || state.reviewsReloading) {
+                                return;
+                            }
+
+                            const repoInfo = { owner: repo.owner, repo: repo.repo };
+                            const syncLabel = 'Reload Reviews';
+                            state.repo = repo.fullName;
+                            localStorage.setItem('ghnotif_repo', repo.fullName);
+                            state.reviewsReloading = true;
+                            updateReloadReviewsButton();
+                            showStatus(\`\${syncLabel}: checking review requests assigned to you\`, 'info');
+
+                            try {
+                                const reviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                                let notifications = state.notifications
+                                    .filter((notification) => !isSyntheticReviewRequest(notification));
+                                notifications = mergeReviewRequestNotifications(
+                                    notifications,
+                                    reviewRequests,
+                                    repoInfo
+                                );
+
+                                const reviewQueueNotifications = getReviewQueueNotifications(notifications);
+                                const reviewQueueKeys = new Set(
+                                    reviewQueueNotifications
+                                        .map((notification) =>
+                                            getNotificationMatchKeyForRepo(notification, repoInfo)
+                                        )
+                                        .filter(Boolean)
+                                );
+                                notifications = await refreshPullRequestStates(repoInfo, notifications, {
+                                    syncLabel,
+                                    matchKeys: reviewQueueKeys,
+                                });
+
+                                const refreshedReviewQueue = getReviewQueueNotifications(notifications);
+                                if (typeof prefetchReviewDecisions === 'function') {
+                                    await prefetchReviewDecisions(repoInfo, refreshedReviewQueue, {
+                                        includeAuthorAssociation: true,
+                                        includeAuthorPermission: true,
+                                    });
+                                    if (typeof saveCommentCache === 'function') {
+                                        saveCommentCache();
+                                    }
+                                }
+
+                                state.notifications = notifications.sort((a, b) =>
+                                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+                                );
+                                state.lastSyncedRepo = repo.fullName;
+                                localStorage.setItem(LAST_SYNCED_REPO_KEY, repo.fullName);
+                                persistNotifications();
+                                showStatus(
+                                    \`Reloaded \${refreshedReviewQueue.length} review notification\${refreshedReviewQueue.length === 1 ? '' : 's'}\`,
+                                    'success',
+                                    { autoDismiss: true }
+                                );
+                            } catch (error) {
+                                console.error('Review reload failed:', error);
+                                showStatus(
+                                    \`\${syncLabel} failed: \${error.message || error}\`,
+                                    'error'
+                                );
+                            } finally {
+                                state.reviewsReloading = false;
+                                render();
+                            }
+                        }
+
+                        reloadReviewsBtn.addEventListener('click', () => {
+                            withActionContext('Reload reviews', handleReloadReviews);
+                        });
+
+                        const originalRenderForReviewReload = render;
+                        render = function () {
+                            originalRenderForReviewReload();
+                            updateReloadReviewsButton();
+                        };
+                        updateReloadReviewsButton();
                     })();
                 <\/script>`
             );
