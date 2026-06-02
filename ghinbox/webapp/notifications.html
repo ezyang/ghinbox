@@ -6,6 +6,27 @@
     <title>ghinbox</title>
     <script>
         (function () {
+            const THEME_KEY = 'ghnotif_theme';
+
+            function getPreferredTheme() {
+                const stored = localStorage.getItem(THEME_KEY);
+                if (stored === 'dark' || stored === 'light') {
+                    return stored;
+                }
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+
+            window.ghnotifApplyTheme = function (theme) {
+                const normalizedTheme = theme === 'dark' ? 'dark' : 'light';
+                document.documentElement.dataset.theme = normalizedTheme;
+                document.documentElement.style.colorScheme = normalizedTheme;
+            };
+
+            window.ghnotifApplyTheme(getPreferredTheme());
+        })();
+    </script>
+    <script>
+        (function () {
             const params = new URLSearchParams(window.location.search);
             const cacheBust = params.get('cache_bust') || localStorage.getItem('ghnotif_cache_bust');
             if (cacheBust) {
@@ -42,6 +63,243 @@
         :root {
             --floating-notice-top: 72px;
             --floating-notice-clearance: 56px;
+            --color-canvas-default: #f6f8fa;
+            --color-neutral-muted: #afb8c1;
+            --color-attention-subtle: #fff8c5;
+            --color-attention-muted: #fcd34d;
+            --color-attention-fg: #9a6700;
+            --color-accent-subtle: #ddf4ff;
+            --color-accent-muted: #54aeff;
+            --color-success-subtle: #dafbe1;
+            --color-success-muted: #4ac26b;
+            --color-danger-subtle: #ffebe9;
+            --color-danger-muted: #ff8182;
+            --color-done-subtle: #fbefff;
+            --color-warm-subtle: #fff5f0;
+            --color-warm-muted: #fed7aa;
+            --color-warm-fg: #b45309;
+            --color-active-tab-bg: #fd8c73;
+            --color-active-tab-fg: #1f2328;
+            --color-active-count-bg: #fff5f3;
+            --color-selected-bg: #ddf4ff;
+            --color-selected-hover-bg: #c8e6ff;
+            --color-keyboard-selected-bg: #e7f3ff;
+            --color-keyboard-selected-hover-bg: #dbeeff;
+            --color-overlay-bg: rgba(0, 0, 0, 0.5);
+            --color-shadow-large: rgba(0, 0, 0, 0.2);
+        }
+
+        html[data-theme="dark"] {
+            --color-fg-default: #e6edf3;
+            --color-fg-muted: #8b949e;
+            --color-fg-subtle: #6e7681;
+            --color-bg-default: #0d1117;
+            --color-bg-subtle: #161b22;
+            --color-border-default: #30363d;
+            --color-border-muted: #21262d;
+            --color-accent-fg: #2f81f7;
+            --color-success-fg: #3fb950;
+            --color-danger-fg: #f85149;
+            --color-done-fg: #a371f7;
+            --color-btn-bg: #21262d;
+            --color-btn-hover-bg: #30363d;
+            --color-btn-primary-bg: #238636;
+            --color-btn-primary-hover-bg: #2ea043;
+            --color-canvas-default: #010409;
+            --color-neutral-muted: #6e7681;
+            --color-attention-subtle: #3b2300;
+            --color-attention-muted: #9e6a03;
+            --color-attention-fg: #d29922;
+            --color-accent-subtle: #0d2d4d;
+            --color-accent-muted: #1f6feb;
+            --color-success-subtle: #0f2a1b;
+            --color-success-muted: #238636;
+            --color-danger-subtle: #3d1117;
+            --color-danger-muted: #da3633;
+            --color-done-subtle: #271052;
+            --color-warm-subtle: #3b2300;
+            --color-warm-muted: #9e6a03;
+            --color-warm-fg: #d29922;
+            --color-active-tab-bg: #f0883e;
+            --color-active-tab-fg: #0d1117;
+            --color-active-count-bg: #3b2300;
+            --color-selected-bg: #0c2d48;
+            --color-selected-hover-bg: #143d63;
+            --color-keyboard-selected-bg: #0d2d4d;
+            --color-keyboard-selected-hover-bg: #173d5f;
+            --color-overlay-bg: rgba(1, 4, 9, 0.72);
+            --color-shadow-large: rgba(1, 4, 9, 0.72);
+        }
+
+        body {
+            color: var(--color-fg-default);
+            background-color: var(--color-canvas-default);
+        }
+
+        html[data-theme="dark"] .app-header {
+            background-color: #161b22;
+            border-bottom: 1px solid var(--color-border-default);
+        }
+
+        html[data-theme="dark"] .header-link,
+        html[data-theme="dark"] .theme-toggle {
+            border-color: var(--color-border-default);
+            color: var(--color-fg-default);
+        }
+
+        html[data-theme="dark"] .header-link:hover,
+        html[data-theme="dark"] .theme-toggle:hover {
+            background-color: var(--color-btn-hover-bg);
+        }
+
+        .theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: white;
+            font-size: 12px;
+            line-height: 20px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .theme-toggle input {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            accent-color: var(--color-accent-fg);
+        }
+
+        .comment-file-context {
+            color: var(--color-fg-muted);
+            background-color: var(--color-bg-subtle);
+        }
+
+        .notification-item.unread {
+            background-color: var(--color-bg-subtle);
+        }
+
+        .notification-item.selected,
+        .notification-item.selected:has(.comment-list) .notification-header,
+        .notification-item.selected:has(.comment-list) .notification-checkbox,
+        .notification-item.selected:has(.comment-list) .notification-icon,
+        .notification-item.selected:has(.comment-list) .notification-actors,
+        .notification-item.selected:has(.comment-list) .notification-actions-inline {
+            background-color: var(--color-selected-bg);
+        }
+
+        .notification-item.selected:hover,
+        .notification-item.selected:hover:has(.comment-list) .notification-header,
+        .notification-item.selected:hover:has(.comment-list) .notification-checkbox,
+        .notification-item.selected:hover:has(.comment-list) .notification-icon,
+        .notification-item.selected:hover:has(.comment-list) .notification-actors,
+        .notification-item.selected:hover:has(.comment-list) .notification-actions-inline {
+            background-color: var(--color-selected-hover-bg);
+        }
+
+        .notification-item.keyboard-selected,
+        .notification-item.keyboard-selected:has(.comment-list) .notification-header,
+        .notification-item.keyboard-selected:has(.comment-list) .notification-checkbox,
+        .notification-item.keyboard-selected:has(.comment-list) .notification-icon,
+        .notification-item.keyboard-selected:has(.comment-list) .notification-actors,
+        .notification-item.keyboard-selected:has(.comment-list) .notification-actions-inline {
+            background-color: var(--color-keyboard-selected-bg);
+        }
+
+        .notification-item.keyboard-selected:hover,
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-header,
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-checkbox,
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-icon,
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actors,
+        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actions-inline {
+            background-color: var(--color-keyboard-selected-hover-bg);
+        }
+
+        .status-bar.info,
+        .comment-tag.approved,
+        .state-badge.closed.completed {
+            background-color: var(--color-accent-subtle);
+            border-color: var(--color-accent-muted);
+            color: var(--color-accent-fg);
+        }
+
+        .status-bar.success,
+        .comment-tag.uninteresting,
+        .state-badge.open {
+            background-color: var(--color-success-subtle);
+            border-color: var(--color-success-muted);
+            color: var(--color-success-fg);
+        }
+
+        .status-bar.error,
+        .comment-tag.interesting,
+        .state-badge.closed {
+            background-color: var(--color-danger-subtle);
+            border-color: var(--color-danger-muted);
+            color: var(--color-danger-fg);
+        }
+
+        .comment-tag.pending,
+        .comment-tag.needs-review {
+            background-color: var(--color-warm-subtle);
+            color: var(--color-warm-fg);
+            border-color: var(--color-warm-muted);
+        }
+
+        .comment-tag.error {
+            background-color: var(--color-attention-subtle);
+            color: var(--color-attention-fg);
+            border-color: var(--color-attention-muted);
+        }
+
+        .state-badge.merged {
+            background-color: var(--color-done-subtle);
+            color: var(--color-done-fg);
+        }
+
+        .view-tab.active .count,
+        .subfilter-tab.active .count {
+            background-color: var(--color-active-count-bg);
+            color: var(--color-danger-fg);
+        }
+
+        .subfilter-tab.active,
+        .subfilter-tab.bookmark-active {
+            color: var(--color-active-tab-fg);
+            background-color: var(--color-active-tab-bg);
+        }
+
+        .keyboard-shortcuts-overlay {
+            background-color: var(--color-overlay-bg);
+        }
+
+        .keyboard-shortcuts-modal {
+            box-shadow: 0 8px 24px var(--color-shadow-large);
+        }
+
+        .comment-body.markdown-body {
+            color: var(--color-fg-default);
+        }
+
+        html[data-theme="dark"] .comment-body.markdown-body {
+            --color-canvas-default: #0d1117;
+            --color-canvas-subtle: #161b22;
+            --color-border-default: #30363d;
+            --color-border-muted: #21262d;
+            --color-fg-default: #e6edf3;
+            --color-fg-muted: #8b949e;
+        }
+
+        html[data-theme="dark"] .comment-body.markdown-body pre,
+        html[data-theme="dark"] .comment-body.markdown-body code,
+        html[data-theme="dark"] .comment-body.markdown-body table tr {
+            background-color: var(--color-bg-subtle);
+        }
+
+        html[data-theme="dark"] .comment-body.markdown-body blockquote,
+        html[data-theme="dark"] .comment-body.markdown-body table td,
+        html[data-theme="dark"] .comment-body.markdown-body table th {
+            border-color: var(--color-border-default);
         }
 
         .floating-notices {
@@ -659,6 +917,10 @@
         <div class="header-inner">
             <h1>ghinbox</h1>
             <div class="header-links">
+                <label class="theme-toggle" for="theme-toggle">
+                    <input type="checkbox" id="theme-toggle" aria-label="Dark mode">
+                    Dark mode
+                </label>
             </div>
         </div>
     </header>
@@ -1078,6 +1340,25 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <script>
+        (function () {
+            const THEME_KEY = 'ghnotif_theme';
+            const themeToggle = document.getElementById('theme-toggle');
+
+            function getCurrentTheme() {
+                return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+            }
+
+            if (themeToggle) {
+                themeToggle.checked = getCurrentTheme() === 'dark';
+                themeToggle.addEventListener('change', () => {
+                    const nextTheme = themeToggle.checked ? 'dark' : 'light';
+                    localStorage.setItem(THEME_KEY, nextTheme);
+                    window.ghnotifApplyTheme(nextTheme);
+                });
+            }
+        })();
+    </script>
     <script>
         (function () {
             const VIEW_KEY = 'ghnotif_view';

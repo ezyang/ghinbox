@@ -8,6 +8,8 @@ import { test, expect } from '@playwright/test';
 
 test.describe('UI Shell', () => {
   test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'light' });
+
     await page.addInitScript(() => {
       localStorage.clear();
       indexedDB.deleteDatabase('ghnotif_cache');
@@ -69,6 +71,27 @@ test.describe('UI Shell', () => {
     await expect(page.locator('#rate-limit-box')).toContainText('graphql unknown');
     await expect(page.locator('#notifications-list')).toHaveAttribute('role', 'list');
     await expect(page.locator('#empty-state')).toContainText('No notifications');
+  });
+
+  test('toggles and persists dark mode', async ({ page }) => {
+    const themeToggle = page.locator('#theme-toggle');
+
+    await expect(themeToggle).not.toBeChecked();
+    await themeToggle.check();
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(themeToggle).toBeChecked();
+
+    const savedTheme = await page.evaluate(() =>
+      localStorage.getItem('ghnotif_theme')
+    );
+    expect(savedTheme).toBe('dark');
+
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(1, 4, 9)');
+
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expect(themeToggle).toBeChecked();
   });
 });
 
