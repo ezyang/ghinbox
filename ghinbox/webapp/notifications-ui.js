@@ -1219,14 +1219,7 @@
                 elements.progressBarFill.style.width = `${percent}%`;
                 elements.progressText.textContent = `Marking ${processed} of ${doneQueue.totalQueued}...`;
             } else if (prefetchProgress?.active && prefetchProgress.total > 0) {
-                elements.progressContainer.className = 'progress-container visible';
-                const processed = prefetchProgress.completed + prefetchProgress.failed;
-                const percent = Math.min(100, (processed / prefetchProgress.total) * 100);
-                const active = prefetchProgress.inFlight;
-                elements.progressBarFill.style.width = `${percent}%`;
-                elements.progressText.textContent =
-                    `Fetching comments ${processed}/${prefetchProgress.total}` +
-                    (active > 0 ? ` (${active} active)` : '');
+                elements.progressContainer.className = 'progress-container';
             } else {
                 elements.progressContainer.className = 'progress-container';
             }

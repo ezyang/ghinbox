@@ -24,6 +24,30 @@ function canUpdateCommentPrefetchStatus() {
     return !state.statusState || state.statusState.type === 'info';
 }
 
+function formatCommentPrefetchProgressMessage() {
+    const progress = state.commentPrefetchProgress;
+    if (!progress?.active || progress.total <= 0) {
+        return '';
+    }
+    const processed = progress.completed + progress.failed;
+    const active = progress.inFlight;
+    return (
+        `Fetching comments ${processed}/${progress.total}` +
+        (active > 0 ? ` (${active} active)` : '')
+    );
+}
+
+function getCommentPrefetchStatusDisplayMessage(message) {
+    const base = state.lastPersistentStatus;
+    if (!base || base.type !== 'info' || !base.message || base.message === message) {
+        return message;
+    }
+    if (base.message.includes('Fetching comments')) {
+        return message;
+    }
+    return `${base.message}\n${message}`;
+}
+
 function clearCommentPrefetchStatusTimers() {
     if (state.commentPrefetchStatusTimer) {
         clearTimeout(state.commentPrefetchStatusTimer);
@@ -44,6 +68,7 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
     }
     clearCommentPrefetchIdleTimer();
     state.commentPrefetchStatusMessage = message;
+    const statusMessage = getCommentPrefetchStatusDisplayMessage(message);
     const now = Date.now();
     const elapsed = now - (state.commentPrefetchStatusLastUpdate || 0);
     const shouldUpdate = force || elapsed >= PREFETCH_STATUS_REFRESH_MS;
@@ -51,7 +76,10 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
         clearCommentPrefetchStatusTimers();
         state.commentPrefetchStatusLastUpdate = now;
         state.commentPrefetchStatusActive = true;
-        showStatus(message, 'info');
+        showStatus(statusMessage, 'info', {
+            flash: true,
+            durationMs: PREFETCH_STATUS_REFRESH_MS + PREFETCH_STATUS_IDLE_CLEAR_MS,
+        });
         return;
     }
     if (!state.commentPrefetchStatusTimer) {
@@ -62,7 +90,14 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
             }
             state.commentPrefetchStatusLastUpdate = Date.now();
             state.commentPrefetchStatusActive = true;
-            showStatus(state.commentPrefetchStatusMessage, 'info');
+            showStatus(
+                getCommentPrefetchStatusDisplayMessage(state.commentPrefetchStatusMessage),
+                'info',
+                {
+                    flash: true,
+                    durationMs: PREFETCH_STATUS_REFRESH_MS + PREFETCH_STATUS_IDLE_CLEAR_MS,
+                }
+            );
         }, PREFETCH_STATUS_REFRESH_MS - elapsed);
     }
 }
@@ -115,6 +150,7 @@ function addCommentPrefetchWork(count) {
     clearCommentPrefetchIdleTimer();
     const progress = ensureCommentPrefetchProgress();
     progress.total += count;
+    updateCommentPrefetchStatus(formatCommentPrefetchProgressMessage(), { force: true });
     render();
 }
 
@@ -123,6 +159,7 @@ function updateCommentPrefetchWork({ completed = 0, failed = 0, inFlight = 0 } =
     progress.completed += completed;
     progress.failed += failed;
     progress.inFlight = Math.max(0, progress.inFlight + inFlight);
+    updateCommentPrefetchStatus(formatCommentPrefetchProgressMessage());
     render();
 }
 
