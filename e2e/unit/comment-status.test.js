@@ -90,6 +90,41 @@ test('approved review responsibilities are approved instead of needs-review', ()
   assert.equal(isNeedsReview(closed, cached()), false);
 });
 
+test('submitted approvals are approved even when reviewDecision is not approved', () => {
+  const pr = notification('PullRequest', { reason: 'review_requested' });
+  const approvedByAnotherReviewer = cached({
+    reviewDecision: 'REVIEW_REQUIRED',
+    reviews: [
+      {
+        id: 101,
+        state: 'APPROVED',
+        submitted_at: '2025-01-02T12:00:00Z',
+        user: { login: 'reviewer1' },
+      },
+    ],
+  });
+  const changesRequested = cached({
+    reviewDecision: 'CHANGES_REQUESTED',
+    reviews: [
+      {
+        id: 102,
+        state: 'APPROVED',
+        submitted_at: '2025-01-02T12:00:00Z',
+        user: { login: 'reviewer1' },
+      },
+    ],
+  });
+
+  assert.equal(isApproved(pr, approvedByAnotherReviewer), true);
+  assert.equal(isNeedsReview(pr, approvedByAnotherReviewer), false);
+  assert.deepEqual(getCommentStatus(pr, approvedByAnotherReviewer), {
+    label: 'Approved',
+    className: 'approved',
+  });
+  assert.equal(isApproved(pr, changesRequested), false);
+  assert.equal(isNeedsReview(pr, changesRequested), true);
+});
+
 test('mergedog-labeled PRs are neither approved nor needs-review', () => {
   const pr = notification('PullRequest', { reason: 'review_requested' });
   const approved = cached({

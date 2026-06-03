@@ -40,6 +40,11 @@
         return String(cached?.reviewDecision || '').toUpperCase();
     }
 
+    function hasSubmittedApproval(cached) {
+        const reviews = Array.isArray(cached?.reviews) ? cached.reviews : [];
+        return reviews.some((review) => String(review?.state || '').toUpperCase() === 'APPROVED');
+    }
+
     function getLabelNames(notification, cached) {
         const labels = Array.isArray(cached?.labelNames)
             ? cached.labelNames
@@ -120,8 +125,10 @@
         if (!isOpenPullRequest(notification) || !cached || cached.error) {
             return false;
         }
+        const reviewDecision = getReviewDecision(cached);
         return (
-            getReviewDecision(cached) === 'APPROVED' &&
+            (reviewDecision === 'APPROVED' ||
+                (reviewDecision !== 'CHANGES_REQUESTED' && hasSubmittedApproval(cached))) &&
             !hasMergedogLabel(notification, cached) &&
             !hasUnresolvedApprovalQualificationFailure(cached)
         );
