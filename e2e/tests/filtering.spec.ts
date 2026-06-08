@@ -350,9 +350,10 @@ test.describe('Filtering @classification', () => {
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
       );
       await expect(othersPrsAuthor.locator('[data-subfilter="ai"] .count')).toHaveText('1');
+      await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
       await othersPrsAuthor.locator('[data-subfilter="committer"]').click();
-      await expect(page.locator('.notification-item')).toHaveCount(1);
-      await expect(page.locator('[data-id="notif-2"]')).toBeVisible();
+      await expect(page.locator('.notification-item')).toHaveCount(0);
+      await expect(page.locator('[data-id="notif-2"]')).not.toBeAttached();
       await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
 
       await othersPrsAuthor.locator('[data-subfilter="ai"]').click();

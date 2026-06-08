@@ -49,7 +49,8 @@ const baseDeps = {
   isNotificationChangesRequested: (notification) => notification.id === 'changes-requested-pr',
   isNotificationReviewResponsibility: (notification) =>
     notification.reason === 'review_requested',
-  isNotificationFromCommitter: (notification) => notification.id === 'review-pr',
+  isNotificationFromCommitter: (notification) =>
+    notification.id === 'review-pr' || notification.id === 'ai-pr',
   isNotificationFromAiAuthor: (notification) => notification.id === 'ai-pr',
   hasNotificationAuthorPermission: (notification) =>
     notification.id === 'review-pr' || notification.id === 'external-pr',

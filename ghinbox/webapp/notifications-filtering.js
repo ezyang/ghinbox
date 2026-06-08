@@ -394,14 +394,15 @@
             return notifications;
         }
         return notifications.filter((notif) => {
+            const isAiAuthor = classifier.isNotificationFromAiAuthor(notif);
             if (authorFilter === 'committer') {
-                return classifier.isNotificationFromCommitter(notif);
+                return !isAiAuthor && classifier.isNotificationFromCommitter(notif);
             }
             if (authorFilter === 'ai') {
-                return classifier.isNotificationFromAiAuthor(notif);
+                return isAiAuthor;
             }
             if (authorFilter === 'external') {
-                return classifier.isNotificationFromExternal(notif);
+                return !isAiAuthor && classifier.isNotificationFromExternal(notif);
             }
             return true;
         });
@@ -621,13 +622,11 @@
         if (view === 'others-prs') {
             authorCounts.all = baseForAuthorCounts.length;
             baseForAuthorCounts.forEach((notif) => {
-                if (classifier.isNotificationFromCommitter(notif)) {
-                    authorCounts.committer++;
-                }
                 if (classifier.isNotificationFromAiAuthor(notif)) {
                     authorCounts.ai++;
-                }
-                if (classifier.isNotificationFromExternal(notif)) {
+                } else if (classifier.isNotificationFromCommitter(notif)) {
+                    authorCounts.committer++;
+                } else if (classifier.isNotificationFromExternal(notif)) {
                     authorCounts.external++;
                 }
             });
