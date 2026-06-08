@@ -913,6 +913,35 @@
                 display: inline-flex;
             }
         }
+
+        .repo-input-group {
+            align-items: stretch;
+            flex-direction: column;
+            flex: 1 1 360px;
+            min-width: 0;
+            gap: 4px;
+        }
+
+        #repo-input {
+            min-width: 0;
+            width: 100%;
+            min-height: 54px;
+            padding: 5px 12px;
+            font: inherit;
+            font-size: 14px;
+            line-height: 20px;
+            color: var(--color-fg-default);
+            background-color: var(--color-bg-default);
+            border: 1px solid var(--color-border-default);
+            border-radius: 6px;
+            outline: none;
+            resize: vertical;
+        }
+
+        #repo-input:focus {
+            border-color: var(--color-accent-fg);
+            box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.3);
+        }
     </style>
 </head>
 <body>
@@ -943,13 +972,21 @@
         <section class="controls">
             <div class="controls-row">
                 <div class="input-group">
-                    <label for="repo-input">Repository:</label>
-                    <input
-                        type="text"
+                    <label for="profile-select">Profile:</label>
+                    <select id="profile-select" aria-label="Notification profile">
+                        <option value="pytorch">PyTorch</option>
+                        <option value="everything-else">Everything else</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+                <div class="input-group repo-input-group">
+                    <label for="repo-input">Notification queries:</label>
+                    <textarea
                         id="repo-input"
-                        placeholder="owner/repo"
-                        aria-label="Repository in owner/repo format"
-                    >
+                        rows="2"
+                        placeholder="owner/repo, org:name, or query; one per line"
+                        aria-label="Repositories or notification queries, one per line"
+                    ></textarea>
                 </div>
                 <button id="sync-btn" class="btn btn-primary" type="button">
                     Quick Sync
@@ -1257,7 +1294,7 @@
 
             <div id="empty-state" class="empty-state">
                 <h3>No notifications</h3>
-                <p>Enter a repository and click Quick Sync to load notifications.</p>
+                <p>Choose a profile and click Quick Sync to load notifications.</p>
             </div>
 
     <ul id="notifications-list" class="notifications-list" role="list">
@@ -1378,6 +1415,7 @@
             const VIEW_KEY = 'ghnotif_view';
             const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
             const REPO_KEY = 'ghnotif_repo';
+            const PROFILE_KEY = 'ghnotif_profile';
             const ORDER_KEY = 'ghnotif_order';
             const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
             const DEFAULT_VIEW_FILTERS = {
@@ -1519,10 +1557,16 @@
                 const params = new URLSearchParams(window.location.search);
                 const view = getStoredView();
                 const repo = (localStorage.getItem(REPO_KEY) || '').trim();
+                const profile = (localStorage.getItem(PROFILE_KEY) || '').trim();
                 const filters = readStoredFilters();
                 const orders = readStoredOrders();
 
                 params.set('view', view);
+                if (profile) {
+                    params.set('profile', profile);
+                } else {
+                    params.delete('profile');
+                }
                 if (repo) {
                     params.set('repo', repo);
                 } else {
@@ -1554,7 +1598,13 @@
                 const params = new URLSearchParams(window.location.search);
                 const view = params.get('view');
                 const repo = params.get('repo');
+                const profile = params.get('profile');
                 let applied = false;
+
+                if (profile !== null) {
+                    localStorage.setItem(PROFILE_KEY, profile);
+                    applied = true;
+                }
 
                 if (repo !== null) {
                     localStorage.setItem(REPO_KEY, repo);
@@ -1626,6 +1676,10 @@
             const repoInput = document.getElementById('repo-input');
             if (repoInput) {
                 repoInput.addEventListener('input', scheduleQueryUpdate);
+            }
+            const profileSelect = document.getElementById('profile-select');
+            if (profileSelect) {
+                profileSelect.addEventListener('change', scheduleQueryUpdate);
             }
             const orderSelect = document.getElementById('order-select');
             if (orderSelect) {
@@ -1712,7 +1766,9 @@
                         };
 
                         async function setBookmarkState(notificationId, bookmarked) {
-                            const repo = parseRepoInput(state.repo || elements.repoInput.value.trim());
+                            const notification = state.notifications.find((item) => item.id === notificationId);
+                            const repo = getNotificationRepoInfo(notification) ||
+                                parseRepoInput(state.repo || elements.repoInput.value.trim());
                             if (!repo) {
                                 throw new Error('Invalid repository');
                             }
@@ -1755,7 +1811,9 @@
                         }
 
                         async function setRepliesMutedState(notificationId, repliesMuted) {
-                            const repo = parseRepoInput(state.repo || elements.repoInput.value.trim());
+                            const notification = state.notifications.find((item) => item.id === notificationId);
+                            const repo = getNotificationRepoInfo(notification) ||
+                                parseRepoInput(state.repo || elements.repoInput.value.trim());
                             if (!repo) {
                                 throw new Error('Invalid repository');
                             }

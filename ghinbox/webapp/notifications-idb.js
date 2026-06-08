@@ -65,16 +65,16 @@ function idbDeleteValue(storeName, key) {
     return withStore(storeName, 'readwrite', (store) => store.delete(key));
 }
 
-function loadNotificationsCache() {
-    return idbGetValue(NOTIFICATIONS_STORE, CACHE_KEY);
+function loadNotificationsCache(key = CACHE_KEY) {
+    return idbGetValue(NOTIFICATIONS_STORE, key || CACHE_KEY);
 }
 
-function saveNotificationsCache(notifications) {
-    return idbSetValue(NOTIFICATIONS_STORE, CACHE_KEY, notifications);
+function saveNotificationsCache(notifications, key = CACHE_KEY) {
+    return idbSetValue(NOTIFICATIONS_STORE, key || CACHE_KEY, notifications);
 }
 
-function clearNotificationsCache() {
-    return idbDeleteValue(NOTIFICATIONS_STORE, CACHE_KEY);
+function clearNotificationsCache(key = CACHE_KEY) {
+    return idbDeleteValue(NOTIFICATIONS_STORE, key || CACHE_KEY);
 }
 
 function loadCommentCacheStorage() {

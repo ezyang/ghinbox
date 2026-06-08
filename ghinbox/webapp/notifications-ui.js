@@ -553,34 +553,49 @@
 
         // Handle sync button click
         async function handleSync({ mode = 'incremental' } = {}) {
-            const repo = elements.repoInput.value.trim();
-            if (!repo) {
-                showStatus('Please enter a repository (owner/repo)', 'error');
+            const entries = getCurrentProfileEntries();
+            if (!entries.length) {
+                showStatus('Please enter a repository or query', 'error');
                 return;
             }
-            state.repo = repo;
-            localStorage.setItem('ghnotif_repo', repo);
+            updateActiveProfileEntries(entries);
             if (state.loading) {
                 return;
             }
 
-            // Parse owner/repo
-            const parts = repo.split('/');
-            if (parts.length !== 2) {
-                showStatus('Invalid format. Use owner/repo', 'error');
+            const sources = entries.map(classifyProfileEntry);
+            const invalid = sources.find((source) => !source.value);
+            if (invalid) {
+                showStatus('Invalid empty profile entry', 'error');
+                return;
+            }
+            const invalidFormat = sources.find((source) => source.kind === 'invalid');
+            if (invalidFormat) {
+                showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
                 return;
             }
 
-            const [owner, repoName] = parts;
-            const repoInfo = { owner, repo: repoName };
+            const concreteRepos = sources
+                .filter((source) => source.kind === 'repo')
+                .map((source) => ({
+                    owner: source.owner,
+                    repo: source.repo,
+                    fullName: source.fullName,
+                }));
+            const profileSignature = getProfileSignature();
             const previousNotifications = state.notifications.slice();
             const previousSelected = new Set(state.selected);
             const syncMode = mode === 'full' ? 'full' : 'incremental';
             const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
             const previousMatchMap =
                 syncMode === 'incremental' &&
+                sources.length === 1 &&
                 previousNotifications.length > 0 &&
-                state.lastSyncedRepo === repo
+                (
+                    state.lastSyncedRepo === profileSignature ||
+                    state.lastSyncedRepo === sources[0].fullName ||
+                    state.lastSyncedRepo === sources[0].value
+                )
                     ? buildPreviousMatchMap(previousNotifications)
                     : null;
             state.loading = true;
@@ -600,64 +615,71 @@
 
             try {
                 const allNotifications = [];
-                let afterCursor = null;
-                let pageCount = 0;
                 let overlapIndex = null;
 
-                // Fetch all pages
-                do {
-                    pageCount++;
-                    let url = `/notifications/html/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`;
-                    if (afterCursor) {
-                        url += `?after=${encodeURIComponent(afterCursor)}`;
-                    }
-
-                    const response = await fetch(url);
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        // Check for session expired (401 with session_expired error)
-                        if (response.status === 401 && errorData.detail?.error === 'session_expired') {
-                            showStatus('Session expired. Redirecting to login...', 'error');
-                            await new Promise(resolve => setTimeout(resolve, 1500));
-                            window.location.href = '/app/login.html?session_refresh=1';
-                            return;
+                for (const source of sources) {
+                    let afterCursor = null;
+                    let pageCount = 0;
+                    do {
+                        pageCount++;
+                        let url;
+                        if (source.kind === 'repo') {
+                            url = `/notifications/html/repo/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}`;
+                        } else {
+                            const params = new URLSearchParams({ query: source.query });
+                            url = `/notifications/html/query?${params}`;
                         }
-                        const errorMsg = typeof errorData.detail === 'object'
-                            ? JSON.stringify(errorData.detail)
-                            : (errorData.detail || `HTTP ${response.status}`);
-                        throw new Error(errorMsg);
-                    }
+                        if (afterCursor) {
+                            url += `${url.includes('?') ? '&' : '?'}after=${encodeURIComponent(afterCursor)}`;
+                        }
 
-                    const data = await response.json();
-                    allNotifications.push(...data.notifications);
-                    // Store authenticity_token from first page (valid for the session)
-                    if (data.authenticity_token && !state.authenticity_token) {
-                        state.authenticity_token = data.authenticity_token;
-                        persistAuthenticityToken(data.authenticity_token);
-                    }
-                    afterCursor = data.pagination.has_next ? data.pagination.after_cursor : null;
-                    if (previousMatchMap && overlapIndex === null) {
-                        overlapIndex = findIncrementalOverlapIndex(
-                            data.notifications,
-                            previousMatchMap
-                        );
-                        if (overlapIndex !== null) {
-                            showStatus(
-                                `${syncLabel}: overlap found at index ${overlapIndex} (stopping early)`,
-                                'info',
-                                { flash: true }
+                        const response = await fetch(url);
+
+                        if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            if (response.status === 401 && errorData.detail?.error === 'session_expired') {
+                                showStatus('Session expired. Redirecting to login...', 'error');
+                                await new Promise(resolve => setTimeout(resolve, 1500));
+                                window.location.href = '/app/login.html?session_refresh=1';
+                                return;
+                            }
+                            const errorMsg = typeof errorData.detail === 'object'
+                                ? JSON.stringify(errorData.detail)
+                                : (errorData.detail || `HTTP ${response.status}`);
+                            throw new Error(errorMsg);
+                        }
+
+                        const data = await response.json();
+                        const pageNotifications = Array.isArray(data.notifications)
+                            ? data.notifications
+                            : [];
+                        allNotifications.push(...pageNotifications);
+                        if (data.authenticity_token && !state.authenticity_token) {
+                            state.authenticity_token = data.authenticity_token;
+                            persistAuthenticityToken(data.authenticity_token);
+                        }
+                        afterCursor = data.pagination?.has_next ? data.pagination.after_cursor : null;
+                        if (previousMatchMap && overlapIndex === null) {
+                            overlapIndex = findIncrementalOverlapIndex(
+                                pageNotifications,
+                                previousMatchMap
                             );
-                            afterCursor = null;
+                            if (overlapIndex !== null) {
+                                showStatus(
+                                    `${syncLabel}: overlap found at index ${overlapIndex} (stopping early)`,
+                                    'info',
+                                    { flash: true }
+                                );
+                                afterCursor = null;
+                            }
                         }
-                    }
-                    state.notifications = allNotifications.slice();
-                    render();
-                    if (syncMode === 'full') {
-                        scheduleSyncPageCommentPrefetch(data.notifications);
-                    }
-
-                } while (afterCursor);
+                        state.notifications = allNotifications.slice();
+                        render();
+                        if (syncMode === 'full') {
+                            scheduleSyncPageCommentPrefetch(pageNotifications);
+                        }
+                    } while (afterCursor);
+                }
 
                 let mergedNotifications = allNotifications;
                 if (previousMatchMap && overlapIndex !== null) {
@@ -669,24 +691,37 @@
                 }
 
                 let reviewRequests = [];
-                try {
-                    reviewRequests = await fetchReviewRequestNotifications(repoInfo);
-                    mergedNotifications = mergeReviewRequestNotifications(
-                        mergedNotifications,
-                        reviewRequests,
-                        repoInfo
-                    );
-                } catch (error) {
-                    console.error('Review request sync failed:', error);
-                    showStatus(
-                        `${syncLabel}: review request check failed: ${error.message || error}`,
-                        'error',
-                        { flash: true }
-                    );
+                for (const repoInfo of concreteRepos) {
+                    try {
+                        const repoReviewRequests = await fetchReviewRequestNotifications(repoInfo);
+                        reviewRequests.push(...repoReviewRequests);
+                        mergedNotifications = mergeReviewRequestNotifications(
+                            mergedNotifications,
+                            repoReviewRequests,
+                            repoInfo
+                        );
+                    } catch (error) {
+                        console.error('Review request sync failed:', error);
+                        showStatus(
+                            `${syncLabel}: review request check failed: ${error.message || error}`,
+                            'error',
+                            { flash: true }
+                        );
+                    }
                 }
 
-                // Sort by updated_at descending
-                const sortedNotifications = mergedNotifications.sort((a, b) =>
+                const dedupedNotifications = [];
+                const seenNotificationIds = new Set();
+                mergedNotifications.forEach((notification) => {
+                    const key = getNotificationKey(notification);
+                    if (seenNotificationIds.has(key)) {
+                        return;
+                    }
+                    seenNotificationIds.add(key);
+                    dedupedNotifications.push(notification);
+                });
+
+                const sortedNotifications = dedupedNotifications.sort((a, b) =>
                     new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
                 );
 
@@ -699,25 +734,35 @@
                 });
 
                 if (syncMode === 'incremental' && overlapIndex !== null) {
-                    const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
-                    const cachedKeys = new Set();
-                    notifications.forEach((notif) => {
-                        const key = getNotificationMatchKeyForRepo(notif, repoInfo);
-                        if (key && !fetchedKeys.has(key)) {
-                            cachedKeys.add(key);
-                        }
-                    });
-                    notifications = await refreshPullRequestStates(repoInfo, notifications, {
-                        syncLabel,
-                        matchKeys: cachedKeys,
-                    });
+                    for (const repoInfo of concreteRepos) {
+                        const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
+                        const cachedKeys = new Set();
+                        notifications.forEach((notif) => {
+                            const key = getNotificationMatchKeyForRepo(notif, repoInfo);
+                            if (key && !fetchedKeys.has(key)) {
+                                cachedKeys.add(key);
+                            }
+                        });
+                        notifications = await refreshPullRequestStates(repoInfo, notifications, {
+                            syncLabel,
+                            matchKeys: cachedKeys,
+                        });
+                    }
                 }
 
-                const needsReviewPrNumbers = await getReviewRequestNeedsReviewNumbers(
-                    repoInfo,
-                    reviewRequests,
-                    syncLabel
-                );
+                const needsReviewPrNumbers = new Set();
+                for (const repoInfo of concreteRepos) {
+                    const repoReviewRequests = reviewRequests.filter((notification) => {
+                        const notificationRepo = getNotificationRepoInfo(notification, repoInfo);
+                        return notificationRepo?.fullName === repoInfo.fullName;
+                    });
+                    const repoNeedsReview = await getReviewRequestNeedsReviewNumbers(
+                        repoInfo,
+                        repoReviewRequests,
+                        syncLabel
+                    );
+                    repoNeedsReview.forEach((number) => needsReviewPrNumbers.add(number));
+                }
                 notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
                     needsReviewPrNumbers,
                 });
@@ -725,8 +770,8 @@
 
                 state.notifications = notifications;
                 state.loading = false;
-                state.lastSyncedRepo = repo;
-                localStorage.setItem(LAST_SYNCED_REPO_KEY, repo);
+                state.lastSyncedRepo = profileSignature;
+                localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
 
                 // Save to localStorage
                 persistNotifications();

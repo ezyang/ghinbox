@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage } from './storage-utils';
 
@@ -7,6 +7,10 @@ import { clearAppStorage } from './storage-utils';
  *
  * Tests removing current user as a reviewer from PRs and unsubscribing from the thread.
  */
+
+function inlineRemoveReviewerButton(notification: Locator) {
+  return notification.locator('.notification-actions-inline .notification-remove-reviewer-btn');
+}
 
 test.describe('Remove Reviewer @mutation', () => {
   test.beforeEach(async ({ page }) => {
@@ -81,7 +85,7 @@ test.describe('Remove Reviewer @mutation', () => {
       const prNotification = page.locator('[data-id="notif-2"]');
 
       // Button should be visible for PRs
-      const removeBtn = prNotification.locator('.notification-remove-reviewer-btn');
+      const removeBtn = inlineRemoveReviewerButton(prNotification);
       await expect(removeBtn).toBeVisible();
     });
 
@@ -93,7 +97,7 @@ test.describe('Remove Reviewer @mutation', () => {
       const issueNotification = page.locator('[data-id="notif-1"]');
 
       // Button should not exist for issues
-      const removeBtn = issueNotification.locator('.notification-remove-reviewer-btn');
+      const removeBtn = inlineRemoveReviewerButton(issueNotification);
       await expect(removeBtn).toHaveCount(0);
     });
 
@@ -136,7 +140,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Notification should be removed from UI
       await expect(prNotification).toHaveCount(0);
@@ -173,7 +177,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Notification should be removed from UI (optimistic)
       await expect(prNotification).toHaveCount(0);
@@ -201,7 +205,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       await expect(prNotification).toHaveCount(0);
 
@@ -250,7 +254,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Should show rate limit message
       await expect(page.locator('#status-bar')).toContainText('Rate limited');
@@ -273,7 +277,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Should show unsubscribe failure
       await expect(page.locator('#status-bar')).toContainText('Failed to unsubscribe');
@@ -310,7 +314,7 @@ test.describe('Remove Reviewer @mutation', () => {
       await expect(page.locator('.notification-item')).toHaveCount(1);
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Should show error
       await expect(page.locator('#status-bar')).toContainText('Failed');
@@ -338,7 +342,7 @@ test.describe('Remove Reviewer @mutation', () => {
       });
 
       const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn').click();
+      await inlineRemoveReviewerButton(prNotification).click();
 
       // Notification should be removed immediately (optimistic update),
       // even though the API request is still pending

@@ -50,6 +50,7 @@ class Notification(BaseModel):
     unread: bool
     reason: str
     updated_at: datetime
+    repository: "Repository | None" = None
     subject: Subject
     actors: list[Actor] = Field(default_factory=list)
     ui: UIState = Field(default_factory=UIState)

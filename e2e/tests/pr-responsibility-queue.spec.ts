@@ -262,10 +262,10 @@ test.describe('PR responsibility queue @classification @mutation', () => {
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
 
     await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
-    await expect(page.locator('#view-others-prs .count')).toHaveText('4');
+    await expect(page.locator('#view-others-prs .count')).toHaveText('5');
 
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
@@ -291,8 +291,8 @@ test.describe('PR responsibility queue @classification @mutation', () => {
       '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
     );
     await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('2');
-    await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('1');
+    await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('2');
+    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('0');
 
     await stateFilters.locator('[data-subfilter="needs-review"]').click();
     await expect(page.locator('.notification-item')).toHaveCount(2);
@@ -301,13 +301,13 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await expect(page.locator('[data-id="review-request:test/repo#12"]')).toBeVisible();
 
     await stateFilters.locator('[data-subfilter="approved"]').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('.notification-item')).toHaveCount(2);
     await expect(page.locator('[data-id="review-request:test/repo#11"]')).toBeVisible();
-    await expect(page.locator('[data-id="review-request:test/repo#13"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="review-request:test/repo#13"]')).toBeVisible();
 
     await stateFilters.locator('[data-subfilter="done"]').click();
-    await expect(page.locator('.notification-item')).toHaveCount(1);
-    await expect(page.locator('[data-id="review-request:test/repo#13"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(0);
+    await expect(page.locator('[data-id="review-request:test/repo#13"]')).not.toBeAttached();
   });
 
   test('does not use search timestamp as review-request comment watermark', async ({

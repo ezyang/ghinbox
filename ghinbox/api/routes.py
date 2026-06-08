@@ -4,6 +4,7 @@ FastAPI route handlers for the HTML notifications API.
 
 import time
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -105,6 +106,111 @@ def _apply_bookmarks(
     payload = response.model_dump(mode="json")
     payload["notifications"] = apply_local_state(repo_key, payload["notifications"])
     return NotificationsResponse.model_validate(payload)
+
+
+def _query_repo_name(query: str) -> str:
+    compact = re.sub(r"\s+", "-", query.strip().lower())
+    compact = re.sub(r"[^a-z0-9_.:-]+", "-", compact).strip("-")
+    return compact[:80] or "all"
+
+
+@router.get(
+    "/query",
+    response_model=NotificationsResponse,
+    summary="Get notifications from a GitHub notifications query",
+    description="""
+    Parse GitHub notifications HTML for an arbitrary notifications query.
+
+    This endpoint reflects:
+    https://github.com/notifications?query={query}
+    """,
+)
+async def get_query_notifications(
+    query: Annotated[
+        str,
+        Query(description="GitHub notifications query text"),
+    ],
+    before: Annotated[
+        str | None,
+        Query(description="Opaque cursor from GitHub 'Prev' link (verbatim)"),
+    ] = None,
+    after: Annotated[
+        str | None,
+        Query(description="Opaque cursor from GitHub 'Next' link (verbatim)"),
+    ] = None,
+) -> NotificationsResponse:
+    """
+    Get notifications for a saved profile query from HTML.
+    """
+    query = query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    source_url = f"https://github.com/notifications?query={query}"
+    if before:
+        source_url += f"&before={before}"
+    if after:
+        source_url += f"&after={after}"
+
+    fetcher = get_fetcher()
+    if fetcher is None:
+        return NotificationsResponse(
+            source_url=source_url,
+            generated_at=datetime.now(),
+            repository={
+                "owner": "query",
+                "name": _query_repo_name(query),
+                "full_name": f"query/{_query_repo_name(query)}",
+            },
+            notifications=[],
+            pagination={
+                "before_cursor": None,
+                "after_cursor": None,
+                "has_previous": False,
+                "has_next": False,
+            },
+        )
+
+    result = await run_fetcher_call(
+        fetcher.fetch_notifications_query,
+        query=query,
+        before=before,
+        after=after,
+    )
+    if result.status == "session_expired":
+        mark_github_session_expired()
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "session_expired",
+                "message": result.error
+                or "GitHub session has expired. Please re-authenticate.",
+            },
+        )
+    if result.status == "error":
+        print(f"[notifications] Fetch error for query {query!r}: {result.error}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch from GitHub: {result.error}",
+        )
+
+    try:
+        parsed = parse_notifications_html(
+            html=result.html,
+            owner="query",
+            repo=_query_repo_name(query),
+            source_url=result.url,
+        )
+        return _apply_bookmarks(parsed, f"query:{query}")
+    except SessionExpiredError as e:
+        mark_github_session_expired()
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "session_expired",
+                "message": str(e),
+            },
+        )
 
 
 @router.get(

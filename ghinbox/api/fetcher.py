@@ -193,6 +193,25 @@ class NotificationsFetcher:
             FetchResult with HTML content and metadata
         """
         query = f"repo:{owner}/{repo}"
+        return self.fetch_notifications_query(query, before=before, after=after)
+
+    def fetch_notifications_query(
+        self,
+        query: str,
+        before: str | None = None,
+        after: str | None = None,
+    ) -> FetchResult:
+        """
+        Fetch notifications HTML for an arbitrary GitHub notifications query.
+
+        Args:
+            query: GitHub notifications query text
+            before: Pagination cursor for previous page
+            after: Pagination cursor for next page
+
+        Returns:
+            FetchResult with HTML content and metadata
+        """
         url = f"https://github.com/notifications?query={urllib.parse.quote(query)}"
 
         if before:

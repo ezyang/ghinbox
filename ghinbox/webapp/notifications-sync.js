@@ -124,15 +124,15 @@
         function getNotificationMatchKeyForRepo(notification, repo) {
             const number = notification?.subject?.number;
             const type = notification?.subject?.type || 'unknown';
-            if (repo && typeof number === 'number') {
-                return `${repo.owner}/${repo.repo}:${type}:${number}`;
+            const resolvedRepo = repo || getNotificationRepoInfo(notification);
+            if (resolvedRepo && typeof number === 'number') {
+                return `${resolvedRepo.owner}/${resolvedRepo.repo}:${type}:${number}`;
             }
             return `id:${getNotificationKey(notification)}`;
         }
 
         function getNotificationMatchKey(notification) {
-            const repo = parseRepoInput(state.repo || '');
-            return getNotificationMatchKeyForRepo(notification, repo);
+            return getNotificationMatchKeyForRepo(notification, null);
         }
 
         function getNotificationDedupKey(notification) {
@@ -456,6 +456,11 @@
                 responsibility_source: 'review-requested',
                 updated_at: item.updated_at || item.created_at || new Date().toISOString(),
                 last_read_at: null,
+                repository: {
+                    owner: repo.owner,
+                    name: repo.repo,
+                    full_name: `${repo.owner}/${repo.repo}`,
+                },
                 subject: {
                     title: item.title || `Pull request #${item.number}`,
                     url: item.html_url || `https://github.com/${repo.owner}/${repo.repo}/pull/${item.number}`,
@@ -524,14 +529,34 @@
                     if (typeof number !== 'number') {
                         return;
                     }
-                    const state = notification.subject?.state;
-                    if (state === 'draft' || state === 'closed' || state === 'merged') {
+                    const subjectState = notification.subject?.state;
+                    if (subjectState === 'draft' || subjectState === 'closed' || subjectState === 'merged') {
                         return;
                     }
                     const entry = repoData[`pr${number}`] || {};
                     const labels = Array.isArray(entry?.labels?.nodes)
                         ? entry.labels.nodes.map((label) => String(label?.name || '').toLowerCase())
                         : [];
+                    if (labels.length) {
+                        notification.labels = labels.map((name) => ({ name }));
+                    }
+                    if (typeof setReviewDecisionCache === 'function') {
+                        setReviewDecisionCache(
+                            notification,
+                            entry?.reviewDecision ?? null,
+                            entry?.authorAssociation ?? null,
+                            entry?.author?.login ?? null,
+                            labels,
+                            { includeAuthorAssociation: true }
+                        );
+                        const threadId = getNotificationKey(notification);
+                        state.commentCache.threads[threadId] = {
+                            ...state.commentCache.threads[threadId],
+                            additions: entry?.additions ?? null,
+                            deletions: entry?.deletions ?? null,
+                            changedFiles: entry?.changedFiles ?? null,
+                        };
+                    }
                     if (labels.includes('mergedog')) {
                         return;
                     }
@@ -540,6 +565,9 @@
                     }
                     needsReviewNumbers.add(number);
                 });
+                if (typeof saveCommentCache === 'function') {
+                    saveCommentCache();
+                }
                 return needsReviewNumbers;
             } catch (error) {
                 console.error('Review request metadata check failed:', error);

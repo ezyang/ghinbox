@@ -10,11 +10,6 @@ test.describe('UI Shell', () => {
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' });
 
-    await page.addInitScript(() => {
-      localStorage.clear();
-      indexedDB.deleteDatabase('ghnotif_cache');
-    });
-
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
         status: 200,
@@ -59,11 +54,20 @@ test.describe('UI Shell', () => {
     });
 
     await page.goto('notifications.html');
+    await page.evaluate(() => {
+      localStorage.clear();
+      indexedDB.deleteDatabase('ghnotif_cache');
+    });
+    await page.reload();
   });
 
   test('renders header, controls, and empty notifications list', async ({ page }) => {
     await expect(page.locator('.app-header h1')).toHaveText('ghinbox');
-    await expect(page.locator('#repo-input')).toHaveAttribute('placeholder', 'owner/repo');
+    await expect(page.locator('#profile-select')).toHaveValue('pytorch');
+    await expect(page.locator('#repo-input')).toHaveAttribute(
+      'placeholder',
+      'owner/repo, org:name, or query; one per line'
+    );
     await expect(page.locator('#sync-btn')).toHaveText('Quick Sync');
     await expect(page.locator('#server-refresh-btn')).toHaveText('Server Refresh');
     await expect(page.locator('#rate-limit-box')).toContainText('Rate limit: core 42/60');

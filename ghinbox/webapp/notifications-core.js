@@ -1,4 +1,7 @@
 // Comment-related constants are in notifications-comments.js
+        const REPO_KEY = 'ghnotif_repo';
+        const PROFILE_KEY = 'ghnotif_profile';
+        const PROFILES_KEY = 'ghnotif_profiles';
         const LAST_SYNCED_REPO_KEY = 'ghnotif_last_synced_repo';
         const VIEW_KEY = 'ghnotif_view';
         const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
@@ -15,10 +18,33 @@
             normalizeViewOrders,
         } = GhinboxFiltering;
         const RATE_LIMIT_LOG_MAX = 300;
+        const DEFAULT_PROFILE_ID = 'pytorch';
+        const DEFAULT_PROFILES = [
+            {
+                id: 'pytorch',
+                name: 'PyTorch',
+                entries: ['org:pytorch', 'org:meta-pytorch'],
+                system: true,
+            },
+            {
+                id: 'everything-else',
+                name: 'Everything else',
+                entries: ['-org:pytorch -org:meta-pytorch'],
+                system: true,
+            },
+            {
+                id: 'custom',
+                name: 'Custom',
+                entries: ['pytorch/pytorch'],
+                system: false,
+            },
+        ];
 
         // Application state
         const state = {
             repo: null,
+            profileId: DEFAULT_PROFILE_ID,
+            profiles: [],
             notifications: [],
             trashNotifications: [],
             loading: false,
@@ -85,6 +111,7 @@
 
         // DOM elements
         const elements = {
+            profileSelect: document.getElementById('profile-select'),
             repoInput: document.getElementById('repo-input'),
             syncBtn: document.getElementById('sync-btn'),
             fullSyncBtn: document.getElementById('full-sync-btn'),
@@ -134,9 +161,228 @@
             notificationsContainer: document.querySelector('.notifications-container'),
         };
 
+        function splitProfileEntries(value) {
+            return String(value || '')
+                .split(/[\n,]+/)
+                .map((entry) => entry.trim())
+                .filter(Boolean);
+        }
+
+        function normalizeProfile(profile, fallback) {
+            const base = fallback || {};
+            const id = String(profile?.id || base.id || '').trim();
+            const name = String(profile?.name || base.name || id).trim();
+            const entries = Array.isArray(profile?.entries)
+                ? profile.entries.map((entry) => String(entry || '').trim()).filter(Boolean)
+                : Array.isArray(base.entries)
+                    ? base.entries.slice()
+                    : [];
+            if (!id || !name) {
+                return null;
+            }
+            return {
+                id,
+                name,
+                entries,
+                system: Boolean(profile?.system ?? base.system),
+            };
+        }
+
+        function readProfiles() {
+            const defaults = DEFAULT_PROFILES.map((profile) => ({ ...profile, entries: profile.entries.slice() }));
+            const byId = new Map(defaults.map((profile) => [profile.id, profile]));
+            const raw = localStorage.getItem(PROFILES_KEY);
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        parsed.forEach((profile) => {
+                            const fallback = byId.get(String(profile?.id || ''));
+                            const normalized = normalizeProfile(profile, fallback);
+                            if (normalized) {
+                                byId.set(normalized.id, normalized);
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to parse saved profiles:', error);
+                }
+            }
+
+            const legacyRepo = String(localStorage.getItem(REPO_KEY) || '').trim();
+            const custom = byId.get('custom');
+            if (legacyRepo && custom && custom.entries.join('\n') === 'pytorch/pytorch') {
+                custom.entries = splitProfileEntries(legacyRepo);
+            }
+
+            return DEFAULT_PROFILES.map((profile) => byId.get(profile.id)).filter(Boolean);
+        }
+
+        function saveProfiles() {
+            localStorage.setItem(PROFILES_KEY, JSON.stringify(state.profiles));
+        }
+
+        function getActiveProfile() {
+            return state.profiles.find((profile) => profile.id === state.profileId) || state.profiles[0];
+        }
+
+        function getProfileEntriesText(profile = getActiveProfile()) {
+            return (profile?.entries || []).join('\n');
+        }
+
+        function getProfileSignature(profile = getActiveProfile()) {
+            const id = profile?.id || 'unknown';
+            return `${id}:${getProfileEntriesText(profile)}`;
+        }
+
+        function getNotificationsCacheKey(profile = getActiveProfile()) {
+            return `profile:${getProfileSignature(profile)}`;
+        }
+
+        function mirrorRepoStorage(entries) {
+            const value = entries.length === 1 ? entries[0] : entries.join('\n');
+            localStorage.setItem(REPO_KEY, value);
+            state.repo = value || null;
+        }
+
+        function renderProfileSelect() {
+            if (!elements.profileSelect) {
+                return;
+            }
+            elements.profileSelect.textContent = '';
+            state.profiles.forEach((profile) => {
+                const option = document.createElement('option');
+                option.value = profile.id;
+                option.textContent = profile.name;
+                elements.profileSelect.appendChild(option);
+            });
+            elements.profileSelect.value = state.profileId;
+        }
+
+        function applyActiveProfileToInput() {
+            const profile = getActiveProfile();
+            if (elements.repoInput) {
+                elements.repoInput.value = getProfileEntriesText(profile);
+            }
+            mirrorRepoStorage(profile?.entries || []);
+        }
+
+        function setActiveProfile(profileId, { loadCache = true } = {}) {
+            if (!state.profiles.some((profile) => profile.id === profileId)) {
+                return;
+            }
+            state.profileId = profileId;
+            localStorage.setItem(PROFILE_KEY, profileId);
+            if (elements.profileSelect) {
+                elements.profileSelect.value = profileId;
+            }
+            applyActiveProfileToInput();
+            if (loadCache) {
+                loadNotificationsCache(getNotificationsCacheKey())
+                    .then((cached) => {
+                        state.notifications = Array.isArray(cached) ? cached : [];
+                        state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
+                        render();
+                    })
+                    .catch((error) => {
+                        console.error('Failed to load profile notifications cache:', error);
+                    });
+            }
+        }
+
+        function updateActiveProfileEntries(entries) {
+            const profile = getActiveProfile();
+            if (!profile) {
+                return;
+            }
+            profile.entries = entries.slice();
+            mirrorRepoStorage(profile.entries);
+            saveProfiles();
+        }
+
+        function classifyProfileEntry(entry) {
+            const value = String(entry || '').trim();
+            const repo = parseRepoInput(value);
+            if (repo) {
+                return {
+                    kind: 'repo',
+                    value,
+                    owner: repo.owner,
+                    repo: repo.repo,
+                    fullName: `${repo.owner}/${repo.repo}`,
+                    query: `repo:${repo.owner}/${repo.repo}`,
+                };
+            }
+            const repoQuery = value.match(/^repo:([^/\s]+)\/([^/\s]+)$/);
+            if (repoQuery) {
+                return {
+                    kind: 'repo',
+                    value,
+                    owner: repoQuery[1],
+                    repo: repoQuery[2],
+                    fullName: `${repoQuery[1]}/${repoQuery[2]}`,
+                    query: value,
+                };
+            }
+            if (!value.includes(':') && !value.includes(' ') && !value.startsWith('-')) {
+                return {
+                    kind: 'invalid',
+                    value,
+                    query: value,
+                };
+            }
+            return {
+                kind: 'query',
+                value,
+                query: value,
+            };
+        }
+
+        function getCurrentProfileEntries() {
+            if (elements.repoInput) {
+                return splitProfileEntries(elements.repoInput.value);
+            }
+            return splitProfileEntries(state.repo || '');
+        }
+
+        function getNotificationRepoInfo(notification, fallback = null) {
+            const fullName = notification?.repository?.full_name;
+            const parsedFullName = fullName ? parseRepoInput(fullName) : null;
+            if (parsedFullName) {
+                return {
+                    owner: parsedFullName.owner,
+                    repo: parsedFullName.repo,
+                    fullName: `${parsedFullName.owner}/${parsedFullName.repo}`,
+                };
+            }
+            const url = String(notification?.subject?.url || '');
+            const match = url.match(/github\.com\/([^/]+)\/([^/]+)\//);
+            if (match) {
+                return {
+                    owner: match[1],
+                    repo: match[2],
+                    fullName: `${match[1]}/${match[2]}`,
+                };
+            }
+            const parsedFallback = fallback
+                ? parseRepoInput(fallback.fullName || `${fallback.owner}/${fallback.repo}`)
+                : null;
+            if (parsedFallback) {
+                return {
+                    owner: parsedFallback.owner,
+                    repo: parsedFallback.repo,
+                    fullName: `${parsedFallback.owner}/${parsedFallback.repo}`,
+                };
+            }
+            return null;
+        }
+
         function persistNotifications() {
-            saveNotificationsCache(state.notifications).catch((error) => {
+            saveNotificationsCache(state.notifications, getNotificationsCacheKey()).catch((error) => {
                 console.error('Failed to persist notifications cache:', error);
+            });
+            saveNotificationsCache(state.notifications).catch((error) => {
+                console.error('Failed to persist legacy notifications cache:', error);
             });
         }
 
@@ -398,9 +644,14 @@
         // Initialize app
         async function loadNotificationsFromCache() {
             try {
-                const cached = await loadNotificationsCache();
+                const cached = await loadNotificationsCache(getNotificationsCacheKey());
                 if (Array.isArray(cached)) {
                     return cached;
+                }
+                const legacyCached = await loadNotificationsCache();
+                if (Array.isArray(legacyCached)) {
+                    await saveNotificationsCache(legacyCached, getNotificationsCacheKey());
+                    return legacyCached;
                 }
             } catch (error) {
                 console.error('Failed to load notifications cache from IndexedDB:', error);
@@ -442,11 +693,17 @@
         async function init() {
             instrumentFetchForRateLimit();
 
-            // Load saved repo from localStorage, defaulting to pytorch/pytorch
-            const savedRepo = localStorage.getItem('ghnotif_repo');
-            const repoValue = savedRepo || 'pytorch/pytorch';
-            elements.repoInput.value = repoValue;
-            state.repo = repoValue;
+            state.profiles = readProfiles();
+            const savedProfileId = localStorage.getItem(PROFILE_KEY);
+            const legacyRepo = String(localStorage.getItem(REPO_KEY) || '').trim();
+            state.profileId = state.profiles.some((profile) => profile.id === savedProfileId)
+                ? savedProfileId
+                : legacyRepo
+                    ? 'custom'
+                    : DEFAULT_PROFILE_ID;
+            renderProfileSelect();
+            applyActiveProfileToInput();
+            saveProfiles();
 
             try {
                 state.commentCache = await loadCommentCache();
@@ -550,6 +807,11 @@
             if (elements.serverRefreshBtn) {
                 elements.serverRefreshBtn.addEventListener('click', () => {
                     withActionContext('Server Refresh', handleServerSnapshotRefresh);
+                });
+            }
+            if (elements.profileSelect) {
+                elements.profileSelect.addEventListener('change', (event) => {
+                    setActiveProfile(event.target.value);
                 });
             }
             elements.repoInput.addEventListener('input', handleRepoInput);
@@ -686,9 +948,7 @@
 
         // Handle repo input changes
         function handleRepoInput() {
-            const value = elements.repoInput.value.trim();
-            state.repo = value || null;
-            localStorage.setItem('ghnotif_repo', value);
+            updateActiveProfileEntries(getCurrentProfileEntries());
         }
 
         function setCommentExpandIssues(enabled) {

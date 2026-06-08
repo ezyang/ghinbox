@@ -348,7 +348,7 @@ function buildBulkCommentRequestItem(notification) {
     if (!issueNumber) {
         return null;
     }
-    const repo = parseRepoInput(state.repo || '');
+    const repo = getNotificationRepoInfo(notification);
     if (!repo) {
         return null;
     }
@@ -582,10 +582,6 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     const force = Boolean(options.force);
     const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
     const includeAuthorPermission = Boolean(options.includeAuthorPermission);
-    const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
-    if (!repo) {
-        return;
-    }
     const pending = force
         ? notifications.filter((notif) => notif.subject?.type === 'PullRequest')
         : COMMENT_CACHE_POLICY.getPendingReviewMetadataNotifications(
@@ -601,8 +597,29 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     if (!pending.length) {
         return;
     }
+    const byRepo = new Map();
+    pending.forEach((notification) => {
+        const repo = getNotificationRepoInfo(notification) ||
+            parseRepoInput(state.repo || state.lastSyncedRepo || '');
+        if (!repo) {
+            return;
+        }
+        const key = `${repo.owner}/${repo.repo}`;
+        if (!byRepo.has(key)) {
+            byRepo.set(key, { repo, notifications: [] });
+        }
+        byRepo.get(key).notifications.push(notification);
+    });
+    if (!byRepo.size) {
+        return;
+    }
     if (force) {
-        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation, includeAuthorPermission })
+        Promise.all(Array.from(byRepo.values()).map((group) =>
+            prefetchReviewDecisions(group.repo, group.notifications, {
+                includeAuthorAssociation,
+                includeAuthorPermission,
+            })
+        ))
             .then(() => {
                 saveCommentCache();
                 render();
@@ -612,9 +629,14 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
         });
         return;
     }
-    state.commentQueue.push(() =>
-        prefetchReviewDecisions(repo, pending, { includeAuthorAssociation, includeAuthorPermission })
-    );
+    byRepo.forEach((group) => {
+        state.commentQueue.push(() =>
+            prefetchReviewDecisions(group.repo, group.notifications, {
+                includeAuthorAssociation,
+                includeAuthorPermission,
+            })
+        );
+    });
     runCommentQueue();
 }
 
@@ -633,7 +655,7 @@ async function prefetchNotificationComments(notification) {
     }
 
     try {
-        const repo = parseRepoInput(state.repo || '');
+        const repo = getNotificationRepoInfo(notification);
         if (!repo) {
             throw new Error('Missing repository input.');
         }

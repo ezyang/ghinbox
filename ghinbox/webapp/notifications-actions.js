@@ -445,14 +445,15 @@
         }
 
         async function persistReadCommentWatermarks(notifIds, notificationLookup) {
-            const repo = parseRepoInput(state.repo || state.lastSyncedRepo || '');
-            if (!repo) {
-                return;
-            }
             const readAt = new Date().toISOString();
             const results = await Promise.allSettled(
                 notifIds.map(async (notifId) => {
                     const notification = notificationLookup?.get(notifId);
+                    const repo = getNotificationRepoInfo(notification) ||
+                        parseRepoInput(state.repo || state.lastSyncedRepo || '');
+                    if (!repo) {
+                        return;
+                    }
                     if (notification) {
                         notification.ui = {
                             ...(notification.ui || {}),
@@ -799,7 +800,13 @@
         }
 
         async function reloadNotificationsFromServer() {
-            const repo = parseRepoInput(state.repo || '');
+            const entries = typeof getCurrentProfileEntries === 'function'
+                ? getCurrentProfileEntries()
+                : [state.repo || ''];
+            if (entries.length !== 1) {
+                return { status: 'error', error: 'Reload requires a single repository profile.' };
+            }
+            const repo = parseRepoInput(entries[0] || '');
             if (!repo) {
                 return { status: 'error', error: 'Missing repository.' };
             }
@@ -948,7 +955,7 @@
         }
 
         async function hasNewCommentsRelativeToCache(notification, options = {}) {
-            const repo = parseRepoInput(state.repo || '');
+            const repo = getNotificationRepoInfo(notification);
             const issueNumber = getIssueNumber(notification);
             if (!repo || !issueNumber) {
                 return {

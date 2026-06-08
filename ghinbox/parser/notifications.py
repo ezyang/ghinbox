@@ -174,6 +174,7 @@ def _parse_single_notification(item: Tag) -> Notification | None:
 
     # Extract subject info
     subject = _extract_subject(item)
+    repository = _extract_repository_from_subject(subject)
 
     # Extract actors
     actors = _extract_actors(item)
@@ -187,10 +188,25 @@ def _parse_single_notification(item: Tag) -> Notification | None:
         unread=unread,
         reason=reason,
         updated_at=updated_at,
+        repository=repository,
         subject=subject,
         actors=actors,
         ui=ui,
     )
+
+
+def _extract_repository_from_subject(subject: Subject) -> Repository | None:
+    """Extract repository information from the notification URL."""
+    if not subject.url:
+        return None
+    parsed = urlparse(subject.url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1]
+    if not owner or not repo:
+        return None
+    return Repository(owner=owner, name=repo, full_name=f"{owner}/{repo}")
 
 
 def _extract_reason(item: Tag) -> str:
