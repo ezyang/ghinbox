@@ -486,6 +486,13 @@
                 };
             }
 
+            if (authorFilter === 'ai') {
+                return {
+                    title: 'No AI PRs',
+                    message: 'No pull requests from AI authors match this view.',
+                };
+            }
+
             if (authorFilter === 'external') {
                 return {
                     title: 'No external PRs',

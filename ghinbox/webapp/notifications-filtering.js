@@ -8,6 +8,7 @@
     root.GhinboxFiltering = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     const VALID_ORDERS = new Set(['recent', 'size']);
+    const AI_AUTHOR_LOGIN = 'jansel';
 
     const DEFAULT_VIEW_FILTERS = {
         'issues': { state: 'all', interest: 'all' },
@@ -250,6 +251,16 @@
             return !isNotificationFromCommitter(notification);
         }
 
+        function isNotificationFromAiAuthor(notification) {
+            if (notification.subject?.type !== 'PullRequest') {
+                return false;
+            }
+            if (deps.isNotificationFromAiAuthor) {
+                return deps.isNotificationFromAiAuthor(notification);
+            }
+            return String(cachedFor(notification)?.authorLogin || '').toLowerCase() === AI_AUTHOR_LOGIN;
+        }
+
         function getUninterestingReason(notification) {
             return deps.getUninterestingReason
                 ? deps.getUninterestingReason(notification)
@@ -336,6 +347,7 @@
             isNotificationDirectedAtCurrentUser,
             isNotificationDone,
             isNotificationForCurrentUser,
+            isNotificationFromAiAuthor,
             isNotificationFromCommitter,
             isNotificationFromExternal,
             isNotificationNeedsReview,
@@ -384,6 +396,9 @@
         return notifications.filter((notif) => {
             if (authorFilter === 'committer') {
                 return classifier.isNotificationFromCommitter(notif);
+            }
+            if (authorFilter === 'ai') {
+                return classifier.isNotificationFromAiAuthor(notif);
             }
             if (authorFilter === 'external') {
                 return classifier.isNotificationFromExternal(notif);
@@ -526,7 +541,7 @@
                     needsReview: 0,
                     approved: 0,
                 },
-                author: { all: 0, committer: 0, external: 0 },
+                author: { all: 0, committer: 0, ai: 0, external: 0 },
                 audience: { all: 0, 'for-you': 0, 'for-others': 0 },
                 interest: {
                     all: trashNotifications.length,
@@ -557,6 +572,7 @@
         const authorCounts = {
             all: 0,
             committer: 0,
+            ai: 0,
             external: 0,
         };
         const audienceCounts = {
@@ -607,6 +623,9 @@
             baseForAuthorCounts.forEach((notif) => {
                 if (classifier.isNotificationFromCommitter(notif)) {
                     authorCounts.committer++;
+                }
+                if (classifier.isNotificationFromAiAuthor(notif)) {
+                    authorCounts.ai++;
                 }
                 if (classifier.isNotificationFromExternal(notif)) {
                     authorCounts.external++;

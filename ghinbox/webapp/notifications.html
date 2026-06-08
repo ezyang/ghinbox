@@ -1154,6 +1154,13 @@
                         </button>
                         <button
                             class="subfilter-tab"
+                            data-subfilter="ai"
+                            aria-pressed="false"
+                        >
+                            AI <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
                             data-subfilter="external"
                             aria-pressed="false"
                         >
@@ -1200,6 +1207,7 @@
                     <select id="mobile-author-select" class="mobile-filter-select mobile-author-select" aria-label="Additional notification filter">
                         <option value="all">All authors</option>
                         <option value="committer">Committers</option>
+                        <option value="ai">AI</option>
                         <option value="external">External</option>
                     </select>
                 </div>
@@ -1394,7 +1402,7 @@
                 'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
                 'cleaned': new Set(['all']),
             };
-            const VALID_AUTHOR = new Set(['all', 'committer', 'external']);
+            const VALID_AUTHOR = new Set(['all', 'committer', 'ai', 'external']);
             const VALID_ORDERS = new Set(['recent', 'size']);
             const VIEW_QUERY_KEYS = {
                 'issues': { state: 'issues_state', order: 'issues_order' },

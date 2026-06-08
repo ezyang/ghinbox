@@ -39,6 +39,7 @@ const fixtures = [
   notification('changes-requested-pr', 'PullRequest', 'open'),
   notification('reply-pr', 'PullRequest', 'open'),
   notification('external-pr', 'PullRequest', 'open', 'review_requested'),
+  notification('ai-pr', 'PullRequest', 'open', 'review_requested'),
 ];
 
 const baseDeps = {
@@ -49,6 +50,7 @@ const baseDeps = {
   isNotificationReviewResponsibility: (notification) =>
     notification.reason === 'review_requested',
   isNotificationFromCommitter: (notification) => notification.id === 'review-pr',
+  isNotificationFromAiAuthor: (notification) => notification.id === 'ai-pr',
   hasNotificationAuthorPermission: (notification) =>
     notification.id === 'review-pr' || notification.id === 'external-pr',
   getUninterestingReason: (notification) =>
@@ -90,6 +92,11 @@ test('normalizes persisted legacy and partial view filters', () => {
     author: 'external',
     interest: 'all',
   });
+  assert.deepEqual(normalizeViewFilters({ 'others-prs': { author: 'ai' } })['others-prs'], {
+    state: 'all',
+    author: 'ai',
+    interest: 'all',
+  });
   assert.equal(normalizeViewFilters({ 'others-prs': 'closed' })['others-prs'].state, 'done');
   assert.equal(normalizeViewFilters({ 'others-prs': { state: 'draft' } })['others-prs'].state, 'done');
 });
@@ -99,7 +106,7 @@ test('classifies notifications into view counts', () => {
     issues: 5,
     myPrs: 1,
     prNotifications: 1,
-    othersPrs: 6,
+    othersPrs: 7,
     trash: 0,
   });
 });
@@ -127,7 +134,7 @@ test('classifies notifications into view counts', () => {
     name: 'reviews needs-review follows active review responsibility, not aggregate review decision',
     view: 'others-prs',
     filters: { 'others-prs': { state: 'needs-review' } },
-    expected: ['review-pr', 'external-pr'],
+    expected: ['review-pr', 'external-pr', 'ai-pr'],
   },
   {
     name: 'reviews approved excludes mergedog PRs',
@@ -152,6 +159,12 @@ test('classifies notifications into view counts', () => {
     view: 'others-prs',
     filters: { 'others-prs': { author: 'external' } },
     expected: ['external-pr'],
+  },
+  {
+    name: 'reviews author filter separates AI authors by login',
+    view: 'others-prs',
+    filters: { 'others-prs': { author: 'ai' } },
+    expected: ['ai-pr'],
   },
   {
     name: 'interest no-new keeps uninteresting feed items',
@@ -184,7 +197,7 @@ test('sorts review notifications by size with stable nulls last', () => {
       viewFilters: normalizeViewFilters({ 'others-prs': { state: 'all' } }),
       orderBy: 'size',
     }))),
-    ['approved-review-pr', 'review-pr', 'draft-pr', 'merged-pr', 'mergedog-pr', 'external-pr']
+    ['approved-review-pr', 'review-pr', 'draft-pr', 'merged-pr', 'mergedog-pr', 'external-pr', 'ai-pr']
   );
 });
 
@@ -204,8 +217,9 @@ test('computes subfilter counts after cross-filters', () => {
     approved: 0,
   });
   assert.deepEqual(counts.author, {
-    all: 6,
+    all: 7,
     committer: 1,
+    ai: 1,
     external: 1,
   });
 });

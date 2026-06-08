@@ -25,7 +25,7 @@ async function expectNoStatusFlash(page, text) {
  * Filtering Tests
  *
  * Tests for filtering notifications by queue (Feed, Replies, Reviews)
- * and by subfilter (All, Open, Closed, Needs Review, Approved, Committers, External).
+ * and by subfilter (All, Open, Closed, Needs Review, Approved, Committers, AI, External).
  */
 
 test.describe('Filtering @classification', () => {
@@ -129,6 +129,12 @@ test.describe('Filtering @classification', () => {
       await expect(othersPrsStatus.locator('[data-subfilter="draft"]')).toHaveCount(0);
       await expect(othersPrsStatus.locator('[data-subfilter="closed"]')).toHaveCount(0);
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"]')).toBeVisible();
+      await expect(othersPrsAuthor.locator('.subfilter-tab')).toHaveText([
+        /Committers\s+0/,
+        /AI\s+0/,
+        /External\s+0/,
+      ]);
+      await expect(othersPrsAuthor.locator('[data-subfilter="ai"]')).toBeVisible();
       await expect(othersPrsAuthor.locator('[data-subfilter="external"]')).toBeVisible();
     });
 
@@ -265,12 +271,13 @@ test.describe('Filtering @classification', () => {
       await expect(othersPrsStatus.locator('[data-subfilter="approved"] .count')).toHaveText('0');
       await expect(othersPrsStatus.locator('[data-subfilter="done"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
+      await expect(othersPrsAuthor.locator('[data-subfilter="ai"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="external"] .count')).toHaveText('0');
     });
   });
 
-  test.describe('Committer Filters', () => {
-    test('filters Reviews by committer vs external', async ({ page }) => {
+  test.describe('Author Filters', () => {
+    test('filters Reviews by author category', async ({ page }) => {
       await page.route('**/github/rest/rate_limit', (route) => {
         route.fulfill({
           status: 200,
@@ -301,7 +308,7 @@ test.describe('Filtering @classification', () => {
                 pr43: {
                   reviewDecision: null,
                   authorAssociation: 'COLLABORATOR',
-                  author: { login: 'maintainer' },
+                  author: { login: 'jansel' },
                 },
                 pr40: {
                   reviewDecision: null,
@@ -313,7 +320,7 @@ test.describe('Filtering @classification', () => {
           }),
         });
       });
-      await page.route('**/github/rest/repos/test/repo/collaborators/maintainer/permission', (route) => {
+      await page.route('**/github/rest/repos/test/repo/collaborators/jansel/permission', (route) => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -342,10 +349,17 @@ test.describe('Filtering @classification', () => {
       const othersPrsAuthor = page.locator(
         '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
       );
+      await expect(othersPrsAuthor.locator('[data-subfilter="ai"] .count')).toHaveText('1');
       await othersPrsAuthor.locator('[data-subfilter="committer"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);
       await expect(page.locator('[data-id="notif-2"]')).toBeVisible();
       await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
+
+      await othersPrsAuthor.locator('[data-subfilter="ai"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(1);
+      await expect(page.locator('[data-id="notif-2"]')).toBeVisible();
+      await expect(othersPrsAuthor.locator('[data-subfilter="ai"]')).toHaveClass(/active/);
+      await expect(othersPrsAuthor.locator('[data-subfilter="ai"] .count')).toHaveText('');
 
       await othersPrsStatus.locator('[data-subfilter="needs-review"]').click();
       await expect(page.locator('.notification-item')).toHaveCount(1);

@@ -814,6 +814,7 @@
                     ? [
                         { value: 'all', label: 'All authors' },
                         { value: 'committer', label: 'Committers' },
+                        { value: 'ai', label: 'AI' },
                         { value: 'external', label: 'External' },
                     ]
                     : [
