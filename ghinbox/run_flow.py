@@ -4,17 +4,7 @@ Runner for test flows.
 Usage:
     python -m ghinbox.run_flow <flow_name> <owner_account> <trigger_account> [options]
 
-Available flows:
-    basic             - Basic notification generation test
-    comment_fetch_marks_read - Check if API comment fetch flips read state
-    comment_prefetch_validation - Validate last_read_at for comment prefetching
-    done_then_close   - Test timestamp behavior when done notification returns after close
-    notification_timestamps - Probe notification timestamp meaning and event loading
-    pagination        - Generate 26+ notifications to test pagination
-    prod_notifications_snapshot - Capture notifications HTML/JSON without side effects
-    prod_undo         - Verify undo restores a done notification
-    read_vs_done      - Test read vs done state visibility in API
-    parser_validation - Validate HTML parser against API notifications
+Run with --help to list the available flows (derived from the FLOWS registry).
 """
 
 import argparse
@@ -50,23 +40,20 @@ FLOWS = {
 }
 
 
+def _flows_epilog() -> str:
+    width = max(len(name) for name in FLOWS)
+    lines = [
+        f"  {name:<{width}}  {flow_class.description}"
+        for name, flow_class in sorted(FLOWS.items())
+    ]
+    return "Available flows:\n" + "\n".join(lines)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run GitHub notification test flows",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Available flows:
-  basic             - Basic notification generation and visibility test
-  comment_fetch_marks_read - Check if API comment fetch flips read state
-  comment_prefetch_validation - Validate last_read_at for comment prefetching
-  done_then_close   - Test timestamp behavior when done notification returns after close
-  notification_timestamps - Probe notification timestamp meaning and event loading
-  pagination        - Generate 26+ notifications to test pagination
-  prod_notifications_snapshot - Capture notifications HTML/JSON without side effects
-  prod_undo         - Verify undo restores a done notification
-  read_vs_done      - Test whether API can distinguish read from done notifications
-  parser_validation - Validate HTML parser against API notifications
-        """,
+        epilog=_flows_epilog(),
     )
     parser.add_argument(
         "flow",
