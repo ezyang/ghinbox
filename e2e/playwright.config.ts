@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { execSync } from 'child_process';
+import * as os from 'os';
+import * as path from 'path';
 
 /**
  * Playwright configuration for GitHub notifications webapp E2E tests.
@@ -36,8 +38,21 @@ if (!process.env.TEST_PORT) {
 }
 const TEST_PORT = process.env.TEST_PORT;
 
+// Per-run snapshot DB so test runs are hermetic: no state leaks between runs
+// and concurrent runs don't share a database. The path is passed to the
+// webServer via the environment and deleted in global-teardown (the server
+// process is killed, so it cannot clean up after itself).
+if (!process.env.GHINBOX_SNAPSHOT_DB_PATH) {
+  process.env.GHINBOX_SNAPSHOT_DB_PATH = path.join(
+    os.tmpdir(),
+    `ghinbox_snapshot_e2e_${TEST_PORT}.db`,
+  );
+}
+
 export default defineConfig({
   testDir: './tests',
+
+  globalTeardown: './global-teardown.ts',
 
   // Run tests in parallel
   fullyParallel: true,
@@ -80,7 +95,7 @@ export default defineConfig({
 
   // Run local dev server before starting the tests
   webServer: {
-    command: `cd .. && GHINBOX_WEBHOOK_SECRET=e2e-webhook-secret GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox uv run python -m ghinbox.api.server --test --no-reload --no-debug-socket --port ${TEST_PORT}`,
+    command: `cd .. && GHINBOX_WEBHOOK_SECRET=e2e-webhook-secret GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox GHINBOX_SNAPSHOT_DB_PATH=${process.env.GHINBOX_SNAPSHOT_DB_PATH} uv run python -m ghinbox.api.server --test --no-reload --no-debug-socket --port ${TEST_PORT}`,
     // CRITICAL: Use /health/test endpoint which returns 503 if server is not in test mode.
     // This prevents reusing a production server that might be running on this port.
     url: `http://localhost:${TEST_PORT}/health/test`,

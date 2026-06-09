@@ -10,10 +10,12 @@ using the specified account's authenticated session.
 """
 
 import argparse
+import atexit
 import os
 import socket
 import stat
 import sys
+import tempfile
 from pathlib import Path
 
 import uvicorn
@@ -379,6 +381,24 @@ def main() -> int:
         # Don't set GHSIM_ACCOUNT - app will run without fetcher
         # Set test mode flag so /health/test endpoint works
         os.environ["GHINBOX_TEST_MODE"] = "1"
+        if not args.snapshot_db_path and "GHINBOX_SNAPSHOT_DB_PATH" not in os.environ:
+            # Fresh per-run DB so test runs are hermetic: no state leaks
+            # between runs and concurrent runs don't share a database.
+            fd, test_db_path = tempfile.mkstemp(
+                prefix="ghinbox_snapshot_test_", suffix=".db"
+            )
+            os.close(fd)
+            os.environ["GHINBOX_SNAPSHOT_DB_PATH"] = test_db_path
+            print(f"Test snapshot DB: {test_db_path}")
+
+            def _cleanup_test_db() -> None:
+                for suffix in ("", "-wal", "-shm"):
+                    try:
+                        os.unlink(test_db_path + suffix)
+                    except FileNotFoundError:
+                        pass
+
+            atexit.register(_cleanup_test_db)
     else:
         # Determine which account to use
         account = args.account or DEFAULT_ACCOUNT

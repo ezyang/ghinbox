@@ -3,7 +3,6 @@
 import json
 import os
 import sqlite3
-import tempfile
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -21,8 +20,6 @@ def _default_db_path() -> str:
     explicit = os.environ.get("GHINBOX_SNAPSHOT_DB_PATH")
     if explicit:
         return explicit
-    if os.environ.get("GHINBOX_TEST_MODE") == "1":
-        return os.path.join(tempfile.gettempdir(), "ghinbox_snapshot_test.db")
     return os.path.join("auth_state", "ghinbox_snapshots.db")
 
 
