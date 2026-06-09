@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockDefaultApiRoutes } from './app-fixture';
 import { clearAppStorage } from './storage-utils';
 
 function notification(id: string, repo: string, title: string, number: number) {
@@ -41,49 +42,7 @@ function response(repo: string, notifications: unknown[]) {
 
 test.describe('Notification Profiles @smoke', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      })
-    );
-    await page.route('**/github/rest/rate_limit', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          resources: {
-            core: { limit: 5000, remaining: 4999, reset: Math.floor(Date.now() / 1000) + 3600 },
-          },
-        }),
-      })
-    );
-    await page.route('**/github/graphql', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      })
-    );
-    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    );
-    await page.route('**/github/rest/repos/**/issues/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      })
-    );
-    await page.route('**/github/rest/review-requests**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ notifications: [] }),
-      })
-    );
-
+    await mockDefaultApiRoutes(page);
     await page.goto('notifications.html');
     await clearAppStorage(page);
   });

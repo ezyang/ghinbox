@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockDefaultApiRoutes } from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const notificationsResponse = {
@@ -146,42 +147,9 @@ const commentCache = {
 test.describe('PR direct replies @classification', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
+    await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
 
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/review-requests**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ notifications: [] }),
-      });
-    });
-
+    await page.unroute('**/github/graphql').catch(() => undefined);
     await page.route('**/github/graphql', (route) => {
       route.fulfill({
         status: 200,
