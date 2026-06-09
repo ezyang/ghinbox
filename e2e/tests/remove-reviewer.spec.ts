@@ -70,26 +70,26 @@ test.describe('Remove Reviewer @mutation', () => {
   test.describe('Remove Reviewer Functionality', () => {
     test('removes reviewer and unsubscribes successfully', async ({ page }) => {
       let removeReviewerCalled = false;
-      let unsubscribeCalled = false;
+      const unsubscribePromise = new Promise<void>((resolve) => {
+        // Mock remove reviewer endpoint
+        page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
+          if (route.request().method() === 'DELETE') {
+            removeReviewerCalled = true;
+            route.fulfill({ status: 204 });
+          }
+        });
 
-      // Mock remove reviewer endpoint
-      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
-        if (route.request().method() === 'DELETE') {
-          removeReviewerCalled = true;
-          route.fulfill({ status: 204 });
-        }
-      });
-
-      // Mock HTML action endpoint for unsubscribe
-      await page.route('**/notifications/html/action', (route) => {
-        const body = route.request().postDataJSON();
-        if (body.action === 'unsubscribe') {
-          unsubscribeCalled = true;
-        }
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
+        // Mock HTML action endpoint for unsubscribe — resolve when called
+        page.route('**/notifications/html/action', (route) => {
+          const body = route.request().postDataJSON();
+          if (body.action === 'unsubscribe') {
+            resolve();
+          }
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 'ok' }),
+          });
         });
       });
 
@@ -100,9 +100,11 @@ test.describe('Remove Reviewer @mutation', () => {
       await expect(prNotification).toHaveCount(0);
       await expect(page.locator('.notification-item')).toHaveCount(0);
 
-      // Verify all API calls were made
+      // Wait for unsubscribe to actually be called (async, happens after optimistic UI update)
+      await unsubscribePromise;
+
+      // Verify reviewer removal was also called
       expect(removeReviewerCalled).toBe(true);
-      expect(unsubscribeCalled).toBe(true);
     });
 
     test('continues with unsubscribe when reviewer removal fails', async ({ page }) => {
