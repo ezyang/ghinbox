@@ -2139,17 +2139,152 @@
                             return;
                         }
 
-                        function parseCurrentRepo() {
-                            const repoValue = (elements?.repoInput?.value || state?.repo || '').trim();
-                            const parts = repoValue.split('/');
-                            if (parts.length !== 2 || !parts[0] || !parts[1]) {
-                                return null;
+                        function readCurrentReviewEntries() {
+                            if (typeof getCurrentProfileEntries === 'function') {
+                                return getCurrentProfileEntries();
+                            }
+                            const raw = String(elements?.repoInput?.value || state?.repo || '');
+                            return raw
+                                .split(/\\r?\\n/)
+                                .map((entry) => entry.trim())
+                                .filter(Boolean);
+                        }
+
+                        function getReviewReloadTarget(entries, sources) {
+                            const storageValue = entries.length === 1 ? entries[0] : entries.join('\\n');
+                            const singleRepo = sources.length === 1 && sources[0].kind === 'repo'
+                                ? sources[0]
+                                : null;
+                            const cacheKey = singleRepo
+                                ? singleRepo.fullName
+                                : (typeof getProfileSignature === 'function'
+                                    ? getProfileSignature()
+                                    : storageValue);
+                            return {
+                                cacheKey,
+                                fullName: cacheKey,
+                                storageValue,
+                            };
+                        }
+
+                        function getCurrentReviewReloadConfig() {
+                            const entries = readCurrentReviewEntries();
+                            if (!entries.length) {
+                                return {
+                                    error: 'Please enter a repository or query',
+                                };
+                            }
+                            if (typeof updateActiveProfileEntries === 'function') {
+                                updateActiveProfileEntries(entries);
+                            }
+                            const sources = entries.map((entry) =>
+                                typeof classifyProfileEntry === 'function'
+                                    ? classifyProfileEntry(entry)
+                                    : { kind: 'invalid', value: entry, query: entry }
+                            );
+                            const invalid = sources.find((source) => !source.value);
+                            if (invalid) {
+                                return {
+                                    error: 'Invalid empty profile entry',
+                                };
+                            }
+                            const invalidFormat = sources.find((source) => source.kind === 'invalid');
+                            if (invalidFormat) {
+                                return {
+                                    error: 'Invalid format: ' + invalidFormat.value,
+                                };
                             }
                             return {
-                                owner: parts[0],
-                                repo: parts[1],
-                                fullName: repoValue,
+                                entries,
+                                sources,
+                                target: getReviewReloadTarget(entries, sources),
                             };
+                        }
+
+                        function buildReviewRequestSearchUrlForSource(source) {
+                            const query = [
+                                source.query,
+                                'is:pr',
+                                'is:open',
+                                'user-review-requested:@me',
+                            ].join(' ');
+                            return '/github/rest/search/issues?q=' +
+                                encodeURIComponent(query) +
+                                '&per_page=100';
+                        }
+
+                        function getRepoFromGithubUrl(value) {
+                            if (!value) {
+                                return null;
+                            }
+                            try {
+                                const url = new URL(String(value));
+                                const parts = url.pathname.split('/').filter(Boolean);
+                                if (url.hostname === 'api.github.com') {
+                                    const reposIndex = parts.indexOf('repos');
+                                    if (reposIndex >= 0 && parts[reposIndex + 1] && parts[reposIndex + 2]) {
+                                        return {
+                                            owner: parts[reposIndex + 1],
+                                            repo: parts[reposIndex + 2],
+                                            fullName: parts[reposIndex + 1] + '/' + parts[reposIndex + 2],
+                                        };
+                                    }
+                                }
+                                if (url.hostname === 'github.com' || url.hostname.endsWith('.github.com')) {
+                                    if (parts[0] && parts[1]) {
+                                        return {
+                                            owner: parts[0],
+                                            repo: parts[1],
+                                            fullName: parts[0] + '/' + parts[1],
+                                        };
+                                    }
+                                }
+                            } catch (error) {
+                                return null;
+                            }
+                            return null;
+                        }
+
+                        function getSearchItemRepo(source, item) {
+                            const candidates = [
+                                item?.repository_url,
+                                item?.html_url,
+                                item?.pull_request?.url,
+                                item?.url,
+                            ];
+                            for (const candidate of candidates) {
+                                const repo = getRepoFromGithubUrl(candidate);
+                                if (repo) {
+                                    return repo;
+                                }
+                            }
+                            if (source.kind === 'repo') {
+                                return {
+                                    owner: source.owner,
+                                    repo: source.repo,
+                                    fullName: source.fullName,
+                                };
+                            }
+                            return null;
+                        }
+
+                        function groupNotificationsByRepo(notifications) {
+                            const groups = new Map();
+                            notifications.forEach((notification) => {
+                                const repo = getNotificationRepoInfo(notification);
+                                if (!repo) {
+                                    return;
+                                }
+                                const key = repo.fullName;
+                                if (!groups.has(key)) {
+                                    groups.set(key, {
+                                        repoInfo: repo,
+                                        notifications: [],
+                                    });
+                                }
+                                groups.get(key).notifications.push(notification);
+                            });
+                            return Array.from(groups.values());
                         }
 
                         function isSyntheticReviewRequest(notification) {
@@ -2177,8 +2312,8 @@
 
                         function commitReloadedReviewNotifications(notifications, repo, { renderNow = true } = {}) {
                             state.notifications = sortNotificationsByUpdatedAt(notifications);
-                            state.lastSyncedRepo = repo.fullName;
-                            localStorage.setItem(LAST_SYNCED_REPO_KEY, repo.fullName);
+                            state.lastSyncedRepo = repo.cacheKey || repo.fullName;
+                            localStorage.setItem(LAST_SYNCED_REPO_KEY, state.lastSyncedRepo);
                             persistNotifications();
                             if (renderNow) {
                                 render();
@@ -2223,7 +2358,11 @@
                             state.commentCache.threads[threadId] = next;
                         }
 
-                        function searchItemToStreamingReviewNotification(repo, item) {
+                        function searchItemToStreamingReviewNotification(source, item) {
+                            const repo = getSearchItemRepo(source, item);
+                            if (!repo) {
+                                return null;
+                            }
                             const notification = searchItemToResponsibilityNotification(repo, item);
                             if (!notification) {
                                 return null;
@@ -2239,7 +2378,7 @@
                             return notification;
                         }
 
-                        async function fetchStreamingReviewRequestNotifications(repo) {
+                        async function fetchStreamingReviewRequestNotifications(source) {
                             if (!state.currentUserLogin && typeof checkAuth === 'function') {
                                 await checkAuth();
                             }
@@ -2247,7 +2386,7 @@
                             if (!login) {
                                 return [];
                             }
-                            const response = await fetch(buildReviewRequestSearchUrl(repo, login));
+                            const response = await fetch(buildReviewRequestSearchUrlForSource(source));
                             if (!response.ok) {
                                 const detail = await response.text();
                                 throw new Error(\`Review request search failed (\${response.status}): \${detail}\`);
@@ -2256,7 +2395,7 @@
                             const items = Array.isArray(payload?.items) ? payload.items : [];
                             return items
                                 .filter((item) => item?.number && item?.pull_request)
-                                .map((item) => searchItemToStreamingReviewNotification(repo, item))
+                                .map((item) => searchItemToStreamingReviewNotification(source, item))
                                 .filter(Boolean);
                         }
 
@@ -2409,78 +2548,90 @@
                         }
 
                         async function handleReloadReviews() {
-                            const repo = parseCurrentRepo();
-                            if (!repo) {
-                                showStatus('Invalid format. Use owner/repo', 'error');
+                            const config = getCurrentReviewReloadConfig();
+                            if (config.error) {
+                                showStatus(config.error, 'error');
                                 return;
                             }
                             if (state.loading || state.reviewsReloading) {
                                 return;
                             }
 
-                            const repoInfo = { owner: repo.owner, repo: repo.repo };
+                            const { sources, target } = config;
                             const syncLabel = 'Reload Reviews';
-                            state.repo = repo.fullName;
-                            localStorage.setItem('ghnotif_repo', repo.fullName);
+                            state.repo = target.storageValue;
+                            localStorage.setItem('ghnotif_repo', target.storageValue);
                             state.reviewsReloading = true;
                             updateReloadReviewsButton();
                             showStatus(\`\${syncLabel}: checking review requests assigned to you\`, 'info');
 
                             try {
-                                const reviewRequests = await fetchStreamingReviewRequestNotifications(repoInfo);
+                                let reviewRequests = [];
+                                for (const source of sources) {
+                                    const sourceReviewRequests =
+                                        await fetchStreamingReviewRequestNotifications(source);
+                                    reviewRequests.push(...sourceReviewRequests);
+                                }
                                 let notifications = state.notifications
                                     .filter((notification) => !isSyntheticReviewRequest(notification));
-                                notifications = mergeReviewRequestNotifications(
-                                    notifications,
-                                    reviewRequests,
-                                    repoInfo
-                                );
-                                commitReloadedReviewNotifications(notifications, repo);
+                                for (const group of groupNotificationsByRepo(reviewRequests)) {
+                                    notifications = mergeReviewRequestNotifications(
+                                        notifications,
+                                        group.notifications,
+                                        group.repoInfo
+                                    );
+                                }
+                                commitReloadedReviewNotifications(notifications, target);
                                 showStatus(
                                     \`\${syncLabel}: loaded \${reviewRequests.length} active review request\${reviewRequests.length === 1 ? '' : 's'}; refreshing metadata\`,
                                     'info'
                                 );
 
                                 const reviewQueueNotifications = getReviewQueueNotifications(notifications);
-                                const reviewQueueKeys = new Set(
-                                    reviewQueueNotifications
-                                        .map((notification) =>
-                                            getNotificationMatchKeyForRepo(notification, repoInfo)
-                                        )
-                                        .filter(Boolean)
-                                );
-
-                                const authorPermissionPromise = refreshAuthorPermissionsIncrementally(
-                                    repoInfo,
-                                    reviewQueueNotifications,
-                                    syncLabel
-                                ).catch((error) => {
-                                    console.error('Review author permission refresh failed:', error);
-                                    showStatus(
-                                        \`\${syncLabel}: author permission check failed: \${error.message || error}\`,
-                                        'error',
-                                        { flash: true }
+                                const authorPermissionPromises = [];
+                                for (const group of groupNotificationsByRepo(reviewQueueNotifications)) {
+                                    const reviewQueueKeys = new Set(
+                                        group.notifications
+                                            .map((notification) =>
+                                                getNotificationMatchKeyForRepo(notification, group.repoInfo)
+                                            )
+                                            .filter(Boolean)
                                     );
-                                });
-
-                                await refreshPullRequestStatesIncrementally(
-                                    repo,
-                                    repoInfo,
-                                    reviewQueueKeys,
-                                    syncLabel
-                                );
+                                    authorPermissionPromises.push(
+                                        refreshAuthorPermissionsIncrementally(
+                                            group.repoInfo,
+                                            group.notifications,
+                                            syncLabel
+                                        ).catch((error) => {
+                                            console.error('Review author permission refresh failed:', error);
+                                            showStatus(
+                                                \`\${syncLabel}: author permission check failed: \${error.message || error}\`,
+                                                'error',
+                                                { flash: true }
+                                            );
+                                        })
+                                    );
+                                    await refreshPullRequestStatesIncrementally(
+                                        target,
+                                        group.repoInfo,
+                                        reviewQueueKeys,
+                                        syncLabel
+                                    );
+                                }
 
                                 const refreshedReviewQueue = getReviewQueueNotifications(state.notifications);
-                                await refreshReviewMetadataIncrementally(
-                                    repo,
-                                    repoInfo,
-                                    refreshedReviewQueue,
-                                    syncLabel
-                                );
-                                await authorPermissionPromise;
+                                for (const group of groupNotificationsByRepo(refreshedReviewQueue)) {
+                                    await refreshReviewMetadataIncrementally(
+                                        target,
+                                        group.repoInfo,
+                                        group.notifications,
+                                        syncLabel
+                                    );
+                                }
+                                await Promise.all(authorPermissionPromises);
 
                                 const finalReviewQueue = getReviewQueueNotifications(state.notifications);
-                                commitReloadedReviewNotifications(state.notifications, repo, { renderNow: false });
+                                commitReloadedReviewNotifications(state.notifications, target, { renderNow: false });
                                 showStatus(
                                     \`Reloaded \${finalReviewQueue.length} review notification\${finalReviewQueue.length === 1 ? '' : 's'}\`,
                                     'success',
