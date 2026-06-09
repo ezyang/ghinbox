@@ -41,21 +41,9 @@ FIXTURE_MAPPING = {
 # Mapping from HTML fixtures to E2E JSON fixtures
 # HTML fixture name -> (E2E JSON fixture name, owner, repo)
 # owner/repo are used for parsing; use "fixture" as placeholder
-E2E_FIXTURE_MAPPING: dict[str, tuple[str, str, str]] = {
-    "pagination_page1.html": ("notifications_pagination_page1.json", "fixture", "repo"),
-    "pagination_page2.html": ("notifications_pagination_page2.json", "fixture", "repo"),
-    "notification_before_done.html": (
-        "notifications_before_done.json",
-        "fixture",
-        "repo",
-    ),
-    "notification_after_done.html": (
-        "notifications_after_done.json",
-        "fixture",
-        "repo",
-    ),
-    "notifications_inbox.html": ("notifications_inbox.json", "fixture", "repo"),
-}
+# Add an entry here only when an E2E spec actually consumes the generated
+# JSON; generated-but-unreferenced fixtures rot silently.
+E2E_FIXTURE_MAPPING: dict[str, tuple[str, str, str]] = {}
 
 
 def find_latest_response(pattern: str) -> Path | None:

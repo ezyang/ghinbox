@@ -76,28 +76,6 @@ Fetch and parse notifications for a repository.
 | `subject.number` | Issue/PR number |
 | `actors` | List of users involved (with avatars) |
 
-#### `GET /notifications/html/repo/{owner}/{repo}/timing`
-
-Profile request timing breakdown.
-
-**Response:**
-```json
-{
-  "fetch_total_ms": 1200,
-  "fetch_breakdown": {
-    "new_page_ms": 45,
-    "goto_ms": 1100,
-    "wait_for_ms": 20,
-    "content_ms": 30,
-    "close_ms": 5
-  },
-  "parse_ms": 75,
-  "total_ms": 1275,
-  "notification_count": 25,
-  "html_length": 790000
-}
-```
-
 #### `GET /notifications/html/parse`
 
 Parse an HTML fixture file directly (for testing).
@@ -212,21 +190,18 @@ Token saved to `auth_state/myaccount.token`.
 
 ## Web UI
 
-The bulk notifications editor at `http://localhost:8000/app/notifications.html`
-is the primary workflow. It is built to make large notification backlogs
-tractable with a UI that GitHub itself does not provide.
+The triage UI at `http://localhost:8000/app/notifications.html` is the
+product (`/app/` redirects to it). It organizes notifications into queues —
+Issues, My PRs, PR notifications, Others' PRs, Replies, Feed — with a
+Phabricator-style emphasis on whether each item needs action from you.
 
 Highlights from the UI (see `ghinbox/webapp/notifications-core.js`, `ghinbox/webapp/notifications-sync.js`, `ghinbox/webapp/notifications-actions.js`, `ghinbox/webapp/notifications-ui.js`):
 - Quick Sync vs Full Sync, including incremental merges when the repo matches the last sync.
 - Bulk selection (including shift-click range select), plus inline and bulk Mark Done.
 - Unsubscribe + mark done in one action, with a 30-second undo window.
 - Filters by type and state, plus comment-based triage filters (needs review, approved, uninteresting).
-- Optional comment/review prefetching, unread comment expansion, and hiding uninteresting comments.
-- Local persistence of repo, filters, notifications, and comment cache for faster reloads.
-
-Other UI pages:
-- `http://localhost:8000/app/` for the web UI index.
-- `http://localhost:8000/app/expanded.html` for per-thread comment bundles with REST prefetching.
+- Comment/review prefetching, unread comment expansion, and hiding uninteresting comments.
+- Local persistence of repo, filters, notifications, and comment cache for faster reloads; the server snapshot store provides cross-session state.
 
 ## Test Flows
 
@@ -284,9 +259,10 @@ ghinbox/
 ├── run_flow.py             # Test flow runner
 ├── flows/                  # Test flow implementations
 └── webapp/                 # Static web UI (packaged with Python)
-    ├── notifications.html  # Bulk notifications editor UI
-    ├── expanded.html       # Expanded notifications UI
-    └── index.html          # Web UI index
+    ├── notifications.html  # Triage UI (the product)
+    ├── notifications-*.js  # UI modules; pure logic in UMD Ghinbox* modules
+    ├── login.html          # Site auth page
+    └── index.html          # Redirect to notifications.html
 
 tests/
 ├── fixtures/               # HTML test fixtures
