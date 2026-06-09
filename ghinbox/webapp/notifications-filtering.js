@@ -685,16 +685,7 @@
     }
 
     function getMobileFilterOptions(view) {
-        const options = [{ value: 'all', label: 'All' }];
-        if (view === 'issues' || view === 'pr-notifications') {
-            options.push({ value: 'open', label: 'Open' });
-            options.push({ value: 'closed', label: 'Closed' });
-        } else if (view === 'others-prs') {
-            options.push({ value: 'needs-review', label: 'Needs review' });
-            options.push({ value: 'approved', label: 'Approved' });
-            options.push({ value: 'done', label: 'Done' });
-        }
-        return options;
+        return viewState.getMobileFilterOptions(view);
     }
 
     return {

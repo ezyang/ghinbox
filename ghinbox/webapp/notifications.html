@@ -1073,212 +1073,27 @@
                 <span id="notification-count"></span>
             </header>
 
-            <!-- Primary View Tabs -->
-            <nav class="view-tabs" role="tablist" aria-label="Notification queues">
-                <button
-                    class="view-tab active"
-                    role="tab"
-                    aria-selected="true"
-                    data-view="issues"
-                    id="view-issues"
-                >
-                    Feed <span class="count">0</span>
-                </button>
-                <button
-                    class="view-tab"
-                    role="tab"
-                    aria-selected="false"
-                    data-view="pr-notifications"
-                    id="view-pr-notifications"
-                >
-                    Replies <span class="count">0</span>
-                </button>
-                <button
-                    class="view-tab"
-                    role="tab"
-                    aria-selected="false"
-                    data-view="others-prs"
-                    id="view-others-prs"
-                >
-                    Reviews <span class="count">0</span>
-                </button>
-                <button
-                    class="view-tab"
-                    role="tab"
-                    aria-selected="false"
-                    data-view="cleaned"
-                    id="view-cleaned"
-                >
-                    Cleaned <span class="count">0</span>
-                </button>
-            </nav>
+            <nav class="view-tabs" role="tablist" aria-label="Notification queues"></nav>
 
             <div class="subfilter-row">
-                <div class="subfilter-stack">
-                    <!-- Subfilter Tabs for Feed -->
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed by bookmark" data-for-view="issues" data-subfilter-group="bookmark">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="new"
-                            aria-pressed="true"
-                        >
-                            New <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="bookmarked"
-                            aria-pressed="false"
-                        >
-                            Bookmarked <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed" data-for-view="issues" data-subfilter-group="state">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="open"
-                            aria-pressed="false"
-                        >
-                            Open <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="closed"
-                            aria-pressed="false"
-                        >
-                            Closed <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed by type" data-for-view="issues" data-subfilter-group="type">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="prs"
-                            aria-pressed="false"
-                        >
-                            PRs <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="issues"
-                            aria-pressed="false"
-                        >
-                            Issues <span class="count">0</span>
-                        </button>
-                    </nav>
-
-                    <!-- Subfilter Tabs for Replies -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter replies by status" data-for-view="pr-notifications" data-subfilter-group="state">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="open"
-                            aria-pressed="false"
-                        >
-                            Open <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="closed"
-                            aria-pressed="false"
-                        >
-                            Closed <span class="count">0</span>
-                        </button>
-                    </nav>
-
-                    <!-- Subfilter Tabs for Reviews -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter reviews by status" data-for-view="others-prs" data-subfilter-group="state">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="needs-review"
-                            aria-pressed="false"
-                        >
-                            Needs review <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="approved"
-                            aria-pressed="false"
-                        >
-                            Approved <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="done"
-                            aria-pressed="false"
-                        >
-                            Done <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter reviews by author" data-for-view="others-prs" data-subfilter-group="author">
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="committer"
-                            aria-pressed="false"
-                        >
-                            Committers <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="ai"
-                            aria-pressed="false"
-                        >
-                            AI <span class="count">0</span>
-                        </button>
-                        <button
-                            class="subfilter-tab"
-                            data-subfilter="external"
-                            aria-pressed="false"
-                        >
-                            External <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <!-- Interest filter - Feed -->
-                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed by interest" data-for-view="issues" data-subfilter-group="interest">
-                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
-                            Has new <span class="count">0</span>
-                        </button>
-                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
-                            No new <span class="count">0</span>
-                        </button>
-                    </nav>
-                    <!-- Interest filter - Replies -->
-                    <nav class="subfilter-tabs hidden" role="group" aria-label="Filter replies by interest" data-for-view="pr-notifications" data-subfilter-group="interest">
-                        <button class="subfilter-tab" data-subfilter="has-new" aria-pressed="false">
-                            Has new <span class="count">0</span>
-                        </button>
-                        <button class="subfilter-tab" data-subfilter="no-new" aria-pressed="false">
-                            No new <span class="count">0</span>
-                        </button>
-                    </nav>
-                </div>
+                <div class="subfilter-stack"></div>
                 <div class="order-control">
                     <button id="reload-reviews-btn" class="btn btn-small" type="button" style="display: none;">
                         Reload reviews
                     </button>
                     <label for="order-select">Order:</label>
-                    <select id="order-select" aria-label="Order notifications">
-                        <option value="recent">Newest first</option>
-                        <option value="size">PR size (small to big)</option>
-                    </select>
+                    <select id="order-select" aria-label="Order notifications"></select>
                 </div>
             </div>
 
             <!-- Mobile filter row: filter dropdowns on first row, sort/select on second row -->
             <div class="mobile-filter-row">
                 <div class="mobile-filter-dropdowns">
-                    <select id="mobile-filter-select" class="mobile-filter-select" aria-label="Filter notifications">
-                        <!-- Options populated by JS based on current view -->
-                    </select>
-                    <select id="mobile-author-select" class="mobile-filter-select mobile-author-select" aria-label="Additional notification filter">
-                        <option value="all">All authors</option>
-                        <option value="committer">Committers</option>
-                        <option value="ai">AI</option>
-                        <option value="external">External</option>
-                    </select>
+                    <select id="mobile-filter-select" class="mobile-filter-select" aria-label="Filter notifications"></select>
+                    <select id="mobile-author-select" class="mobile-filter-select mobile-author-select" aria-label="Additional notification filter"></select>
                 </div>
                 <div class="mobile-sort-row">
-                    <select id="mobile-order-select" class="mobile-filter-select" aria-label="Order notifications">
-                        <option value="recent">Newest first</option>
-                        <option value="size">PR size (small to big)</option>
-                    </select>
+                    <select id="mobile-order-select" class="mobile-filter-select" aria-label="Order notifications"></select>
                 </div>
             </div>
 

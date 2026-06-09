@@ -50,7 +50,7 @@ export function subfilterTab(
   page: Page,
   view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned',
   subfilter: string,
-  group?: 'state' | 'author' | 'interest'
+  group?: 'state' | 'author' | 'interest' | 'bookmark' | 'type' | 'audience'
 ) {
   const groupSelector = group ? `[data-subfilter-group="${group}"]` : '';
   return page

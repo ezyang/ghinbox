@@ -8,6 +8,84 @@
             normalizeViewFilters,
             normalizeViewOrders,
         } = GhinboxViewState;
+
+        function renderConfiguredControls() {
+            const viewTabs = document.querySelector('.view-tabs');
+            if (viewTabs && viewTabs.dataset.configRendered !== 'true') {
+                viewTabs.innerHTML = '';
+                GhinboxViewState.getVisibleViewConfigs().forEach((config, index) => {
+                    const button = document.createElement('button');
+                    button.className = `view-tab${index === 0 ? ' active' : ''}`;
+                    button.type = 'button';
+                    button.role = 'tab';
+                    button.id = `view-${config.view}`;
+                    button.dataset.view = config.view;
+                    button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+                    button.append(document.createTextNode(`${config.label} `));
+
+                    const count = document.createElement('span');
+                    count.className = 'count';
+                    count.textContent = '0';
+                    button.appendChild(count);
+                    viewTabs.appendChild(button);
+                });
+                viewTabs.dataset.configRendered = 'true';
+            }
+
+            const subfilterStack = document.querySelector('.subfilter-stack');
+            if (subfilterStack && subfilterStack.dataset.configRendered !== 'true') {
+                subfilterStack.innerHTML = '';
+                GhinboxViewState.VIEW_NAMES.forEach((view) => {
+                    GhinboxViewState.getFilterGroupsForView(view).forEach((groupConfig) => {
+                        const nav = document.createElement('nav');
+                        nav.className = `subfilter-tabs${view === 'issues' ? '' : ' hidden'}`;
+                        nav.role = 'group';
+                        nav.setAttribute('aria-label', groupConfig.ariaLabel);
+                        nav.dataset.forView = view;
+                        nav.dataset.subfilterGroup = groupConfig.group;
+
+                        groupConfig.options.forEach((option) => {
+                            const button = document.createElement('button');
+                            button.className = 'subfilter-tab';
+                            button.type = 'button';
+                            button.dataset.subfilter = option.value;
+                            const defaultValue =
+                                DEFAULT_VIEW_FILTERS[view]?.[groupConfig.group] || 'all';
+                            const isPressed = defaultValue !== 'all' && defaultValue === option.value;
+                            button.setAttribute('aria-pressed', isPressed ? 'true' : 'false');
+                            button.append(document.createTextNode(`${option.label} `));
+
+                            const count = document.createElement('span');
+                            count.className = 'count';
+                            count.textContent = '0';
+                            button.appendChild(count);
+                            nav.appendChild(button);
+                        });
+                        subfilterStack.appendChild(nav);
+                    });
+                });
+                subfilterStack.dataset.configRendered = 'true';
+            }
+
+            const orderSelect = document.getElementById('order-select');
+            const mobileOrderSelect = document.getElementById('mobile-order-select');
+            [orderSelect, mobileOrderSelect].forEach((select) => {
+                if (!select || select.dataset.configRendered === 'true') {
+                    return;
+                }
+                select.innerHTML = '';
+                GhinboxViewState.ORDER_OPTIONS.forEach((optionConfig) => {
+                    const option = document.createElement('option');
+                    option.value = optionConfig.value;
+                    option.textContent = optionConfig.label;
+                    select.appendChild(option);
+                });
+                select.dataset.configRendered = 'true';
+            });
+        }
+
+        renderConfiguredControls();
+
         const REPO_KEY = STORAGE_KEYS.repo;
         const PROFILE_KEY = STORAGE_KEYS.profile;
         const PROFILES_KEY = STORAGE_KEYS.profiles;
@@ -1015,7 +1093,7 @@
         }
 
         function getMobileFilterOptions() {
-            return GhinboxFiltering.getMobileFilterOptions(state.view);
+            return GhinboxViewState.getMobileFilterOptions(state.view);
         }
 
         function updateMobileFilterOptions() {
@@ -1043,24 +1121,16 @@
             // Sync secondary select (author for Reviews; hidden/default elsewhere)
             if (elements.mobileAuthorSelect) {
                 elements.mobileAuthorSelect.innerHTML = '';
-                const secondaryOptions = state.view === 'others-prs'
-                    ? [
-                        { value: 'all', label: 'All authors' },
-                        { value: 'committer', label: 'Committers' },
-                        { value: 'ai', label: 'AI' },
-                        { value: 'external', label: 'External' },
-                    ]
-                    : [
-                        { value: 'all', label: 'All' },
-                    ];
+                const secondaryOptions = GhinboxViewState.getMobileSecondaryOptions(state.view);
                 secondaryOptions.forEach(opt => {
                     const option = document.createElement('option');
                     option.value = opt.value;
                     option.textContent = opt.label;
                     elements.mobileAuthorSelect.appendChild(option);
                 });
-                const currentSecondary = state.view === 'others-prs'
-                    ? (viewFilters.author || 'all')
+                const secondaryGroup = GhinboxViewState.getMobileSecondaryGroup(state.view);
+                const currentSecondary = secondaryGroup
+                    ? (viewFilters[secondaryGroup] || 'all')
                     : 'all';
                 elements.mobileAuthorSelect.value = currentSecondary;
             }
@@ -1097,12 +1167,15 @@
 
         function handleMobileAuthorChange(event) {
             const value = event.target.value;
+            const group = GhinboxViewState.getMobileSecondaryGroup(state.view);
+            if (!group) {
+                return;
+            }
             if (!state.viewFilters[state.view]) {
                 state.viewFilters[state.view] = {
                     ...DEFAULT_VIEW_FILTERS[state.view],
                 };
             }
-            const group = state.view === 'others-prs' ? 'author' : 'audience';
             state.viewFilters[state.view][group] = value;
             localStorage.setItem(VIEW_FILTERS_KEY, JSON.stringify(state.viewFilters));
             render();

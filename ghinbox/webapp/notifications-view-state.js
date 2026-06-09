@@ -24,6 +24,10 @@
     const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'];
     const VALID_VIEWS = new Set(VIEW_NAMES);
     const VALID_ORDERS = new Set(['recent', 'size']);
+    const ORDER_OPTIONS = [
+        { value: 'recent', label: 'Newest first' },
+        { value: 'size', label: 'PR size (small to big)' },
+    ];
     const VALID_STATE_BY_VIEW = {
         'issues': new Set(['all', 'open', 'closed']),
         'my-prs': new Set(['all']),
@@ -88,6 +92,115 @@
             order: 'others_prs_order',
         },
         'cleaned': { state: 'cleaned_state', order: 'cleaned_order' },
+    };
+
+    const VIEW_CONFIG = {
+        'issues': {
+            label: 'Feed',
+            showTab: true,
+            countKey: 'issues',
+            mobilePrimaryGroup: 'state',
+            filterGroups: [
+                {
+                    group: 'bookmark',
+                    ariaLabel: 'Filter feed by bookmark',
+                    options: [
+                        { value: 'new', label: 'New' },
+                        { value: 'bookmarked', label: 'Bookmarked' },
+                    ],
+                },
+                {
+                    group: 'state',
+                    ariaLabel: 'Filter feed',
+                    options: [
+                        { value: 'open', label: 'Open' },
+                        { value: 'closed', label: 'Closed' },
+                    ],
+                },
+                {
+                    group: 'type',
+                    ariaLabel: 'Filter feed by type',
+                    options: [
+                        { value: 'prs', label: 'PRs' },
+                        { value: 'issues', label: 'Issues' },
+                    ],
+                },
+                {
+                    group: 'interest',
+                    ariaLabel: 'Filter feed by interest',
+                    options: [
+                        { value: 'has-new', label: 'Has new', countKey: 'hasNew' },
+                        { value: 'no-new', label: 'No new', countKey: 'noNew' },
+                    ],
+                },
+            ],
+        },
+        'my-prs': {
+            label: 'My PRs',
+            showTab: false,
+            countKey: 'myPrs',
+            mobilePrimaryGroup: 'state',
+            filterGroups: [],
+        },
+        'pr-notifications': {
+            label: 'Replies',
+            showTab: true,
+            countKey: 'prNotifications',
+            mobilePrimaryGroup: 'state',
+            filterGroups: [
+                {
+                    group: 'state',
+                    ariaLabel: 'Filter replies by status',
+                    options: [
+                        { value: 'open', label: 'Open' },
+                        { value: 'closed', label: 'Closed' },
+                    ],
+                },
+                {
+                    group: 'interest',
+                    ariaLabel: 'Filter replies by interest',
+                    options: [
+                        { value: 'has-new', label: 'Has new', countKey: 'hasNew' },
+                        { value: 'no-new', label: 'No new', countKey: 'noNew' },
+                    ],
+                },
+            ],
+        },
+        'others-prs': {
+            label: 'Reviews',
+            showTab: true,
+            countKey: 'othersPrs',
+            mobilePrimaryGroup: 'state',
+            mobileSecondaryGroup: 'author',
+            filterGroups: [
+                {
+                    group: 'state',
+                    ariaLabel: 'Filter reviews by status',
+                    options: [
+                        { value: 'needs-review', label: 'Needs review', countKey: 'needsReview' },
+                        { value: 'approved', label: 'Approved' },
+                        { value: 'done', label: 'Done' },
+                    ],
+                },
+                {
+                    group: 'author',
+                    ariaLabel: 'Filter reviews by author',
+                    allLabel: 'All authors',
+                    options: [
+                        { value: 'committer', label: 'Committers' },
+                        { value: 'ai', label: 'AI' },
+                        { value: 'external', label: 'External' },
+                    ],
+                },
+            ],
+        },
+        'cleaned': {
+            label: 'Cleaned',
+            showTab: true,
+            countKey: 'trash',
+            mobilePrimaryGroup: 'state',
+            filterGroups: [],
+        },
     };
 
     function normalizeStateFilter(view, stateFilter) {
@@ -183,9 +296,74 @@
         return VALID_VIEWS.has(view) ? view : 'issues';
     }
 
+    function getViewConfig(view) {
+        return VIEW_CONFIG[normalizeViewName(view)] || VIEW_CONFIG.issues;
+    }
+
+    function getVisibleViewConfigs() {
+        return VIEW_NAMES
+            .map((view) => ({ view, ...VIEW_CONFIG[view] }))
+            .filter((config) => config.showTab);
+    }
+
+    function getFilterGroupsForView(view) {
+        return getViewConfig(view).filterGroups || [];
+    }
+
+    function getFilterGroupConfig(view, group) {
+        return getFilterGroupsForView(view).find((config) => config.group === group) || null;
+    }
+
+    function getViewCountKey(view) {
+        return getViewConfig(view).countKey;
+    }
+
+    function getFilterCountKey(view, group, value) {
+        const option = getFilterGroupConfig(view, group)?.options.find(
+            (item) => item.value === value
+        );
+        if (option?.countKey) {
+            return option.countKey;
+        }
+        return value;
+    }
+
+    function getMobileFilterOptions(view) {
+        const config = getViewConfig(view);
+        const primaryGroup = config.mobilePrimaryGroup || 'state';
+        const group = getFilterGroupConfig(view, primaryGroup);
+        return [
+            { value: 'all', label: 'All' },
+            ...(group?.options || []).map((option) => ({
+                value: option.value,
+                label: option.label,
+            })),
+        ];
+    }
+
+    function getMobileSecondaryGroup(view) {
+        return getViewConfig(view).mobileSecondaryGroup || null;
+    }
+
+    function getMobileSecondaryOptions(view) {
+        const groupName = getMobileSecondaryGroup(view);
+        if (!groupName) {
+            return [{ value: 'all', label: 'All' }];
+        }
+        const group = getFilterGroupConfig(view, groupName);
+        return [
+            { value: 'all', label: group?.allLabel || 'All' },
+            ...(group?.options || []).map((option) => ({
+                value: option.value,
+                label: option.label,
+            })),
+        ];
+    }
+
     return {
         DEFAULT_VIEW_FILTERS,
         DEFAULT_VIEW_ORDERS,
+        ORDER_OPTIONS,
         STORAGE_KEYS,
         VALID_AUDIENCE,
         VALID_AUTHOR,
@@ -195,9 +373,19 @@
         VALID_ORDERS,
         VALID_STATE_BY_VIEW,
         VALID_VIEWS,
+        VIEW_CONFIG,
         VIEW_NAMES,
         VIEW_QUERY_KEYS,
         cloneDefaultViewFilters,
+        getFilterCountKey,
+        getFilterGroupConfig,
+        getFilterGroupsForView,
+        getMobileFilterOptions,
+        getMobileSecondaryGroup,
+        getMobileSecondaryOptions,
+        getViewConfig,
+        getViewCountKey,
+        getVisibleViewConfigs,
         normalizeStateFilter,
         normalizeViewFilters,
         normalizeViewName,

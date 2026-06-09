@@ -1182,11 +1182,8 @@
                 // Update count badge
                 const countSpan = tab.querySelector('.count');
                 if (countSpan) {
-                    if (view === 'issues') countSpan.textContent = viewCounts.issues;
-                    else if (view === 'my-prs') countSpan.textContent = viewCounts.myPrs;
-                    else if (view === 'pr-notifications') countSpan.textContent = viewCounts.prNotifications;
-                    else if (view === 'others-prs') countSpan.textContent = viewCounts.othersPrs;
-                    else if (view === 'cleaned') countSpan.textContent = viewCounts.trash;
+                    const countKey = GhinboxViewState.getViewCountKey(view);
+                    countSpan.textContent = viewCounts[countKey] ?? 0;
                 }
             });
 
@@ -1224,18 +1221,12 @@
                         if (isActive) {
                             countSpan.textContent = '';
                         } else {
-                            const countMap =
-                                group === 'author' ? subfilterCounts.author :
-                                group === 'audience' ? subfilterCounts.audience :
-                                group === 'interest' ? subfilterCounts.interest :
-                                group === 'bookmark' ? subfilterCounts.bookmark :
-                                group === 'type' ? subfilterCounts.type :
-                                subfilterCounts.state;
-                            const countKey =
-                                group === 'state' && subfilter === 'needs-review' ? 'needsReview' :
-                                subfilter === 'has-new' ? 'hasNew' :
-                                subfilter === 'no-new' ? 'noNew' :
-                                subfilter;
+                            const countMap = subfilterCounts[group] || subfilterCounts.state;
+                            const countKey = GhinboxViewState.getFilterCountKey(
+                                state.view,
+                                group,
+                                subfilter
+                            );
                             countSpan.textContent = countMap[countKey] ?? 0;
                         }
                     }
