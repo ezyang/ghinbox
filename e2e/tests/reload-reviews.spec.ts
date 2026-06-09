@@ -292,8 +292,10 @@ test.describe('Reload reviews button @sync', () => {
     await page.locator('#reload-reviews-btn').click();
 
     await expect(page.locator('.notification-item')).toHaveCount(2);
-    await expect(page.locator('.notification-item')).toContainText('PyTorch review');
-    await expect(page.locator('.notification-item')).toContainText('Meta PyTorch review');
+    await expect(page.locator('.notification-item')).toContainText([
+      'Meta PyTorch review',
+      'PyTorch review',
+    ]);
     await expect(page.locator('#status-bar')).toContainText('Reloaded 2 review notifications');
     expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
   });
