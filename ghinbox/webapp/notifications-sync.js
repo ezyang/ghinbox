@@ -132,14 +132,6 @@
             return GhinboxNotificationIdentity.getNotificationDedupKey(notification);
         }
 
-        function getUpdatedAtSignature(updatedAt) {
-            const parsed = Date.parse(updatedAt);
-            if (Number.isNaN(parsed)) {
-                return String(updatedAt || '');
-            }
-            return `ms:${parsed}`;
-        }
-
         function formatCursorLabel(cursor) {
             if (!cursor) {
                 return 'initial';
@@ -151,104 +143,13 @@
             return `after ${raw.slice(0, 4)}...${raw.slice(-4)}`;
         }
 
-        function countMissingLastReadAt(notifications) {
-            return notifications.filter((notif) => !notif.last_read_at).length;
-        }
-
-        function countMissingLastReadAtForKeys(notifications, restLookupKeys) {
-            if (!restLookupKeys) {
-                return countMissingLastReadAt(notifications);
-            }
-            let count = 0;
-            notifications.forEach((notif) => {
-                if (notif.last_read_at) {
-                    return;
-                }
-                const key = getNotificationMatchKey(notif);
-                if (key && restLookupKeys.has(key)) {
-                    count += 1;
-                }
-            });
-            return count;
-        }
-
-        function buildPreviousMatchMap(notifications) {
-            const map = new Map();
-            notifications.forEach((notif, index) => {
-                const key = getNotificationMatchKey(notif);
-                if (!key || map.has(key)) {
-                    return;
-                }
-                map.set(key, { updatedAt: getUpdatedAtSignature(notif.updated_at), index });
-            });
-            return map;
-        }
-
-        function buildNotificationMatchKeySet(notifications, repo = null) {
-            const keys = new Set();
-            notifications.forEach((notif) => {
-                const key = repo
-                    ? getNotificationMatchKeyForRepo(notif, repo)
-                    : getNotificationMatchKey(notif);
-                if (key) {
-                    keys.add(key);
-                }
-            });
-            return keys;
-        }
-
-        function buildIncrementalRestLookupKeys(notifications, previousMatchMap) {
-            const keys = new Set();
-            notifications.forEach((notif) => {
-                const key = getNotificationMatchKey(notif);
-                if (!key) {
-                    return;
-                }
-                const previous = previousMatchMap.get(key);
-                if (previous && previous.updatedAt === getUpdatedAtSignature(notif.updated_at)) {
-                    return;
-                }
-                keys.add(key);
-            });
-            return keys;
-        }
-
-        function findIncrementalOverlapIndex(notifications, previousMatchMap) {
-            for (const notif of notifications) {
-                const key = getNotificationMatchKey(notif);
-                if (!key) {
-                    continue;
-                }
-                const previous = previousMatchMap.get(key);
-                if (previous && previous.updatedAt === getUpdatedAtSignature(notif.updated_at)) {
-                    return previous.index;
-                }
-            }
-            return null;
-        }
-
-        function mergeIncrementalNotifications(newNotifications, previousNotifications, startIndex) {
-            const merged = newNotifications.slice();
-            const seenKeys = new Set();
-            merged.forEach((notif) => {
-                const key = getNotificationDedupKey(notif);
-                if (key) {
-                    seenKeys.add(key);
-                }
-            });
-            for (let i = startIndex; i < previousNotifications.length; i += 1) {
-                const notif = previousNotifications[i];
-                const key = getNotificationDedupKey(notif);
-                if (key && seenKeys.has(key)) {
-                    continue;
-                }
-                merged.push(notif);
-                if (key) {
-                    seenKeys.add(key);
-                }
-            }
-            return merged;
-        }
+        const {
+            buildIncrementalRestLookupKeys,
+            buildNotificationMatchKeySet,
+            buildPreviousMatchMap,
+            findIncrementalOverlapIndex,
+            mergeIncrementalNotifications,
+        } = GhinboxSyncMerge;
 
         function getRestNotificationMatchKey(notification) {
             return GhinboxNotificationIdentity.getRestNotificationMatchKey(notification);
