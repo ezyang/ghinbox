@@ -2164,6 +2164,36 @@ test.describe('Error Handling @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('timeout');
   });
 
+  test('links expired browser-session full sync errors to login', async ({ page }) => {
+    const expiredMessage =
+      'GitHub redirected notifications request to login. Stored browser session is expired.';
+
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: route.request().method() === 'POST' ? 'running' : 'error',
+            mode: 'full',
+            error: expiredMessage,
+          },
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    const statusBar = page.locator('#status-bar');
+    await expect(statusBar).toContainText(`Full Sync failed: ${expiredMessage}`);
+    await expect(statusBar.getByRole('link', { name: 'Log in again' })).toHaveAttribute(
+      'href',
+      'login.html?session_refresh=1'
+    );
+  });
+
   test('keeps error status visible when message text is clicked', async ({ page }) => {
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({

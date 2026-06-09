@@ -122,7 +122,7 @@ test.describe('Login API Endpoints', () => {
 });
 
 test.describe('Login Page Navigation', () => {
-  test('redirects to main app when already authenticated', async ({ page }) => {
+  test('stays on login page when already authenticated', async ({ page }) => {
     // Mock the needs-login endpoint to return false (already authenticated)
     await page.route('**/auth/needs-login', (route) => {
       route.fulfill({
@@ -135,10 +135,18 @@ test.describe('Login Page Navigation', () => {
       });
     });
 
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+
     await page.goto('login.html');
 
-    // Should redirect to the main app
-    await expect(page).toHaveURL(/\/app\//);
+    await expect(page).toHaveURL(/\/app\/login\.html$/);
+    await expect(page.locator('#credentials-form')).toBeVisible();
   });
 
   test('stays on login page when auth file exists but GitHub user is unavailable', async ({

@@ -845,6 +845,34 @@
             event.stopPropagation();
         });
 
+        const EXPIRED_BROWSER_SESSION_MESSAGE_PARTS = [
+            'github redirected notifications request to login',
+            'stored browser session is expired',
+            'browser session is expired',
+        ];
+
+        function isExpiredBrowserSessionMessage(message) {
+            const normalized = String(message || '').toLowerCase();
+            return EXPIRED_BROWSER_SESSION_MESSAGE_PARTS.some(part => normalized.includes(part));
+        }
+
+        function buildStatusMessageElement(message) {
+            const messageElement = document.createElement('span');
+            messageElement.className = 'status-message';
+            messageElement.textContent = message;
+
+            if (isExpiredBrowserSessionMessage(message)) {
+                messageElement.append(' ');
+                const loginLink = document.createElement('a');
+                loginLink.className = 'status-login-link';
+                loginLink.href = 'login.html?session_refresh=1';
+                loginLink.textContent = 'Log in again';
+                messageElement.append(loginLink);
+            }
+
+            return messageElement;
+        }
+
         // Show status message
         function showStatus(message, type, options) {
             const settings = options || {};
@@ -875,9 +903,7 @@
             }
 
             function applyStatus(nextMessage, nextType, isFlash, flashId) {
-                const messageElement = document.createElement('span');
-                messageElement.className = 'status-message';
-                messageElement.textContent = nextMessage;
+                const messageElement = buildStatusMessageElement(nextMessage);
 
                 const closeButton = document.createElement('button');
                 closeButton.type = 'button';

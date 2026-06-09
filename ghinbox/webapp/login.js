@@ -225,16 +225,6 @@
         }
     }
 
-    async function checkCurrentUser() {
-        try {
-            const response = await fetch('/github/rest/user');
-            const data = await response.json().catch(() => ({}));
-            return response.ok && Boolean(data.login);
-        } catch (e) {
-            return false;
-        }
-    }
-
     // Event handlers
 
     async function handleCredentialsSubmit(event) {
@@ -386,24 +376,11 @@
     // Initialize
 
     async function init() {
-        // Check for session_refresh param - if present, we need to refresh the browser
-        // session even if the auth file exists (token valid but cookies expired)
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionRefresh = urlParams.get('session_refresh') === '1';
-
-        // Always load the configured account. During session_refresh we still
-        // need to save the refreshed GitHub cookies under the server's account.
+        // Always load the configured account so a forced login refresh saves
+        // GitHub cookies under the server's configured account.
         try {
             const authStatus = await checkNeedsLogin();
             currentAccount = authStatus.account || 'default';
-            if (!sessionRefresh && !authStatus.needs_login) {
-                const hasCurrentUser = await checkCurrentUser();
-                if (hasCurrentUser) {
-                    // Already logged in, redirect
-                    window.location.href = '/app/';
-                    return;
-                }
-            }
         } catch (e) {
             // Proceed with login anyway
         }
