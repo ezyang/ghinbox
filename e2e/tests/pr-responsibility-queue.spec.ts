@@ -51,54 +51,40 @@ const notificationBackedReviewRequest = {
   ],
 };
 
-const reviewRequestSearch = {
-  total_count: 4,
-  incomplete_results: false,
-  items: [
-    {
-      number: 10,
-      title: 'Needs my review',
-      html_url: 'https://github.com/test/repo/pull/10',
+function reviewRequestNotification(
+  number: number,
+  title: string,
+  login: string,
+  avatarUrl: string,
+  updatedAt: string
+) {
+  return {
+    id: `review-request:test/repo#${number}`,
+    unread: false,
+    reason: 'review_requested',
+    responsibility_source: 'review-requested',
+    updated_at: updatedAt,
+    last_read_at: null,
+    repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+    subject: {
+      title,
+      url: `https://github.com/test/repo/pull/${number}`,
+      type: 'PullRequest',
+      number,
       state: 'open',
-      draft: false,
-      updated_at: '2025-01-05T12:00:00Z',
-      created_at: '2025-01-05T10:00:00Z',
-      user: { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
-      pull_request: {},
+      state_reason: null,
     },
-    {
-      number: 11,
-      title: 'Already approved',
-      html_url: 'https://github.com/test/repo/pull/11',
-      state: 'open',
-      draft: false,
-      updated_at: '2025-01-05T11:00:00Z',
-      created_at: '2025-01-05T09:00:00Z',
-      user: { login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' },
-      pull_request: {},
-    },
-    {
-      number: 12,
-      title: 'Changes requested',
-      html_url: 'https://github.com/test/repo/pull/12',
-      state: 'open',
-      draft: false,
-      updated_at: '2025-01-05T10:00:00Z',
-      created_at: '2025-01-05T08:00:00Z',
-      user: { login: 'carol', avatar_url: 'https://avatars.githubusercontent.com/u/3?v=4' },
-      pull_request: {},
-    },
-    {
-      number: 13,
-      title: 'Approved but merge queued',
-      html_url: 'https://github.com/test/repo/pull/13',
-      state: 'open',
-      draft: false,
-      updated_at: '2025-01-05T09:00:00Z',
-      created_at: '2025-01-05T07:00:00Z',
-      user: { login: 'dana', avatar_url: 'https://avatars.githubusercontent.com/u/4?v=4' },
-      pull_request: {},
-    },
+    actors: [{ login, avatar_url: avatarUrl }],
+    ui: { saved: false, done: false, action_tokens: {} },
+  };
+}
+
+const reviewRequestsResponse = {
+  notifications: [
+    reviewRequestNotification(10, 'Needs my review', 'alice', 'https://avatars.githubusercontent.com/u/1?v=4', '2025-01-05T12:00:00Z'),
+    reviewRequestNotification(11, 'Already approved', 'bob', 'https://avatars.githubusercontent.com/u/2?v=4', '2025-01-05T11:00:00Z'),
+    reviewRequestNotification(12, 'Changes requested', 'carol', 'https://avatars.githubusercontent.com/u/3?v=4', '2025-01-05T10:00:00Z'),
+    reviewRequestNotification(13, 'Approved but merge queued', 'dana', 'https://avatars.githubusercontent.com/u/4?v=4', '2025-01-05T09:00:00Z'),
   ],
 };
 
@@ -137,17 +123,11 @@ test.describe('PR responsibility queue @classification @mutation', () => {
       });
     });
 
-    await page.route(/\/github\/rest\/search\/issues.*/, (route) => {
-      expect(decodeURIComponent(route.request().url())).toContain(
-        'user-review-requested:@me'
-      );
-      expect(decodeURIComponent(route.request().url())).not.toContain(
-        'review:approved'
-      );
+    await page.route('**/github/rest/review-requests**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(reviewRequestSearch),
+        body: JSON.stringify(reviewRequestsResponse),
       });
     });
 
