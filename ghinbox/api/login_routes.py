@@ -4,17 +4,28 @@ FastAPI route handlers for GitHub authentication.
 Provides endpoints for headless GitHub login flow with web-served forms.
 """
 
+import asyncio
 import logging
+import os
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ghinbox.api.fetcher import (
+    NotificationsFetcher,
+    get_fetcher,
+    run_fetcher_call,
+    set_fetcher,
+)
 from ghinbox.api.login_state import (
+    LoginSession,
     LoginState,
     get_session_manager,
 )
 from ghinbox.api.login_fetcher import LoginFetcher, PageState
+from ghinbox.auth import DEFAULT_ACCOUNT, get_auth_state_path, has_valid_auth
+from ghinbox.token import has_token, provision_token, verify_token
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +74,96 @@ class LoginResponse(BaseModel):
         "success",
         "error",
         "captcha",
+        "cancelled",
     ]
     message: str | None = None
     error: str | None = None
     username: str | None = None
     twofa_method: str | None = None
     verification_code: str | None = None  # Digits to confirm on mobile device
+
+
+# Shared helpers
+
+
+def _require_session(
+    session_id: str, expected_state: LoginState
+) -> tuple[LoginSession, LoginFetcher]:
+    """Look up a session and its fetcher, raising HTTP errors on failure."""
+    manager = get_session_manager()
+    session = manager.get_session(session_id)
+
+    if session is None:
+        logger.warning("Session not found: %s", session_id)
+        raise HTTPException(
+            status_code=404,
+            detail="Session not found or expired",
+        )
+
+    if session.state != expected_state:
+        logger.warning(
+            "Invalid session state: %s (expected %s)",
+            session.state.value,
+            expected_state.value,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid session state: {session.state.value}",
+        )
+
+    fetcher = manager.get_fetcher(session_id)
+    if fetcher is None:
+        logger.error("No fetcher associated with session: %s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail="No fetcher associated with session",
+        )
+
+    return session, fetcher
+
+
+async def _finalize_logged_in(
+    session_id: str, account: str, fetcher: LoginFetcher
+) -> LoginResponse:
+    """Save auth state after a successful login and build the response."""
+    logger.info("Login successful, saving auth state")
+    success, username = await fetcher.save_auth_state(account)
+    manager = get_session_manager()
+    if success:
+        manager.update_state(session_id, LoginState.SUCCESS, username=username)
+        logger.info("Auth state saved, username: %s", username)
+        return LoginResponse(
+            session_id=session_id,
+            status="success",
+            username=username,
+            message="Login successful",
+        )
+
+    logger.error("Failed to save auth state")
+    manager.update_state(
+        session_id,
+        LoginState.ERROR,
+        error_message="Failed to save auth state",
+    )
+    return LoginResponse(
+        session_id=session_id,
+        status="error",
+        error="Failed to save auth state",
+    )
+
+
+def _error_response(session_id: str, error_message: str) -> LoginResponse:
+    """Mark the session errored and build the error response."""
+    get_session_manager().update_state(
+        session_id,
+        LoginState.ERROR,
+        error_message=error_message,
+    )
+    return LoginResponse(
+        session_id=session_id,
+        status="error",
+        error=error_message,
+    )
 
 
 # Endpoints
@@ -140,30 +235,8 @@ async def submit_credentials(request: LoginCredentialsRequest) -> LoginResponse:
         request.session_id,
         request.username,
     )
+    session, fetcher = _require_session(request.session_id, LoginState.INITIALIZED)
     manager = get_session_manager()
-    session = manager.get_session(request.session_id)
-
-    if session is None:
-        logger.warning("Session not found: %s", request.session_id)
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found or expired",
-        )
-
-    if session.state != LoginState.INITIALIZED:
-        logger.warning("Invalid session state for credentials: %s", session.state.value)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid session state for credentials: {session.state.value}",
-        )
-
-    fetcher = manager.get_fetcher(request.session_id)
-    if fetcher is None:
-        logger.error("No fetcher associated with session: %s", request.session_id)
-        raise HTTPException(
-            status_code=500,
-            detail="No fetcher associated with session",
-        )
 
     # Update state to submitting
     manager.update_state(request.session_id, LoginState.SUBMITTING_CREDENTIALS)
@@ -182,34 +255,9 @@ async def submit_credentials(request: LoginCredentialsRequest) -> LoginResponse:
 
         # Map result to response
         if result.state == PageState.LOGGED_IN:
-            # Success! Save auth state
-            logger.info("Login successful, saving auth state")
-            success, username = await fetcher.save_auth_state(session.account)
-            if success:
-                manager.update_state(
-                    request.session_id,
-                    LoginState.SUCCESS,
-                    username=username,
-                )
-                logger.info("Auth state saved, username: %s", username)
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="success",
-                    username=username,
-                    message="Login successful",
-                )
-            else:
-                logger.error("Failed to save auth state")
-                manager.update_state(
-                    request.session_id,
-                    LoginState.ERROR,
-                    error_message="Failed to save auth state",
-                )
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="error",
-                    error="Failed to save auth state",
-                )
+            return await _finalize_logged_in(
+                request.session_id, session.account, fetcher
+            )
 
         elif result.state == PageState.TWOFA_MOBILE:
             logger.info(
@@ -247,15 +295,9 @@ async def submit_credentials(request: LoginCredentialsRequest) -> LoginResponse:
 
         elif result.state == PageState.TWOFA_SECURITY_KEY:
             logger.warning("Security key 2FA detected (not supported)")
-            manager.update_state(
+            return _error_response(
                 request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message,
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message
+                result.error_message
                 or "Security key 2FA not supported. Please configure authenticator app.",
             )
 
@@ -275,47 +317,24 @@ async def submit_credentials(request: LoginCredentialsRequest) -> LoginResponse:
 
         elif result.state == PageState.LOGIN_ERROR:
             logger.warning("Login error: %s", result.error_message)
-            manager.update_state(
-                request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message,
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message or "Login failed",
+            return _error_response(
+                request.session_id, result.error_message or "Login failed"
             )
 
         else:
-            # Unknown state
             logger.error(
                 "Unknown page state after credentials: %s, error: %s",
                 result.state.value,
                 result.error_message,
             )
-            manager.update_state(
+            return _error_response(
                 request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message or "Unknown page state",
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message or "Unknown page state after credentials",
+                result.error_message or "Unknown page state after credentials",
             )
 
     except Exception as e:
         logger.exception("Error during credential submission: %s", e)
-        manager.update_state(
-            request.session_id,
-            LoginState.ERROR,
-            error_message=str(e),
-        )
-        return LoginResponse(
-            session_id=request.session_id,
-            status="error",
-            error=f"Error during login: {e}",
-        )
+        return _error_response(request.session_id, f"Error during login: {e}")
 
 
 @router.post(
@@ -330,27 +349,8 @@ async def submit_2fa(request: Login2FARequest) -> LoginResponse:
 
     Returns success or error.
     """
+    session, fetcher = _require_session(request.session_id, LoginState.WAITING_2FA)
     manager = get_session_manager()
-    session = manager.get_session(request.session_id)
-
-    if session is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found or expired",
-        )
-
-    if session.state != LoginState.WAITING_2FA:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid session state for 2FA: {session.state.value}",
-        )
-
-    fetcher = manager.get_fetcher(request.session_id)
-    if fetcher is None:
-        raise HTTPException(
-            status_code=500,
-            detail="No fetcher associated with session",
-        )
 
     # Update state to submitting
     manager.update_state(request.session_id, LoginState.SUBMITTING_2FA)
@@ -360,31 +360,9 @@ async def submit_2fa(request: Login2FARequest) -> LoginResponse:
         result = await fetcher.submit_2fa_code(request.code)
 
         if result.state == PageState.LOGGED_IN:
-            # Success! Save auth state
-            success, username = await fetcher.save_auth_state(session.account)
-            if success:
-                manager.update_state(
-                    request.session_id,
-                    LoginState.SUCCESS,
-                    username=username,
-                )
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="success",
-                    username=username,
-                    message="Login successful",
-                )
-            else:
-                manager.update_state(
-                    request.session_id,
-                    LoginState.ERROR,
-                    error_message="Failed to save auth state",
-                )
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="error",
-                    error="Failed to save auth state",
-                )
+            return await _finalize_logged_in(
+                request.session_id, session.account, fetcher
+            )
 
         elif result.state == PageState.LOGIN_ERROR:
             # Wrong 2FA code - stay in WAITING_2FA state for retry
@@ -396,28 +374,14 @@ async def submit_2fa(request: Login2FARequest) -> LoginResponse:
             )
 
         else:
-            manager.update_state(
+            return _error_response(
                 request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message or "Unknown state after 2FA",
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message or "Unknown state after 2FA submission",
+                result.error_message or "Unknown state after 2FA submission",
             )
 
     except Exception as e:
-        manager.update_state(
-            request.session_id,
-            LoginState.ERROR,
-            error_message=str(e),
-        )
-        return LoginResponse(
-            session_id=request.session_id,
-            status="error",
-            error=f"Error during 2FA: {e}",
-        )
+        logger.exception("Error during 2FA submission: %s", e)
+        return _error_response(request.session_id, f"Error during 2FA: {e}")
 
 
 class LoginMobileWaitRequest(BaseModel):
@@ -440,27 +404,7 @@ async def wait_for_mobile_2fa(request: LoginMobileWaitRequest) -> LoginResponse:
     This endpoint polls until the user approves on their device or timeout.
     """
     logger.info("Waiting for mobile 2FA approval, session: %s", request.session_id)
-    manager = get_session_manager()
-    session = manager.get_session(request.session_id)
-
-    if session is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found or expired",
-        )
-
-    if session.state != LoginState.WAITING_MOBILE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid session state for mobile wait: {session.state.value}",
-        )
-
-    fetcher = manager.get_fetcher(request.session_id)
-    if fetcher is None:
-        raise HTTPException(
-            status_code=500,
-            detail="No fetcher associated with session",
-        )
+    session, fetcher = _require_session(request.session_id, LoginState.WAITING_MOBILE)
 
     try:
         # Wait for mobile approval (async polling)
@@ -469,34 +413,12 @@ async def wait_for_mobile_2fa(request: LoginMobileWaitRequest) -> LoginResponse:
         )
 
         if result.state == PageState.LOGGED_IN:
-            # Success! Save auth state
-            success, username = await fetcher.save_auth_state(session.account)
-            if success:
-                manager.update_state(
-                    request.session_id,
-                    LoginState.SUCCESS,
-                    username=username,
-                )
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="success",
-                    username=username,
-                    message="Login successful",
-                )
-            else:
-                manager.update_state(
-                    request.session_id,
-                    LoginState.ERROR,
-                    error_message="Failed to save auth state",
-                )
-                return LoginResponse(
-                    session_id=request.session_id,
-                    status="error",
-                    error="Failed to save auth state",
-                )
+            return await _finalize_logged_in(
+                request.session_id, session.account, fetcher
+            )
 
         elif result.state == PageState.TWOFA_MOBILE:
-            # Still waiting (timeout)
+            # Still waiting (timeout) - stay in WAITING_MOBILE state for retry
             return LoginResponse(
                 session_id=request.session_id,
                 status="waiting_mobile",
@@ -506,41 +428,19 @@ async def wait_for_mobile_2fa(request: LoginMobileWaitRequest) -> LoginResponse:
             )
 
         elif result.state == PageState.LOGIN_ERROR:
-            manager.update_state(
-                request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message,
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message or "Mobile 2FA failed",
+            return _error_response(
+                request.session_id, result.error_message or "Mobile 2FA failed"
             )
 
         else:
-            manager.update_state(
+            return _error_response(
                 request.session_id,
-                LoginState.ERROR,
-                error_message=result.error_message or "Unexpected state",
-            )
-            return LoginResponse(
-                session_id=request.session_id,
-                status="error",
-                error=result.error_message or "Unexpected state during mobile wait",
+                result.error_message or "Unexpected state during mobile wait",
             )
 
     except Exception as e:
         logger.exception("Error during mobile 2FA wait: %s", e)
-        manager.update_state(
-            request.session_id,
-            LoginState.ERROR,
-            error_message=str(e),
-        )
-        return LoginResponse(
-            session_id=request.session_id,
-            status="error",
-            error=f"Error during mobile 2FA: {e}",
-        )
+        return _error_response(request.session_id, f"Error during mobile 2FA: {e}")
 
 
 @router.get(
@@ -611,7 +511,7 @@ async def cancel_login(request: LoginCancelRequest) -> LoginResponse:
 
     return LoginResponse(
         session_id=request.session_id,
-        status="error",
+        status="cancelled",
         message="Session cancelled",
     )
 
@@ -623,10 +523,6 @@ async def cancel_login(request: LoginCancelRequest) -> LoginResponse:
 )
 async def needs_login() -> dict:
     """Check if the server requires authentication."""
-    import os
-
-    from ghinbox.auth import has_valid_auth, DEFAULT_ACCOUNT
-
     # In test mode, never require login (tests use mocked APIs)
     if os.environ.get("GHINBOX_TEST_MODE") == "1":
         logger.warning(
@@ -667,15 +563,6 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
     Returns:
         True if fetcher was initialized successfully
     """
-    import os
-
-    from ghinbox.api.fetcher import (
-        NotificationsFetcher,
-        get_fetcher,
-        run_fetcher_call,
-        set_fetcher,
-    )
-
     logger.warning("_initialize_fetcher_after_login called for account: %s", account)
 
     # Clear the needs-auth flag FIRST - always do this
@@ -723,12 +610,6 @@ async def reload_auth() -> dict:
     This endpoint should be called after login completes to initialize
     the notifications fetcher and provision the API token if needed.
     """
-    import asyncio
-    import os
-
-    from ghinbox.auth import has_valid_auth, DEFAULT_ACCOUNT, get_auth_state_path
-    from ghinbox.token import has_token, provision_token, verify_token
-
     account = os.environ.get("GHSIM_ACCOUNT", DEFAULT_ACCOUNT)
     auth_path = get_auth_state_path(account)
     has_auth = has_valid_auth(account)

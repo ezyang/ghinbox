@@ -11,7 +11,6 @@ from fastapi.testclient import TestClient
 
 from ghinbox.api.app import app
 from ghinbox.api.fetcher import ActionResult, FetchResult
-from ghinbox.api import fetcher as fetcher_module
 from ghinbox.api import login_routes
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -427,10 +426,10 @@ class TestLoginRefresh:
         def fake_set_fetcher(fetcher):
             calls.append(f"set:{type(fetcher).__name__ if fetcher else None}")
 
-        monkeypatch.setattr(fetcher_module, "get_fetcher", fake_get_fetcher)
-        monkeypatch.setattr(fetcher_module, "set_fetcher", fake_set_fetcher)
-        monkeypatch.setattr(fetcher_module, "NotificationsFetcher", NewFetcher)
-        monkeypatch.setattr(fetcher_module, "run_fetcher_call", fake_run_fetcher_call)
+        monkeypatch.setattr(login_routes, "get_fetcher", fake_get_fetcher)
+        monkeypatch.setattr(login_routes, "set_fetcher", fake_set_fetcher)
+        monkeypatch.setattr(login_routes, "NotificationsFetcher", NewFetcher)
+        monkeypatch.setattr(login_routes, "run_fetcher_call", fake_run_fetcher_call)
 
         result = asyncio.run(login_routes._initialize_fetcher_after_login("default"))
 
