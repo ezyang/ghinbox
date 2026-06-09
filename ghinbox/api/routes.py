@@ -18,9 +18,6 @@ from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.observability import emit_notification_action_audit
 from ghinbox.api.snapshot_store import (
     apply_local_state,
-    get_notification_bookmark,
-    get_notification_read_comment_watermark,
-    get_notification_replies_muted,
     set_notification_bookmark,
     set_notification_read_comment_watermark,
     set_notification_replies_muted,
@@ -96,18 +93,14 @@ def _local_state_response(
     repo: str,
     notification_id: str,
     field: str,
-    value: bool | str | None = None,
+    value: bool | str | None,
     *,
-    getter=None,
-    setter=None,
+    setter,
 ) -> dict:
     repo_key = _repo_key(owner, repo)
-    if setter is not None:
-        result = setter(repo_key, notification_id, value)
-        notification_id = result["notification_id"]
-        value = result[field]
-    elif getter is not None:
-        value = getter(repo_key, notification_id)
+    result = setter(repo_key, notification_id, value)
+    notification_id = result["notification_id"]
+    value = result[field]
     return {
         "status": "ok",
         "repo": repo_key,
@@ -342,49 +335,6 @@ async def get_repo_notifications(
 
 
 @router.get(
-    "/repo/{owner}/{repo}/timing",
-    summary="Profile request timing",
-    description="Fetch notifications and return detailed timing breakdown.",
-)
-async def timing_profile(
-    owner: str,
-    repo: str,
-) -> dict:
-    """Return timing breakdown for a fetch + parse cycle."""
-    fetcher = get_fetcher()
-    if fetcher is None:
-        return {"error": "No fetcher configured"}
-
-    timing: dict[str, object] = {}
-
-    # Measure fetch (in thread pool)
-    t0 = time.perf_counter()
-    result = await run_fetcher_call(
-        fetcher.fetch_repo_notifications,
-        owner=owner,
-        repo=repo,
-    )
-    timing["fetch_total_ms"] = int((time.perf_counter() - t0) * 1000)
-    timing["fetch_breakdown"] = result.timing
-
-    # Measure parsing
-    t0 = time.perf_counter()
-    parsed = parse_notifications_html(
-        html=result.html,
-        owner=owner,
-        repo=repo,
-        source_url=result.url,
-    )
-    timing["parse_ms"] = int((time.perf_counter() - t0) * 1000)
-
-    timing["total_ms"] = timing["fetch_total_ms"] + timing["parse_ms"]
-    timing["notification_count"] = len(parsed.notifications)
-    timing["html_length"] = len(result.html)
-
-    return timing
-
-
-@router.get(
     "/parse",
     response_model=NotificationsResponse,
     summary="Parse HTML from fixture file",
@@ -495,24 +445,6 @@ async def submit_action(
         )
 
 
-@router.get(
-    "/repo/{owner}/{repo}/bookmarks/{notification_id}",
-    summary="Get local bookmark state",
-)
-async def get_bookmark(
-    owner: str,
-    repo: str,
-    notification_id: str,
-) -> dict:
-    return _local_state_response(
-        owner,
-        repo,
-        notification_id,
-        "bookmarked",
-        getter=get_notification_bookmark,
-    )
-
-
 @router.put(
     "/repo/{owner}/{repo}/bookmarks/{notification_id}",
     summary="Set local bookmark state",
@@ -533,24 +465,6 @@ async def set_bookmark(
     )
 
 
-@router.get(
-    "/repo/{owner}/{repo}/replies-muted/{notification_id}",
-    summary="Get local Replies suppression state",
-)
-async def get_replies_muted(
-    owner: str,
-    repo: str,
-    notification_id: str,
-) -> dict:
-    return _local_state_response(
-        owner,
-        repo,
-        notification_id,
-        "replies_muted",
-        getter=get_notification_replies_muted,
-    )
-
-
 @router.put(
     "/repo/{owner}/{repo}/replies-muted/{notification_id}",
     summary="Set local Replies suppression state",
@@ -568,24 +482,6 @@ async def set_replies_muted(
         "replies_muted",
         request.replies_muted,
         setter=set_notification_replies_muted,
-    )
-
-
-@router.get(
-    "/repo/{owner}/{repo}/read-comment-watermarks/{notification_id}",
-    summary="Get local read-comment watermark",
-)
-async def get_read_comment_watermark(
-    owner: str,
-    repo: str,
-    notification_id: str,
-) -> dict:
-    return _local_state_response(
-        owner,
-        repo,
-        notification_id,
-        "read_comment_watermark_at",
-        getter=get_notification_read_comment_watermark,
     )
 
 
