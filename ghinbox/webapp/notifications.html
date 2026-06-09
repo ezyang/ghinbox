@@ -34,11 +34,12 @@
                 localStorage.setItem('ghnotif_cache_bust', explicitCacheBust);
             }
             const cacheBust = explicitCacheBust || ASSET_VERSION;
-            const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
+            // Reused by the script loader at the bottom of the page.
+            window.ghnotifAssetBust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(
                 '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.css">'
             );
-            document.write(`<link rel="stylesheet" href="notifications.css${bust}">`);
+            document.write(`<link rel="stylesheet" href="notifications.css${window.ghnotifAssetBust}">`);
         })();
     </script>
     <script>
@@ -1253,14 +1254,11 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-06-09-review-query-sync';
-            const params = new URLSearchParams(window.location.search);
-            const explicitCacheBust = params.get('cache_bust');
-            if (explicitCacheBust) {
-                localStorage.setItem('ghnotif_cache_bust', explicitCacheBust);
-            }
-            const cacheBust = explicitCacheBust || ASSET_VERSION;
-            const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
+            // Cache-bust string computed by the head asset-version block.
+            // Load order matters: leaf Ghinbox* namespace modules first, then
+            // core/sync/actions/ui (which share top-level scope), then modules
+            // that reference core's `state`/`elements` at call time.
+            const bust = window.ghnotifAssetBust;
             [
                 'notifications-view-state.js',
                 'notifications-query-state.js',
