@@ -3,25 +3,19 @@
 import asyncio
 from datetime import datetime, timezone
 from typing import Literal
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
 from ghinbox.api.github_proxy import (
-    COMMENT_BULK_CONCURRENCY,
-    GITHUB_API_BASE,
-    _fetch_bulk_comment_item,
-    get_client,
+    fetch_bulk_comment_results,
+    fetch_review_request_notifications,
     get_token,
 )
 from ghinbox.api.notification_shapes import (
-    REVIEW_REQUEST_SEARCH_PER_PAGE,
     build_comment_cache_entry as _build_comment_cache_entry,
-    build_review_request_search_query as _build_review_request_search_query,
     notification_to_bulk_comment_item as _notification_to_bulk_comment_item,
-    search_item_to_review_request_notification as _search_item_to_review_request_notification,
 )
 from ghinbox.api.snapshot_store import (
     apply_local_state,
@@ -100,14 +94,7 @@ async def _fetch_snapshot_comment_cache(
     if not items:
         return {"version": 1, "threads": {}}
 
-    client = get_client()
-    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
-
-    async def run_item(item: dict) -> tuple[str, dict]:
-        async with limit:
-            return await _fetch_bulk_comment_item(client, token_value, item)
-
-    results = await asyncio.gather(*(run_item(item) for item in items))
+    results = await fetch_bulk_comment_results(token_value, items)
     notifications_by_key = {
         str(notification.get("id") or ""): notification
         for notification in notifications
@@ -120,42 +107,6 @@ async def _fetch_snapshot_comment_cache(
             continue
         threads[key] = _build_comment_cache_entry(notification, result, fetched_at)
     return {"version": 1, "threads": threads}
-
-
-async def _fetch_review_request_notifications(owner: str, repo: str) -> list[dict]:
-    token = get_token()
-    if not token:
-        return []
-
-    query = _build_review_request_search_query(owner, repo)
-    url = (
-        f"{GITHUB_API_BASE}/search/issues?"
-        f"{urlencode({'q': query, 'per_page': REVIEW_REQUEST_SEARCH_PER_PAGE})}"
-    )
-    response = await get_client().get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"Review request search failed ({response.status_code}): {response.text}"
-        )
-    payload = response.json()
-    items = payload.get("items") if isinstance(payload, dict) else []
-    if not isinstance(items, list):
-        return []
-    notifications = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        notification = _search_item_to_review_request_notification(owner, repo, item)
-        if notification is not None:
-            notifications.append(notification)
-    return notifications
 
 
 async def _fetch_snapshot(owner: str, repo: str) -> None:
@@ -231,7 +182,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             if not after:
                 break
 
-        review_requests = await _fetch_review_request_notifications(owner, repo)
+        review_requests = await fetch_review_request_notifications(owner, repo)
         all_notifications = _merge_review_request_notifications(
             all_notifications,
             review_requests,

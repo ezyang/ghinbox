@@ -6,7 +6,7 @@ import tempfile
 
 import pytest
 
-from ghinbox.api import snapshot_routes
+from ghinbox.api import github_proxy, notification_shapes, snapshot_routes
 from ghinbox.api.fetcher import FetchResult
 from ghinbox.api.snapshot_store import (
     get_snapshot,
@@ -30,13 +30,13 @@ def db_path(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_review_request_search_query_matches_client() -> None:
-    query = snapshot_routes._build_review_request_search_query("pytorch", "pytorch")
+    query = notification_shapes.build_review_request_search_query("pytorch", "pytorch")
 
     assert query == "repo:pytorch/pytorch is:pr is:open user-review-requested:@me"
 
 
 def test_search_item_becomes_synthetic_review_request_notification() -> None:
-    notification = snapshot_routes._search_item_to_review_request_notification(
+    notification = notification_shapes.search_item_to_review_request_notification(
         "test",
         "repo",
         {
@@ -146,7 +146,7 @@ def test_snapshot_sync_merges_review_request_search_results(
     monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
     monkeypatch.setattr(
         snapshot_routes,
-        "_fetch_review_request_notifications",
+        "fetch_review_request_notifications",
         fake_review_requests,
     )
     monkeypatch.setattr(
@@ -230,9 +230,9 @@ def test_snapshot_comment_cache_uses_bulk_comment_fetch(
         }
 
     monkeypatch.setattr(snapshot_routes, "get_token", lambda: "token")
-    monkeypatch.setattr(snapshot_routes, "get_client", lambda: fake_client)
+    monkeypatch.setattr(github_proxy, "get_client", lambda: fake_client)
     monkeypatch.setattr(
-        snapshot_routes,
+        github_proxy,
         "_fetch_bulk_comment_item",
         fake_fetch_bulk_comment_item,
     )

@@ -66,6 +66,65 @@ async def _github_get_json(
     return response.status_code, response.json()
 
 
+class ReviewRequestSearchError(RuntimeError):
+    """Raised when the GitHub search for review requests fails."""
+
+    def __init__(self, status_code: int, detail: object):
+        super().__init__(f"Review request search failed ({status_code}): {detail}")
+        self.status_code = status_code
+
+
+async def fetch_review_request_notifications(
+    owner: str | None,
+    repo: str | None,
+    query: str | None = None,
+) -> list[dict]:
+    """Search GitHub for active review requests and normalize to notifications."""
+    token = get_token()
+    if not token:
+        return []
+
+    search_query = build_review_request_search_query(owner, repo, query)
+    status, payload = await _github_get_json(
+        get_client(),
+        token,
+        "search/issues",
+        {"q": search_query, "per_page": str(REVIEW_REQUEST_SEARCH_PER_PAGE)},
+    )
+    if status >= 400:
+        raise ReviewRequestSearchError(status, payload)
+    items = payload.get("items") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        items = []
+    return [
+        notification
+        for item in items
+        if isinstance(item, dict)
+        and (
+            notification := search_item_to_review_request_notification(
+                owner,
+                repo,
+                item,
+            )
+        )
+        is not None
+    ]
+
+
+async def fetch_bulk_comment_results(
+    token: str, items: list[dict]
+) -> list[tuple[str, dict]]:
+    """Fetch comment threads for multiple notifications with bounded concurrency."""
+    client = get_client()
+    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
+
+    async def run_item(item: dict) -> tuple[str, dict]:
+        async with limit:
+            return await _fetch_bulk_comment_item(client, token, item)
+
+    return await asyncio.gather(*(run_item(item) for item in items))
+
+
 def _issue_to_comment(issue: object) -> dict | None:
     if not isinstance(issue, dict):
         return None
@@ -225,16 +284,8 @@ async def bulk_comments(request: Request) -> dict:
             detail="Expected JSON body with items or notifications list.",
         )
 
-    client = get_client()
-    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
-
-    async def run_item(item: object) -> tuple[str, dict]:
-        if not isinstance(item, dict):
-            return "", {"error": "Invalid bulk comment request item."}
-        async with limit:
-            return await _fetch_bulk_comment_item(client, token_value, item)
-
-    results = await asyncio.gather(*(run_item(item) for item in items))
+    dict_items = [item for item in items if isinstance(item, dict)]
+    results = await fetch_bulk_comment_results(token_value, dict_items)
     threads = {key: result for key, result in results if key}
     return {"threads": threads}
 
@@ -254,41 +305,16 @@ async def review_requests(
             status_code=400,
             detail="Expected owner/repo parameters or a query parameter.",
         )
-    token = get_token()
-    if not token:
+    if not get_token():
         raise HTTPException(
             status_code=503,
             detail="No GitHub token configured. Start server with --account.",
         )
 
-    search_query = build_review_request_search_query(owner, repo, query)
-    status, payload = await _github_get_json(
-        get_client(),
-        token,
-        "search/issues",
-        {"q": search_query, "per_page": str(REVIEW_REQUEST_SEARCH_PER_PAGE)},
-    )
-    if status >= 400:
-        raise HTTPException(
-            status_code=status,
-            detail=f"Review request search failed ({status}): {payload}",
-        )
-    items = payload.get("items") if isinstance(payload, dict) else []
-    if not isinstance(items, list):
-        items = []
-    notifications = [
-        notification
-        for item in items
-        if isinstance(item, dict)
-        and (
-            notification := search_item_to_review_request_notification(
-                owner,
-                repo,
-                item,
-            )
-        )
-        is not None
-    ]
+    try:
+        notifications = await fetch_review_request_notifications(owner, repo, query)
+    except ReviewRequestSearchError as error:
+        raise HTTPException(status_code=error.status_code, detail=str(error))
     return {"notifications": notifications}
 
 
