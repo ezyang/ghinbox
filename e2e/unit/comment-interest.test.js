@@ -126,6 +126,25 @@ test('top-level PR comments after the user are not directed replies', () => {
   );
 });
 
+test('authored PR comments from other users are directed at the current user', () => {
+  const comments = [
+    comment(6, 'soulitzer', 'Is the main point of this to filter out the default values?', {
+      isReviewComment: true,
+      path: 'torch/utils/checkpoint.py',
+    }),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest'), {
+      authorLogin: 'testuser',
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+    }),
+    true
+  );
+});
+
 test('closed notifications are directed only by comments after the close event', () => {
   const stateEvents = [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }];
   assert.equal(

@@ -992,6 +992,7 @@ function isNotificationDirectedAtCurrentUser(notification) {
     const comments = getSortedNotificationComments(notification);
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+        authorLogin: cached?.authorLogin,
         comments,
         currentUserLogin: state.currentUserLogin,
         lastReadAt: cached?.lastReadAt,

@@ -1873,6 +1873,7 @@
                             }
                             const cached = state.commentCache.threads[getNotificationKey(notification)];
                             return !COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+                                authorLogin: cached?.authorLogin,
                                 comments: getSortedNotificationComments(notification),
                                 currentUserLogin: state.currentUserLogin,
                                 lastReadAt: cached?.lastReadAt,

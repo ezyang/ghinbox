@@ -319,9 +319,12 @@
             return author && author !== currentUser;
         });
 
+        const notificationReason = String(notification.reason || '').toLowerCase();
+        const notificationAuthor = normalizeLogin(options.authorLogin);
         if (
-            notification.subject?.type === 'Issue' &&
-            String(notification.reason || '').toLowerCase() === 'author' &&
+            (notification.subject?.type === 'Issue' ||
+                notification.subject?.type === 'PullRequest') &&
+            (notificationReason === 'author' || notificationAuthor === currentUser) &&
             hasUnreadCommentFromOtherUser &&
             !suppressParticipationReplies
         ) {

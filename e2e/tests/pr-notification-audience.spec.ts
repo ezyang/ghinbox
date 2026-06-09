@@ -33,6 +33,7 @@ const notificationsResponse = {
     makePrNotification('reply-pr', 12, 'Inline reply update'),
     makePrNotification('others-pr', 13, 'Unrelated PR update'),
     makePrNotification('pr-main-thread-chatter', 14, 'Top-level PR discussion after my comment'),
+    makePrNotification('own-pr-review-comment', 15, 'Own PR inline review comment'),
   ],
   pagination: {
     before_cursor: null,
@@ -120,6 +121,26 @@ const commentCache = {
           created_at: '2025-01-07T10:00:00Z',
           body: 'General update for reviewers.',
           user: { login: 'bob' },
+        },
+      ],
+    },
+    'own-pr-review-comment': {
+      notificationUpdatedAt: '2025-01-07T12:00:00Z',
+      lastReadAt: '2025-01-07T08:00:00Z',
+      fetchedAt: freshIso,
+      allComments: true,
+      authorLogin: 'testuser',
+      authorLoginFetchedAt: freshIso,
+      comments: [
+        {
+          id: 150,
+          isReviewComment: true,
+          path: 'torch/utils/checkpoint.py',
+          line: 345,
+          original_line: 345,
+          created_at: '2025-01-07T10:00:00Z',
+          body: 'Is the main point of this to filter out the default values?',
+          user: { login: 'soulitzer' },
         },
       ],
     },
@@ -244,6 +265,14 @@ test.describe('Replies queue classification @classification', () => {
                 changedFiles: 1,
                 author: { login: 'alice' },
               },
+              pr15: {
+                reviewDecision: null,
+                authorAssociation: 'OWNER',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                author: { login: 'testuser' },
+              },
             },
           },
         }),
@@ -259,25 +288,26 @@ test.describe('Replies queue classification @classification', () => {
     await page.reload();
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
-    await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 6 notifications');
     await page.locator('#view-pr-notifications').click();
   });
 
   test('shows directed PR mentions and thread replies in Replies', async ({ page }) => {
-    await expect(page.locator('#view-issues .count')).toHaveText('3');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('2');
+    await expect(page.locator('#view-issues .count')).toHaveText('2');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('4');
     await expect(page.locator('#view-others-prs .count')).toHaveText('0');
-    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('.notification-item')).toHaveCount(4);
 
-    await expect(page.locator('[data-id="own-pr"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="mentioned-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="reply-pr"]')).toBeVisible();
+    await expect(page.locator('[data-id="own-pr-review-comment"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
     await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toHaveCount(0);
 
     await page.locator('#view-issues').click();
-    await expect(page.locator('.notification-item')).toHaveCount(3);
-    await expect(page.locator('[data-id="own-pr"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('[data-id="own-pr"]')).toHaveCount(0);
     await expect(page.locator('[data-id="others-pr"]')).toBeVisible();
     await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toBeVisible();
   });
