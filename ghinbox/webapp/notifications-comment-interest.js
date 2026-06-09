@@ -547,6 +547,7 @@
         isRevertRelated,
         isUninterestingComment,
         mentionsCurrentUser,
+        normalizeLogin,
         sortComments,
     };
 });

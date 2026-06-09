@@ -62,18 +62,7 @@
         return getLabelNames(notification, cached).includes('mergedog');
     }
 
-    function normalizeLogin(login) {
-        return String(login || '').trim().toLowerCase();
-    }
-
-    function getCommentTimestampMs(comment) {
-        const timestamp = comment?.updated_at || comment?.created_at || null;
-        if (!timestamp) {
-            return null;
-        }
-        const timestampMs = Date.parse(timestamp);
-        return Number.isNaN(timestampMs) ? null : timestampMs;
-    }
+    const { getCommentTimestampMs, normalizeLogin } = commentInterest;
 
     function isPyTorchMergeBotComment(comment) {
         const login = normalizeLogin(comment?.user?.login);

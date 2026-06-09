@@ -10,6 +10,9 @@
     const viewState = (typeof globalThis !== 'undefined' && globalThis.GhinboxViewState)
         ? globalThis.GhinboxViewState
         : (typeof require === 'function' ? require('./notifications-view-state.js') : null);
+    const reviewRequests = (typeof globalThis !== 'undefined' && globalThis.GhinboxReviewRequests)
+        ? globalThis.GhinboxReviewRequests
+        : (typeof require === 'function' ? require('./notifications-review-requests.js') : null);
     const VALID_ORDERS = viewState?.VALID_ORDERS || new Set(['recent', 'size']);
     const AI_AUTHOR_LOGIN = 'jansel';
 
@@ -53,8 +56,7 @@
         }
 
         function isSyntheticResponsibilityNotification(notification) {
-            return notification?.responsibility_source === 'review-requested' &&
-                String(notification?.id || '').startsWith('review-request:');
+            return reviewRequests.isSyntheticReviewRequest(notification);
         }
 
         function isNotificationOriginPullRequest(notification) {

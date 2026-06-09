@@ -21,9 +21,13 @@
             String(notification?.id || '').startsWith('review-request:');
     }
 
-    root.GhinboxReviewRequests = {
+    const api = {
         buildReviewRequestSearchUrl,
         buildReviewRequestSearchUrlForSource,
         isSyntheticReviewRequest,
     };
+    if (typeof module === 'object' && module.exports) {
+        module.exports = api;
+    }
+    root.GhinboxReviewRequests = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

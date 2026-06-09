@@ -122,9 +122,7 @@
         return `${count} ${count === 1 ? singular : plural}`;
     }
 
-    function normalizeLogin(login) {
-        return login ? String(login).toLowerCase() : '';
-    }
+    const { normalizeLogin } = commentInterest;
 
     function getLatestOwnCommentIndex(comments, currentUserLogin) {
         const login = normalizeLogin(currentUserLogin);
