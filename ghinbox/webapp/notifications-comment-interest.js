@@ -63,6 +63,53 @@
         return Number.isNaN(parsed) ? 0 : parsed;
     }
 
+    function isClosingSubjectState(state) {
+        const normalized = String(state || '').toLowerCase();
+        return normalized === 'closed' || normalized === 'merged';
+    }
+
+    function isClosedOrMergedNotification(notification) {
+        return isClosingSubjectState(notification?.subject?.state);
+    }
+
+    function getStateEventTimestampMs(event) {
+        const timestamp = event?.created_at || event?.updated_at;
+        if (!timestamp) {
+            return null;
+        }
+        const parsed = Date.parse(timestamp);
+        return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    function isClosingStateEvent(event) {
+        const eventName = String(event?.event || event?.type || '').toLowerCase();
+        if (eventName === 'closed' || eventName === 'merged') {
+            return true;
+        }
+        if (eventName === 'state_change' || eventName === 'state-change') {
+            return isClosingSubjectState(event?.state || event?.to_state || event?.to);
+        }
+        return false;
+    }
+
+    function getLatestCloseEventTimestampMs(stateEvents) {
+        if (!Array.isArray(stateEvents) || stateEvents.length === 0) {
+            return null;
+        }
+        let latest = null;
+        stateEvents.forEach((event) => {
+            if (!isClosingStateEvent(event)) {
+                return;
+            }
+            const timestampMs = getStateEventTimestampMs(event);
+            if (timestampMs === null) {
+                return;
+            }
+            latest = latest === null ? timestampMs : Math.max(latest, timestampMs);
+        });
+        return latest;
+    }
+
     function sortComments(comments) {
         if (!Array.isArray(comments)) {
             return [];
@@ -241,8 +288,21 @@
             const timestamp = getCommentTimestampMs(comment);
             return Number.isNaN(lastReadAt) || timestamp > lastReadAt;
         };
+        const latestCloseEventMs = isClosedOrMergedNotification(notification)
+            ? getLatestCloseEventTimestampMs(options.stateEvents || options.events || [])
+            : null;
+        if (isClosedOrMergedNotification(notification) && latestCloseEventMs === null) {
+            return false;
+        }
+        const isAfterCloseEvent = (comment) => {
+            if (latestCloseEventMs === null) {
+                return true;
+            }
+            return getCommentTimestampMs(comment) > latestCloseEventMs;
+        };
         const isInterestingUnreadComment = (comment) => isUnread(comment) &&
-            !isUninterestingComment(comment);
+            !isUninterestingComment(comment) &&
+            isAfterCloseEvent(comment);
 
         if (
             getDirectReviewThreadReplies(comments, currentUser)
@@ -467,12 +527,15 @@
         filterRelevantCommentsForNotification,
         getCommentTimestampMs,
         getDirectReviewThreadReplies,
+        getLatestCloseEventTimestampMs,
         getParticipationThreadKey,
         getReviewThreadKey,
         getUninterestingReason,
         hasActionableCurrentUserMention,
         isBotAuthor,
         isBotInteractionComment,
+        isClosedOrMergedNotification,
+        isClosingStateEvent,
         isCurrentUserCcLine,
         isMainThreadComment,
         isNotificationDirectedAtCurrentUser,

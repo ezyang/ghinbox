@@ -126,6 +126,88 @@ test('top-level PR comments after the user are not directed replies', () => {
   );
 });
 
+test('closed notifications are directed only by comments after the close event', () => {
+  const stateEvents = [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }];
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('Issue', 'comment', {
+      subject: { type: 'Issue', state: 'closed', title: 'closed issue' },
+    }), {
+      comments: [
+        comment(1, 'testuser', 'I am looking.'),
+        comment(6, 'alice', 'This was handled before close.'),
+      ],
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents,
+    }),
+    false
+  );
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('Issue', 'comment', {
+      subject: { type: 'Issue', state: 'closed', title: 'closed issue' },
+    }), {
+      comments: [
+        comment(1, 'testuser', 'I am looking.'),
+        comment(8, 'alice', 'This still reproduces.'),
+      ],
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents,
+    }),
+    true
+  );
+});
+
+test('closed PR review replies require close-event evidence', () => {
+  const closedPr = notification('PullRequest', 'comment', {
+    subject: { type: 'PullRequest', state: 'closed', title: 'closed pr' },
+  });
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(closedPr, {
+      comments: [
+        comment(1, 'testuser', 'Could you check this?', { isReviewComment: true }),
+        comment(6, 'alice', 'Handled before close.', {
+          isReviewComment: true,
+          in_reply_to_id: 1,
+        }),
+      ],
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents: [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }],
+    }),
+    false
+  );
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(closedPr, {
+      comments: [
+        comment(1, 'testuser', 'Could you check this?', { isReviewComment: true }),
+        comment(8, 'alice', 'There is a post-close regression.', {
+          isReviewComment: true,
+          in_reply_to_id: 1,
+        }),
+      ],
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents: [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }],
+    }),
+    true
+  );
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(closedPr, {
+      comments: [
+        comment(1, 'testuser', 'Could you check this?', { isReviewComment: true }),
+        comment(8, 'alice', 'No close event cached.', {
+          isReviewComment: true,
+          in_reply_to_id: 1,
+        }),
+      ],
+      currentUserLogin: 'testuser',
+      lastReadAt: '2025-01-01T00:05:00Z',
+    }),
+    false
+  );
+});
+
 test('muted participation replies still allow explicit mentions', () => {
   const genericReply = [
     comment(1, 'testuser', 'I am looking.'),

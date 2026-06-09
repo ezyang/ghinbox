@@ -88,9 +88,12 @@ async def _fetch_bulk_comment_item(
     is_pr = bool(item.get("is_pr"))
     anchor = item.get("anchor")
     last_read_at = item.get("last_read_at")
-    use_all_comments = bool(anchor or not last_read_at)
+    subject_state = str(item.get("subject_state") or "").lower()
+    fetch_state_events = subject_state in {"closed", "merged"}
+    use_all_comments = bool(anchor or not last_read_at or fetch_state_events)
     params = {} if use_all_comments else {"since": str(last_read_at)}
     comments: list[object] = []
+    state_events: list[object] = []
 
     if use_all_comments:
         status, issue = await _github_get_json(
@@ -102,6 +105,18 @@ async def _fetch_bulk_comment_item(
             issue_comment = _issue_to_comment(issue)
             if issue_comment is not None:
                 comments.append(issue_comment)
+            if (
+                fetch_state_events
+                and isinstance(issue, dict)
+                and issue.get("closed_at")
+            ):
+                state_events.append(
+                    {
+                        "id": f"issue-{number}-closed-at",
+                        "event": "merged" if subject_state == "merged" else "closed",
+                        "created_at": issue.get("closed_at"),
+                    }
+                )
 
     status, issue_comments = await _github_get_json(
         client,
@@ -129,13 +144,32 @@ async def _fetch_bulk_comment_item(
                     comment = {**comment, "isReviewComment": True}
                 comments.append(comment)
 
+    if fetch_state_events:
+        status, issue_events = await _github_get_json(
+            client,
+            token,
+            f"repos/{owner}/{repo}/issues/{number}/events",
+            {"per_page": "100"},
+        )
+        if status < 400 and isinstance(issue_events, list):
+            state_events.extend(
+                event
+                for event in issue_events
+                if isinstance(event, dict)
+                and str(event.get("event") or "").lower() in {"closed", "merged"}
+            )
+
     comments.sort(
         key=lambda comment: (
             comment.get("created_at") if isinstance(comment, dict) else None
         )
         or ""
     )
-    return key, {"comments": comments, "allComments": use_all_comments}
+    return key, {
+        "comments": comments,
+        "stateEvents": state_events,
+        "allComments": use_all_comments,
+    }
 
 
 @router.post(

@@ -343,6 +343,39 @@ async function fetchAllIssueComments(repo, issueNumber, options = {}) {
     return comments;
 }
 
+async function fetchIssueStateEvents(repo, issueNumber) {
+    const stateEvents = [];
+    const issueUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}`;
+    try {
+        const issue = await fetchJson(issueUrl);
+        if (issue?.closed_at) {
+            stateEvents.push({
+                id: `issue-${issueNumber}-closed-at`,
+                event: 'closed',
+                created_at: issue.closed_at,
+            });
+        }
+    } catch (error) {
+        console.error('Failed to fetch issue close timestamp:', error);
+    }
+    const eventUrl = `/github/rest/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/issues/${issueNumber}/events`;
+    try {
+        const eventPayload = await fetchJson(eventUrl);
+        if (Array.isArray(eventPayload)) {
+            stateEvents.push(...eventPayload.filter((event) =>
+                COMMENT_INTEREST.isClosingStateEvent(event)
+            ));
+        }
+    } catch (error) {
+        console.error('Failed to fetch issue state events:', error);
+    }
+    return stateEvents;
+}
+
+function shouldFetchStateEvents(notification) {
+    return COMMENT_INTEREST.isClosedOrMergedNotification(notification);
+}
+
 function buildBulkCommentRequestItem(notification) {
     const issueNumber = getIssueNumber(notification);
     if (!issueNumber) {
@@ -359,6 +392,7 @@ function buildBulkCommentRequestItem(notification) {
         repo: repo.repo,
         number: issueNumber,
         is_pr: notification.subject?.type === 'PullRequest',
+        subject_state: notification.subject?.state || null,
         anchor,
         last_read_at: lastReadAt,
     };
@@ -662,13 +696,16 @@ async function prefetchNotificationComments(notification) {
 
         const isPR = notification.subject?.type === 'PullRequest';
         let comments = [];
+        let stateEvents = [];
         let allComments = false;
         const { anchor, lastReadAt } = COMMENT_CACHE_POLICY.getCommentFetchWindow(notification);
+        const fetchStateEvents = shouldFetchStateEvents(notification);
 
         // If we have an anchor, always fetch all and filter client-side
+        // Closed notifications need all comments so replies can be compared with the close event.
         // If we have last_read_at (but no anchor), use it as a server-side filter
         // If neither, fetch all comments
-        if (anchor) {
+        if (anchor || fetchStateEvents) {
             // Anchor-based: fetch all, filter client-side
             allComments = true;
             comments = await fetchAllIssueComments(repo, issueNumber, { isPR });
@@ -705,12 +742,20 @@ async function prefetchNotificationComments(notification) {
             allComments = true;
             comments = await fetchAllIssueComments(repo, issueNumber, { isPR });
         }
+        if (fetchStateEvents) {
+            try {
+                stateEvents = await fetchIssueStateEvents(repo, issueNumber);
+            } catch (error) {
+                console.error('Failed to fetch issue state events:', error);
+            }
+        }
 
         state.commentCache.threads[threadId] = COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(
             notification,
             cached,
             {
                 comments,
+                stateEvents,
                 allComments,
             }
         );
@@ -777,6 +822,7 @@ async function prefetchNotificationCommentsBulk(notifications) {
             state.commentCache.threads[threadId] =
                 COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(notification, cached, {
                     comments: Array.isArray(result.comments) ? result.comments : [],
+                    stateEvents: Array.isArray(result.stateEvents) ? result.stateEvents : [],
                     allComments: Boolean(result.allComments),
                 });
         });
@@ -944,10 +990,12 @@ function isNotificationForCurrentUser(notification) {
 
 function isNotificationDirectedAtCurrentUser(notification) {
     const comments = getSortedNotificationComments(notification);
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
         comments,
         currentUserLogin: state.currentUserLogin,
-        lastReadAt: state.commentCache.threads[getNotificationKey(notification)]?.lastReadAt,
+        lastReadAt: cached?.lastReadAt,
+        stateEvents: cached?.stateEvents,
         suppressParticipationReplies: notification?.ui?.replies_muted,
     });
 }

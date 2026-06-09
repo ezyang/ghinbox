@@ -162,6 +162,7 @@ def _notification_to_bulk_comment_item(
         "repo": repo,
         "number": number,
         "is_pr": subject.get("type") == "PullRequest",
+        "subject_state": subject.get("state"),
         "anchor": anchor,
         "last_read_at": last_read_at,
     }
@@ -180,6 +181,9 @@ def _build_comment_cache_entry(
         "unread": notification.get("unread"),
         "comments": result.get("comments")
         if isinstance(result.get("comments"), list)
+        else [],
+        "stateEvents": result.get("stateEvents")
+        if isinstance(result.get("stateEvents"), list)
         else [],
         "allComments": bool(result.get("allComments")),
         "fetchedAt": fetched_at,

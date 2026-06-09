@@ -78,6 +78,12 @@
             changedFiles: cached?.changedFiles,
             diffstatFetchedAt: cached?.diffstatFetchedAt,
         };
+        if (Array.isArray(cached?.stateEvents)) {
+            preserved.stateEvents = cached.stateEvents;
+        }
+        if (cached?.stateEventsFetchedAt) {
+            preserved.stateEventsFetchedAt = cached.stateEventsFetchedAt;
+        }
         if (cached?.authorLogin !== null && cached?.authorLogin !== undefined) {
             preserved.authorLogin = cached.authorLogin;
             preserved.authorLoginFetchedAt = cached.authorLoginFetchedAt;
@@ -95,15 +101,25 @@
 
     function buildCommentSuccessCacheEntry(notification, cached, options = {}) {
         const { anchor, lastReadAt } = getCommentFetchWindow(notification);
+        const stateEvents = Array.isArray(options.stateEvents)
+            ? options.stateEvents
+            : Array.isArray(cached?.stateEvents)
+                ? cached.stateEvents
+                : [];
         return {
             notificationUpdatedAt: notification?.updated_at,
             anchor,
             lastReadAt,
             unread: notification?.unread,
+            ...getPreservedCommentMetadata(cached),
             comments: Array.isArray(options.comments) ? options.comments : [],
+            stateEvents,
+            stateEventsFetchedAt: options.stateEventsFetchedAt ||
+                options.fetchedAt ||
+                cached?.stateEventsFetchedAt ||
+                new Date().toISOString(),
             allComments: Boolean(options.allComments),
             fetchedAt: options.fetchedAt || new Date().toISOString(),
-            ...getPreservedCommentMetadata(cached),
         };
     }
 

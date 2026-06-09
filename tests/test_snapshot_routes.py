@@ -243,6 +243,7 @@ def test_snapshot_comment_cache_uses_bulk_comment_fetch(
             "repo": "repo",
             "number": 1,
             "is_pr": False,
+            "subject_state": None,
             "anchor": None,
             "last_read_at": "2025-01-05T11:00:00Z",
         },
@@ -252,6 +253,7 @@ def test_snapshot_comment_cache_uses_bulk_comment_fetch(
             "repo": "repo",
             "number": 2,
             "is_pr": True,
+            "subject_state": None,
             "anchor": "discussion_r1",
             "last_read_at": None,
         },
@@ -259,6 +261,7 @@ def test_snapshot_comment_cache_uses_bulk_comment_fetch(
     assert cache is not None
     assert cache["version"] == 1
     assert cache["threads"]["issue-1"]["comments"] == [{"id": 1, "body": "comment 1"}]
+    assert cache["threads"]["issue-1"]["stateEvents"] == []
     assert cache["threads"]["issue-1"]["lastReadAt"] == "2025-01-05T11:00:00Z"
     assert cache["threads"]["issue-1"]["allComments"] is False
     assert cache["threads"]["pr-2"]["anchor"] == "discussion_r1"
