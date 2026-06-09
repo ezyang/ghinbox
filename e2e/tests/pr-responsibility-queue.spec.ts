@@ -1,55 +1,32 @@
 import { test, expect } from '@playwright/test';
 import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
+import {
+  captureHtmlActions,
+  makeNotification,
+  makeNotificationsResponse,
+  mockDefaultApiRoutes,
+  mockGraphqlReviewMetadata,
+  mockNotificationsResponse,
+  mockReviewRequests,
+  subfilterTab,
+  TEST_ACTION_TOKENS,
+  viewTab,
+} from './app-fixture';
 
-const emptyNotifications = {
-  source_url: 'https://github.com/notifications?query=repo:test/repo',
-  generated_at: '2025-01-05T00:00:00Z',
-  repository: {
-    owner: 'test',
-    name: 'repo',
-    full_name: 'test/repo',
-  },
-  notifications: [],
-  pagination: {
-    before_cursor: null,
-    after_cursor: null,
-    has_previous: false,
-    has_next: false,
-  },
-};
+const emptyNotifications = makeNotificationsResponse([]);
 
-const notificationBackedReviewRequest = {
-  ...emptyNotifications,
-  notifications: [
-    {
-      id: 'notif-review-10',
-      unread: true,
-      reason: 'review_requested',
-      updated_at: '2025-01-05T12:30:00Z',
-      subject: {
-        title: 'Needs my review',
-        url: 'https://github.com/test/repo/pull/10',
-        type: 'PullRequest',
-        number: 10,
-        state: 'open',
-        state_reason: null,
-      },
-      actors: [
-        { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
-      ],
-      ui: {
-        saved: false,
-        done: false,
-        action_tokens: {
-          archive: 'test-csrf-token-12345',
-          unarchive: 'test-csrf-token-12345',
-          subscribe: 'test-csrf-token-12345',
-          unsubscribe: 'test-csrf-token-12345',
-        },
-      },
-    },
-  ],
-};
+const notificationBackedReviewRequest = makeNotificationsResponse([
+  makeNotification({
+    id: 'notif-review-10',
+    reason: 'review_requested',
+    updated_at: '2025-01-05T12:30:00Z',
+    subject: { title: 'Needs my review', number: 10 },
+    actors: [
+      { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
+    ],
+    ui: { action_tokens: TEST_ACTION_TOKENS },
+  }),
+]);
 
 function reviewRequestNotification(
   number: number,
@@ -58,7 +35,7 @@ function reviewRequestNotification(
   avatarUrl: string,
   updatedAt: string
 ) {
-  return {
+  return makeNotification({
     id: `review-request:test/repo#${number}`,
     unread: false,
     reason: 'review_requested',
@@ -66,155 +43,69 @@ function reviewRequestNotification(
     updated_at: updatedAt,
     last_read_at: null,
     repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
-    subject: {
-      title,
-      url: `https://github.com/test/repo/pull/${number}`,
-      type: 'PullRequest',
-      number,
-      state: 'open',
-      state_reason: null,
-    },
+    subject: { title, number },
     actors: [{ login, avatar_url: avatarUrl }],
-    ui: { saved: false, done: false, action_tokens: {} },
-  };
+    ui: { action_tokens: {} },
+  });
 }
 
-const reviewRequestsResponse = {
-  notifications: [
-    reviewRequestNotification(10, 'Needs my review', 'alice', 'https://avatars.githubusercontent.com/u/1?v=4', '2025-01-05T12:00:00Z'),
-    reviewRequestNotification(11, 'Already approved', 'bob', 'https://avatars.githubusercontent.com/u/2?v=4', '2025-01-05T11:00:00Z'),
-    reviewRequestNotification(12, 'Changes requested', 'carol', 'https://avatars.githubusercontent.com/u/3?v=4', '2025-01-05T10:00:00Z'),
-    reviewRequestNotification(13, 'Approved but merge queued', 'dana', 'https://avatars.githubusercontent.com/u/4?v=4', '2025-01-05T09:00:00Z'),
-  ],
+const reviewRequests = [
+  reviewRequestNotification(10, 'Needs my review', 'alice', 'https://avatars.githubusercontent.com/u/1?v=4', '2025-01-05T12:00:00Z'),
+  reviewRequestNotification(11, 'Already approved', 'bob', 'https://avatars.githubusercontent.com/u/2?v=4', '2025-01-05T11:00:00Z'),
+  reviewRequestNotification(12, 'Changes requested', 'carol', 'https://avatars.githubusercontent.com/u/3?v=4', '2025-01-05T10:00:00Z'),
+  reviewRequestNotification(13, 'Approved but merge queued', 'dana', 'https://avatars.githubusercontent.com/u/4?v=4', '2025-01-05T09:00:00Z'),
+];
+
+const reviewRequestPrFields = {
+  pr10: {
+    reviewDecision: null,
+    authorAssociation: 'CONTRIBUTOR',
+    additions: 5,
+    deletions: 1,
+    changedFiles: 1,
+    author: { login: 'alice' },
+  },
+  pr11: {
+    reviewDecision: 'APPROVED',
+    authorAssociation: 'CONTRIBUTOR',
+    additions: 10,
+    deletions: 2,
+    changedFiles: 1,
+    author: { login: 'bob' },
+  },
+  pr12: {
+    reviewDecision: 'CHANGES_REQUESTED',
+    authorAssociation: 'CONTRIBUTOR',
+    additions: 15,
+    deletions: 3,
+    changedFiles: 2,
+    author: { login: 'carol' },
+    labels: { nodes: [] },
+  },
+  pr13: {
+    reviewDecision: 'APPROVED',
+    authorAssociation: 'CONTRIBUTOR',
+    additions: 20,
+    deletions: 4,
+    changedFiles: 2,
+    author: { login: 'dana' },
+    labels: { nodes: [{ name: 'mergedog' }] },
+  },
 };
 
 test.describe('PR responsibility queue @classification @mutation', () => {
-  let notificationsPayload = emptyNotifications;
-
   test.beforeEach(async ({ page }) => {
-    notificationsPayload = emptyNotifications;
-
     await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsPayload),
-      });
-    });
-
-    await page.route('**/github/rest/review-requests**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(reviewRequestsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.route('**/github/rest/repos/test/repo/collaborators/*/permission', (route) => {
+    await mockDefaultApiRoutes(page, { notifications: emptyNotifications });
+    await mockReviewRequests(page, reviewRequests);
+    await mockGraphqlReviewMetadata(page, reviewRequestPrFields);
+    await page.route('**/github/rest/repos/test/repo/collaborators/*/permission', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({ permission: 'read', role_name: 'read' }),
-      });
-    });
-
-    await page.route('**/github/graphql', (route) => {
-      const payload = route.request().postDataJSON();
-      if (payload?.query?.includes('pullRequest')) {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              rateLimit: {
-                limit: 5000,
-                remaining: 4999,
-                resetAt: '2025-01-05T00:00:00Z',
-              },
-              repository: {
-                pr10: {
-                  reviewDecision: null,
-                  authorAssociation: 'CONTRIBUTOR',
-                  additions: 5,
-                  deletions: 1,
-                  changedFiles: 1,
-                  author: { login: 'alice' },
-                },
-                pr11: {
-                  reviewDecision: 'APPROVED',
-                  authorAssociation: 'CONTRIBUTOR',
-                  additions: 10,
-                  deletions: 2,
-                  changedFiles: 1,
-                  author: { login: 'bob' },
-                },
-                pr12: {
-                  reviewDecision: 'CHANGES_REQUESTED',
-                  authorAssociation: 'CONTRIBUTOR',
-                  additions: 15,
-                  deletions: 3,
-                  changedFiles: 2,
-                  author: { login: 'carol' },
-                  labels: { nodes: [] },
-                },
-                pr13: {
-                  reviewDecision: 'APPROVED',
-                  authorAssociation: 'CONTRIBUTOR',
-                  additions: 20,
-                  deletions: 4,
-                  changedFiles: 2,
-                  author: { login: 'dana' },
-                  labels: { nodes: [{ name: 'mergedog' }] },
-                },
-              },
-            },
-          }),
-        });
-        return;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: {
-              limit: 5000,
-              remaining: 4999,
-              resetAt: '2025-01-05T00:00:00Z',
-            },
-          },
-        }),
-      });
-    });
+      })
+    );
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
@@ -223,17 +114,8 @@ test.describe('PR responsibility queue @classification @mutation', () => {
   test('keeps notification-backed review requests clearable in Reviews', async ({
     page,
   }) => {
-    notificationsPayload = notificationBackedReviewRequest;
-    let actionBody: { action?: string; notification_ids?: string[] } | null = null;
-
-    await page.route('**/notifications/html/action', (route) => {
-      actionBody = route.request().postDataJSON();
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    await mockNotificationsResponse(page, notificationBackedReviewRequest);
+    const actions = await captureHtmlActions(page);
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
@@ -242,16 +124,15 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
     await expect(page.locator('#view-others-prs .count')).toHaveText('5');
 
-    await page.locator('#view-others-prs').click();
+    await viewTab(page, 'others-prs').click();
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
     await expect(page.locator('[data-id="notif-review-10"]')).toBeVisible();
 
     await expect(page.locator('#mark-done-btn')).toBeVisible();
     await page.locator('#mark-done-btn').click();
     await expect(page.locator('[data-id="notif-review-10"]')).not.toBeAttached();
-    await expect.poll(() => actionBody?.action).toBe('archive');
-    expect(actionBody?.action).toBe('archive');
-    expect(actionBody?.notification_ids).toEqual(['notif-review-10']);
+    await expect.poll(() => actions[0]?.action).toBe('archive');
+    expect(actions[0]?.notification_ids).toEqual(['notif-review-10']);
   });
 
   test('removes approved review-requested PRs from needs-review', async ({
@@ -261,26 +142,26 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
 
-    await page.locator('#view-others-prs').click();
-    const stateFilters = page.locator(
-      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-    );
-    await expect(stateFilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('2');
-    await expect(stateFilters.locator('[data-subfilter="approved"] .count')).toHaveText('2');
-    await expect(stateFilters.locator('[data-subfilter="done"] .count')).toHaveText('0');
+    await viewTab(page, 'others-prs').click();
+    const needsReview = subfilterTab(page, 'others-prs', 'needs-review', 'state');
+    const approved = subfilterTab(page, 'others-prs', 'approved', 'state');
+    const done = subfilterTab(page, 'others-prs', 'done', 'state');
+    await expect(needsReview.locator('.count')).toHaveText('2');
+    await expect(approved.locator('.count')).toHaveText('2');
+    await expect(done.locator('.count')).toHaveText('0');
 
-    await stateFilters.locator('[data-subfilter="needs-review"]').click();
+    await needsReview.click();
     await expect(page.locator('.notification-item')).toHaveCount(2);
     await expect(page.locator('[data-id="review-request:test/repo#10"]')).toBeVisible();
     await expect(page.locator('[data-id="review-request:test/repo#11"]')).not.toBeAttached();
     await expect(page.locator('[data-id="review-request:test/repo#12"]')).toBeVisible();
 
-    await stateFilters.locator('[data-subfilter="approved"]').click();
+    await approved.click();
     await expect(page.locator('.notification-item')).toHaveCount(2);
     await expect(page.locator('[data-id="review-request:test/repo#11"]')).toBeVisible();
     await expect(page.locator('[data-id="review-request:test/repo#13"]')).toBeVisible();
 
-    await stateFilters.locator('[data-subfilter="done"]').click();
+    await done.click();
     await expect(page.locator('.notification-item')).toHaveCount(0);
     await expect(page.locator('[data-id="review-request:test/repo#13"]')).not.toBeAttached();
   });
@@ -290,7 +171,6 @@ test.describe('PR responsibility queue @classification @mutation', () => {
   }) => {
     const issueCommentRequests: string[] = [];
 
-    await page.unroute('**/github/rest/repos/test/repo/issues/*/comments*');
     await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
       issueCommentRequests.push(route.request().url());
       route.fulfill({
@@ -334,11 +214,8 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
 
-    await page.locator('#view-others-prs').click();
-    const stateFilters = page.locator(
-      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-    );
-    await stateFilters.locator('[data-subfilter="needs-review"]').click();
+    await viewTab(page, 'others-prs').click();
+    await subfilterTab(page, 'others-prs', 'needs-review', 'state').click();
     const item = page.locator('[data-id="review-request:test/repo#10"]');
     await expect(item).toBeVisible();
 

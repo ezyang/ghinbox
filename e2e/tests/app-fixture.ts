@@ -4,6 +4,7 @@ import {
   addAuthCacheInitScript,
   APP_STORAGE_KEYS,
   clearAppStorage,
+  readNotificationsCache,
   seedAuthCache,
   seedCommentCache,
   seedNotificationsCache,
@@ -15,6 +16,85 @@ type RouteHandler = Parameters<Page['route']>[1];
 
 const DEFAULT_REPO = 'test/repo';
 const DEFAULT_LOGIN = 'testuser';
+
+export const TEST_ACTION_TOKENS = {
+  archive: 'test-csrf-token',
+  unarchive: 'test-csrf-token',
+  subscribe: 'test-csrf-token',
+  unsubscribe: 'test-csrf-token',
+} as const;
+
+type NotificationOverrides = {
+  id: string;
+  subject?: Record<string, unknown>;
+  ui?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export function makeNotification({ id, subject = {}, ui = {}, ...rest }: NotificationOverrides) {
+  const number = (subject.number as number) ?? 1;
+  const type = (subject.type as string) ?? 'PullRequest';
+  const urlPath = type === 'Issue' ? 'issues' : 'pull';
+  return {
+    id,
+    unread: true,
+    reason: 'subscribed',
+    updated_at: '2025-01-02T00:00:00Z',
+    actors: [],
+    ...rest,
+    subject: {
+      title: `${type} #${number}`,
+      url: `https://github.com/${DEFAULT_REPO}/${urlPath}/${number}`,
+      type,
+      number,
+      state: 'open',
+      state_reason: null,
+      ...subject,
+    },
+    ui: { saved: false, done: false, ...ui },
+  };
+}
+
+export function makeNotificationsResponse(
+  notifications: unknown[],
+  overrides: Record<string, unknown> = {}
+) {
+  const [owner, name] = DEFAULT_REPO.split('/');
+  return {
+    source_url: `https://github.com/notifications?query=repo:${DEFAULT_REPO}`,
+    generated_at: '2025-01-02T00:00:00Z',
+    repository: { owner, name, full_name: DEFAULT_REPO },
+    notifications,
+    pagination: {
+      before_cursor: null,
+      after_cursor: null,
+      has_previous: false,
+      has_next: false,
+    },
+    ...overrides,
+  };
+}
+
+export function makeCommentThread(overrides: Record<string, unknown> = {}) {
+  const thread: Record<string, unknown> = {
+    notificationUpdatedAt: '2025-01-02T00:00:00Z',
+    lastReadAt: '2025-01-01T00:00:00Z',
+    unread: true,
+    allComments: false,
+    fetchedAt: new Date().toISOString(),
+    comments: [],
+    reviews: [],
+    ...overrides,
+  };
+  if (thread.reviewDecision && !thread.reviewDecisionFetchedAt) {
+    thread.reviewDecisionFetchedAt = new Date().toISOString();
+  }
+  return thread;
+}
+
+export function makeCommentCache(threads: Record<string, unknown>) {
+  return { version: 1, threads };
+}
 
 function fulfillJson(route: Route, body: JsonBody, status = 200) {
   return route.fulfill({
@@ -100,6 +180,90 @@ export async function mockHtmlAction(
   await page.route('**/notifications/html/action', (route) =>
     fulfillJson(route, body, options.status ?? 200)
   );
+}
+
+export type CapturedHtmlAction = { action?: string; notification_ids?: string[] };
+
+export async function captureHtmlActions(page: Page) {
+  const actions: CapturedHtmlAction[] = [];
+  await page.route('**/notifications/html/action', (route) => {
+    actions.push(route.request().postDataJSON());
+    return fulfillJson(route, { status: 'ok' });
+  });
+  return actions;
+}
+
+// Routes registered after mockDefaultApiRoutes win (Playwright matches routes
+// newest-first), so specs override only the endpoints whose payload differs.
+export async function mockNotificationsResponse(page: Page, notifications: JsonBody) {
+  await page.route('**/notifications/html/repo/**', (route) =>
+    fulfillJson(route, notifications)
+  );
+}
+
+export async function mockReviewRequests(page: Page, notifications: unknown[]) {
+  await page.route('**/github/rest/review-requests**', (route) =>
+    fulfillJson(route, { notifications })
+  );
+}
+
+// Mocks the GraphQL review-metadata batch query. `prFields` is keyed by the
+// alias the client generates per PR number (pr10, pr11, ...).
+export async function mockGraphqlReviewMetadata(
+  page: Page,
+  prFields: Record<string, Record<string, unknown>>
+) {
+  await page.route('**/github/graphql', (route) => {
+    const payload = route.request().postDataJSON();
+    const rateLimit = { limit: 5000, remaining: 4999, resetAt: '2025-01-05T00:00:00Z' };
+    if (payload?.query?.includes('pullRequest') || payload?.query?.includes('repository')) {
+      return fulfillJson(route, { data: { rateLimit, repository: prFields } });
+    }
+    return fulfillJson(route, { data: { rateLimit } });
+  });
+}
+
+// Sync via the UI and wait until the cached notification count settles.
+// Use when synced items render across several views, so a single
+// .notification-item count can't confirm completion.
+export async function syncNotificationsUntilCached(page: Page, options: {
+  expectedCount: number;
+  repo?: string;
+}) {
+  await page.locator('#repo-input').fill(options.repo ?? DEFAULT_REPO);
+  await page.locator('#sync-btn').click();
+  await expect
+    .poll(async () => {
+      const cached = await readNotificationsCache(page);
+      return Array.isArray(cached) ? cached.length : 0;
+    })
+    .toBe(options.expectedCount);
+}
+
+// Open the app with default mocks, clear storage, optionally seed the comment
+// cache, then sync. The standard setup for classification/triage specs.
+export async function openNotificationsWithCommentCache(page: Page, options: {
+  commentCache?: JsonBody;
+  expectedCount: number;
+  graphqlPrFields?: Record<string, Record<string, unknown>>;
+  login?: string;
+  notifications?: JsonBody;
+  repo?: string;
+}) {
+  await mockDefaultApiRoutes(page, options);
+  if (options.graphqlPrFields) {
+    await mockGraphqlReviewMetadata(page, options.graphqlPrFields);
+  }
+  await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
+  await clearAppStorage(page);
+  if (options.commentCache !== undefined) {
+    await seedCommentCache(page, options.commentCache);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+  }
+  await syncNotificationsUntilCached(page, {
+    expectedCount: options.expectedCount,
+    repo: options.repo,
+  });
 }
 
 export async function replaceHtmlAction(page: Page, handler: RouteHandler) {

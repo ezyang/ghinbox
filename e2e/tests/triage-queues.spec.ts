@@ -1,250 +1,89 @@
 import { test, expect } from '@playwright/test';
 import {
-  clearAppStorage,
-  readNotificationsCache,
-  seedCommentCache,
-} from './storage-utils';
+  captureHtmlActions,
+  makeCommentCache,
+  makeCommentThread,
+  makeNotification,
+  makeNotificationsResponse,
+  mockGraphqlReviewMetadata,
+  openNotificationsWithCommentCache,
+  subfilterTab,
+  TEST_ACTION_TOKENS,
+  viewTab,
+} from './app-fixture';
 
-const THREAD_SYNC_PAYLOAD = {
-  updated_at: '2000-01-01T00:00:00Z',
-  last_read_at: null,
-  unread: true,
+const needsReviewPr = makeNotification({
+  id: 'thread-pr-1',
+  reason: 'review_requested',
+  last_read_at: '2025-01-01T00:00:00Z',
+  subject: { title: 'Needs review PR', number: 1 },
+  ui: { action_tokens: TEST_ACTION_TOKENS },
+});
+
+const approvedPr = makeNotification({
+  id: 'thread-pr-2',
+  reason: 'review_requested',
+  updated_at: '2025-01-03T00:00:00Z',
+  last_read_at: '2025-01-01T00:00:00Z',
+  subject: { title: 'Approved PR', number: 2 },
+  ui: { action_tokens: TEST_ACTION_TOKENS },
+});
+
+const approvedReview = {
+  id: 101,
+  state: 'APPROVED',
+  submitted_at: '2025-01-02T12:00:00Z',
+  user: { login: 'reviewer1' },
 };
 
-const notificationsResponse = {
-  source_url: 'https://github.com/notifications?query=repo:test/repo',
-  generated_at: '2025-01-02T00:00:00Z',
-  repository: {
-    owner: 'test',
-    name: 'repo',
-    full_name: 'test/repo',
-  },
-  notifications: [
-    {
-      id: 'thread-pr-1',
-      unread: true,
-      reason: 'review_requested',
-      updated_at: '2025-01-02T00:00:00Z',
-      last_read_at: '2025-01-01T00:00:00Z',
-      subject: {
-        title: 'Needs review PR',
-        url: 'https://github.com/test/repo/pull/1',
-        type: 'PullRequest',
-        number: 1,
-        state: 'open',
-        state_reason: null,
-      },
-      actors: [],
-      ui: {
-        saved: false,
-        done: false,
-        action_tokens: {
-          archive: 'test-csrf-token',
-          unarchive: 'test-csrf-token',
-          subscribe: 'test-csrf-token',
-          unsubscribe: 'test-csrf-token',
-        },
-      },
-    },
-    {
-      id: 'thread-pr-2',
-      unread: true,
-      reason: 'review_requested',
-      updated_at: '2025-01-03T00:00:00Z',
-      last_read_at: '2025-01-01T00:00:00Z',
-      subject: {
-        title: 'Approved PR',
-        url: 'https://github.com/test/repo/pull/2',
-        type: 'PullRequest',
-        number: 2,
-        state: 'open',
-        state_reason: null,
-      },
-      actors: [],
-      ui: {
-        saved: false,
-        done: false,
-        action_tokens: {
-          archive: 'test-csrf-token',
-          unarchive: 'test-csrf-token',
-          subscribe: 'test-csrf-token',
-          unsubscribe: 'test-csrf-token',
-        },
-      },
-    },
-  ],
-  pagination: {
-    before_cursor: null,
-    after_cursor: null,
-    has_previous: false,
-    has_next: false,
-  },
-};
+const baseCommentCache = makeCommentCache({
+  'thread-pr-1': makeCommentThread({ reviewDecision: 'REVIEW_REQUIRED' }),
+  'thread-pr-2': makeCommentThread({
+    notificationUpdatedAt: approvedPr.updated_at,
+    reviews: [approvedReview],
+    reviewDecision: 'APPROVED',
+  }),
+});
+
+function othersPrsStateTab(page: Parameters<typeof viewTab>[0], subfilter: string) {
+  return subfilterTab(page, 'others-prs', subfilter, 'state');
+}
 
 test.describe('Triage queues @classification @mutation', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await openNotificationsWithCommentCache(page, {
+      notifications: makeNotificationsResponse([needsReviewPr, approvedPr]),
+      commentCache: baseCommentCache,
+      expectedCount: 2,
     });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    const commentCache = {
-      version: 1,
-      threads: {
-        'thread-pr-1': {
-          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
-          lastReadAt: notificationsResponse.notifications[0].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [],
-          reviewDecision: 'REVIEW_REQUIRED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-2': {
-          notificationUpdatedAt: notificationsResponse.notifications[1].updated_at,
-          lastReadAt: notificationsResponse.notifications[1].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [
-            {
-              id: 101,
-              state: 'APPROVED',
-              submitted_at: '2025-01-02T12:00:00Z',
-              user: { login: 'reviewer1' },
-            },
-          ],
-          reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-      },
-    };
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    await expect
-      .poll(async () => {
-        const cached = await readNotificationsCache(page);
-        return Array.isArray(cached) ? cached.length : 0;
-      })
-      .toBe(2);
   });
 
   test('routes open, non-approved PRs to needs review', async ({ page }) => {
-    // Switch to Others' PRs view
-    await page.locator('#view-others-prs').click();
+    await viewTab(page, 'others-prs').click();
 
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
+    await expect(othersPrsStateTab(page, 'needs-review').locator('.count')).toHaveText('1');
+    await expect(othersPrsStateTab(page, 'approved').locator('.count')).toHaveText('1');
 
-    // Use needs-review subfilter to isolate the queue
-    await othersPrsSubfilters.locator('[data-subfilter="needs-review"]').click();
+    await othersPrsStateTab(page, 'needs-review').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="thread-pr-1"]')).toBeVisible();
   });
 
   test('routes PRs approved by another reviewer out of needs review', async ({ page }) => {
-    const approvedByAnotherReviewerNotifications = {
-      ...notificationsResponse,
-      notifications: [
-        ...notificationsResponse.notifications,
-        {
-          id: 'thread-pr-approved-by-other',
-          unread: true,
-          reason: 'review_requested',
-          updated_at: '2025-01-04T00:00:00Z',
-          last_read_at: '2025-01-01T00:00:00Z',
-          subject: {
-            title: 'Approved by someone else',
-            url: 'https://github.com/test/repo/pull/3',
-            type: 'PullRequest',
-            number: 3,
-            state: 'open',
-            state_reason: null,
-          },
-          actors: [],
-          ui: {
-            saved: false,
-            done: false,
-            action_tokens: {
-              archive: 'test-csrf-token',
-              unarchive: 'test-csrf-token',
-              subscribe: 'test-csrf-token',
-              unsubscribe: 'test-csrf-token',
-            },
-          },
-        },
-      ],
-    };
-    const approvedByAnotherReviewerCommentCache = {
-      version: 1,
-      threads: {
-        'thread-pr-1': {
-          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
-          lastReadAt: notificationsResponse.notifications[0].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [],
-          reviewDecision: 'REVIEW_REQUIRED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-2': {
-          notificationUpdatedAt: notificationsResponse.notifications[1].updated_at,
-          lastReadAt: notificationsResponse.notifications[1].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [
-            {
-              id: 101,
-              state: 'APPROVED',
-              submitted_at: '2025-01-02T12:00:00Z',
-              user: { login: 'reviewer1' },
-            },
-          ],
-          reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-approved-by-other': {
-          notificationUpdatedAt: '2025-01-04T00:00:00Z',
-          lastReadAt: '2025-01-01T00:00:00Z',
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
+    const approvedByOtherPr = makeNotification({
+      id: 'thread-pr-approved-by-other',
+      reason: 'review_requested',
+      updated_at: '2025-01-04T00:00:00Z',
+      last_read_at: '2025-01-01T00:00:00Z',
+      subject: { title: 'Approved by someone else', number: 3 },
+      ui: { action_tokens: TEST_ACTION_TOKENS },
+    });
+    await openNotificationsWithCommentCache(page, {
+      notifications: makeNotificationsResponse([needsReviewPr, approvedPr, approvedByOtherPr]),
+      commentCache: makeCommentCache({
+        ...baseCommentCache.threads,
+        'thread-pr-approved-by-other': makeCommentThread({
+          notificationUpdatedAt: approvedByOtherPr.updated_at,
           reviews: [
             {
               id: 301,
@@ -254,92 +93,44 @@ test.describe('Triage queues @classification @mutation', () => {
             },
           ],
           reviewDecision: 'REVIEW_REQUIRED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-      },
-    };
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(approvedByAnotherReviewerNotifications),
-      });
+        }),
+      }),
+      expectedCount: 3,
     });
 
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await seedCommentCache(page, approvedByAnotherReviewerCommentCache);
-    await page.reload();
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    await expect
-      .poll(async () => {
-        const cached = await readNotificationsCache(page);
-        return Array.isArray(cached) ? cached.length : 0;
-      })
-      .toBe(3);
+    await viewTab(page, 'others-prs').click();
+    await expect(othersPrsStateTab(page, 'needs-review').locator('.count')).toHaveText('1');
+    await expect(othersPrsStateTab(page, 'approved').locator('.count')).toHaveText('2');
 
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('2');
-
-    await othersPrsSubfilters.locator('[data-subfilter="needs-review"]').click();
+    await othersPrsStateTab(page, 'needs-review').click();
     await expect(page.locator('[data-id="thread-pr-approved-by-other"]')).not.toBeAttached();
 
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-approved-by-other"]')).toBeVisible();
   });
 
   test('approved queue allows unsubscribe', async ({ page }) => {
-    let unsubscribeCalled = false;
-    await page.route('**/notifications/html/action', (route) => {
-      const body = route.request().postDataJSON();
-      if (body.action === 'unsubscribe') {
-        unsubscribeCalled = true;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    const actions = await captureHtmlActions(page);
 
-    // Switch to Others' PRs view and approved subfilter
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await page
       .locator('[data-id="thread-pr-2"] .notification-actions-inline .notification-unsubscribe-btn')
       .click();
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
-    expect(unsubscribeCalled).toBe(true);
+    expect(actions.some((a) => a.action === 'unsubscribe')).toBe(true);
   });
 
   test('approved queue shows bottom unsubscribe when comments are expanded', async ({
     page,
   }) => {
-    let unsubscribeCalled = false;
-    await page.route('**/notifications/html/action', (route) => {
-      const body = route.request().postDataJSON();
-      if (body.action === 'unsubscribe') {
-        unsubscribeCalled = true;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    const actions = await captureHtmlActions(page);
 
     await page.locator('#comment-expand-prs-toggle').check();
-    // Switch to Others' PRs view and approved subfilter
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     const bottomUnsubscribeButton = page.locator(
@@ -350,16 +141,14 @@ test.describe('Triage queues @classification @mutation', () => {
     await bottomUnsubscribeButton.click();
 
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
-    expect(unsubscribeCalled).toBe(true);
+    expect(actions.some((a) => a.action === 'unsubscribe')).toBe(true);
   });
 
   test('approved queue shows Unsubscribe All button when nothing is selected', async ({
     page,
   }) => {
-    // Switch to Others' PRs view and approved subfilter
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     // Button should be visible when nothing is selected
@@ -379,12 +168,8 @@ test.describe('Triage queues @classification @mutation', () => {
   test('approved queue action buttons are ordered and consistently named', async ({
     page,
   }) => {
-    // Switch to Others' PRs view and approved subfilter
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator(
-      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-    );
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await expect(page.locator('#open-unread-btn')).toBeVisible();
@@ -411,30 +196,17 @@ test.describe('Triage queues @classification @mutation', () => {
   });
 
   test('Unsubscribe All button unsubscribes all approved notifications', async ({ page }) => {
-    let unsubscribeCalled = false;
-    await page.route('**/notifications/html/action', (route) => {
-      const body = route.request().postDataJSON();
-      if (body.action === 'unsubscribe') {
-        unsubscribeCalled = true;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    const actions = await captureHtmlActions(page);
 
-    // Switch to Others' PRs view and approved subfilter
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
 
     await page.locator('#unsubscribe-all-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Unsubscribed from 1 notification');
     await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
-    expect(unsubscribeCalled).toBe(true);
+    expect(actions.some((a) => a.action === 'unsubscribe')).toBe(true);
   });
 
   test('Unsubscribe All button is not visible in non-approved filters', async ({ page }) => {
@@ -443,179 +215,61 @@ test.describe('Triage queues @classification @mutation', () => {
     // Not visible in Issues view (default)
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
-    // Switch to Others' PRs view
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
+    await viewTab(page, 'others-prs').click();
 
     // Not visible in Needs Review subfilter (default for Others' PRs)
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
     // Not visible in Done subfilter
-    await othersPrsSubfilters.locator('[data-subfilter="done"]').click();
+    await othersPrsStateTab(page, 'done').click();
     await expect(unsubscribeAllBtn).not.toBeVisible();
 
     // Visible in Approved subfilter
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(unsubscribeAllBtn).toBeVisible();
   });
 });
 
 test.describe('Triage queues GraphQL review decisions @classification', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.route('**/github/graphql', async (route) => {
-      const payload = route.request().postDataJSON();
-      if (payload?.query?.includes('repository')) {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              rateLimit: {
-                limit: 5000,
-                remaining: 4999,
-                resetAt: '2025-01-02T00:00:00Z',
-              },
-              repository: {
-                pr1: { reviewDecision: 'REVIEW_REQUIRED' },
-                pr2: { reviewDecision: 'APPROVED' },
-              },
-            },
-          }),
-        });
-        return;
-      }
-      route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    await expect
-      .poll(async () => {
-        const cached = await readNotificationsCache(page);
-        return Array.isArray(cached) ? cached.length : 0;
-      })
-      .toBe(2);
-  });
-
   test('approved queue uses GraphQL review decisions', async ({ page }) => {
-    await page.locator('#view-others-prs').click();
+    await openNotificationsWithCommentCache(page, {
+      notifications: makeNotificationsResponse([needsReviewPr, approvedPr]),
+      graphqlPrFields: {
+        pr1: { reviewDecision: 'REVIEW_REQUIRED' },
+        pr2: { reviewDecision: 'APPROVED' },
+      },
+      expectedCount: 2,
+    });
 
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await viewTab(page, 'others-prs').click();
+
+    await expect(othersPrsStateTab(page, 'approved').locator('.count')).toHaveText('1');
+    await othersPrsStateTab(page, 'approved').click();
 
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
   });
 
   test('approval-required merge failures stay out of approved queue', async ({ page }) => {
-    const blockedApprovedNotifications = {
-      ...notificationsResponse,
-      notifications: [
-        ...notificationsResponse.notifications,
-        {
-          id: 'thread-pr-unqualified-approval',
-          unread: true,
-          reason: 'review_requested',
-          updated_at: '2025-01-04T00:00:00Z',
-          last_read_at: '2025-01-01T00:00:00Z',
-          subject: {
-            title: 'Approved by unqualified reviewer',
-            url: 'https://github.com/test/repo/pull/3',
-            type: 'PullRequest',
-            number: 3,
-            state: 'open',
-            state_reason: null,
-          },
-          actors: [],
-          ui: {
-            saved: false,
-            done: false,
-            action_tokens: {
-              archive: 'test-csrf-token',
-              unarchive: 'test-csrf-token',
-              subscribe: 'test-csrf-token',
-              unsubscribe: 'test-csrf-token',
-            },
-          },
-        },
-      ],
-    };
-    const blockedApprovedCommentCache = {
-      version: 1,
-      threads: {
-        'thread-pr-1': {
-          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
-          lastReadAt: notificationsResponse.notifications[0].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [],
-          reviewDecision: 'REVIEW_REQUIRED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-2': {
-          notificationUpdatedAt: notificationsResponse.notifications[1].updated_at,
-          lastReadAt: notificationsResponse.notifications[1].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [
-            {
-              id: 101,
-              state: 'APPROVED',
-              submitted_at: '2025-01-02T12:00:00Z',
-              user: { login: 'reviewer1' },
-            },
-          ],
-          reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-unqualified-approval': {
-          notificationUpdatedAt: '2025-01-04T00:00:00Z',
-          lastReadAt: '2025-01-01T00:00:00Z',
-          unread: true,
+    const unqualifiedApprovalPr = makeNotification({
+      id: 'thread-pr-unqualified-approval',
+      reason: 'review_requested',
+      updated_at: '2025-01-04T00:00:00Z',
+      last_read_at: '2025-01-01T00:00:00Z',
+      subject: { title: 'Approved by unqualified reviewer', number: 3 },
+      ui: { action_tokens: TEST_ACTION_TOKENS },
+    });
+    await openNotificationsWithCommentCache(page, {
+      notifications: makeNotificationsResponse([
+        needsReviewPr,
+        approvedPr,
+        unqualifiedApprovalPr,
+      ]),
+      commentCache: makeCommentCache({
+        ...baseCommentCache.threads,
+        'thread-pr-unqualified-approval': makeCommentThread({
+          notificationUpdatedAt: unqualifiedApprovalPr.updated_at,
           allComments: true,
-          fetchedAt: new Date().toISOString(),
           comments: [
             {
               id: 201,
@@ -640,125 +294,36 @@ test.describe('Triage queues GraphQL review decisions @classification', () => {
             },
           ],
           reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-      },
-    };
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(blockedApprovedNotifications),
-      });
+        }),
+      }),
+      expectedCount: 3,
     });
 
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await seedCommentCache(page, blockedApprovedCommentCache);
-    await page.reload();
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    await expect
-      .poll(async () => {
-        const cached = await readNotificationsCache(page);
-        return Array.isArray(cached) ? cached.length : 0;
-      })
-      .toBe(3);
+    await viewTab(page, 'others-prs').click();
+    await expect(othersPrsStateTab(page, 'approved').locator('.count')).toHaveText('1');
+    await expect(othersPrsStateTab(page, 'needs-review').locator('.count')).toHaveText('2');
 
-    await page.locator('#view-others-prs').click();
-    const othersPrsSubfilters = page.locator('.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await expect(othersPrsSubfilters.locator('[data-subfilter="needs-review"] .count')).toHaveText('2');
-
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await othersPrsStateTab(page, 'approved').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
     await expect(page.locator('[data-id="thread-pr-unqualified-approval"]')).not.toBeAttached();
   });
 
   test('approved filter excludes closed PRs', async ({ page }) => {
-    // Add a closed PR with approved review decision
-    const closedApprovedNotifications = {
-      ...notificationsResponse,
-      notifications: [
-        ...notificationsResponse.notifications,
-        {
-          id: 'thread-pr-closed-approved',
-          unread: true,
-          reason: 'review_requested',
-          updated_at: '2025-01-04T00:00:00Z',
-          last_read_at: '2025-01-01T00:00:00Z',
-          subject: {
-            title: 'Closed but approved PR',
-            url: 'https://github.com/test/repo/pull/3',
-            type: 'PullRequest',
-            number: 3,
-            state: 'closed',
-            state_reason: null,
-          },
-          actors: [],
-          ui: {
-            saved: false,
-            done: false,
-            action_tokens: {
-              archive: 'test-csrf-token',
-              unarchive: 'test-csrf-token',
-              subscribe: 'test-csrf-token',
-              unsubscribe: 'test-csrf-token',
-            },
-          },
-        },
-      ],
-    };
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(closedApprovedNotifications),
-      });
+    const closedApprovedPr = makeNotification({
+      id: 'thread-pr-closed-approved',
+      reason: 'review_requested',
+      updated_at: '2025-01-04T00:00:00Z',
+      last_read_at: '2025-01-01T00:00:00Z',
+      subject: { title: 'Closed but approved PR', number: 3, state: 'closed' },
+      ui: { action_tokens: TEST_ACTION_TOKENS },
     });
-
-    const closedApprovedCommentCache = {
-      version: 1,
-      threads: {
-        'thread-pr-1': {
-          notificationUpdatedAt: notificationsResponse.notifications[0].updated_at,
-          lastReadAt: notificationsResponse.notifications[0].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [],
-          reviewDecision: 'REVIEW_REQUIRED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-2': {
-          notificationUpdatedAt: notificationsResponse.notifications[1].updated_at,
-          lastReadAt: notificationsResponse.notifications[1].last_read_at,
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
-          reviews: [
-            {
-              id: 101,
-              state: 'APPROVED',
-              submitted_at: '2025-01-02T12:00:00Z',
-              user: { login: 'reviewer1' },
-            },
-          ],
-          reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-        'thread-pr-closed-approved': {
-          notificationUpdatedAt: '2025-01-04T00:00:00Z',
-          lastReadAt: '2025-01-01T00:00:00Z',
-          unread: true,
-          allComments: false,
-          fetchedAt: new Date().toISOString(),
-          comments: [],
+    await openNotificationsWithCommentCache(page, {
+      notifications: makeNotificationsResponse([needsReviewPr, approvedPr, closedApprovedPr]),
+      commentCache: makeCommentCache({
+        ...baseCommentCache.threads,
+        'thread-pr-closed-approved': makeCommentThread({
+          notificationUpdatedAt: closedApprovedPr.updated_at,
           reviews: [
             {
               id: 102,
@@ -768,31 +333,16 @@ test.describe('Triage queues GraphQL review decisions @classification', () => {
             },
           ],
           reviewDecision: 'APPROVED',
-          reviewDecisionFetchedAt: new Date().toISOString(),
-        },
-      },
-    };
+        }),
+      }),
+      expectedCount: 3,
+    });
 
-    await clearAppStorage(page);
-    await seedCommentCache(page, closedApprovedCommentCache);
-    await page.reload();
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
-    await expect
-      .poll(async () => {
-        const cached = await readNotificationsCache(page);
-        return Array.isArray(cached) ? cached.length : 0;
-      })
-      .toBe(3);
+    await viewTab(page, 'others-prs').click();
 
-    await page.locator('#view-others-prs').click();
-
-    const othersPrsSubfilters = page.locator(
-      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="state"]'
-    );
     // Approved count should be 1 (only the open approved PR, not the closed one)
-    await expect(othersPrsSubfilters.locator('[data-subfilter="approved"] .count')).toHaveText('1');
-    await othersPrsSubfilters.locator('[data-subfilter="approved"]').click();
+    await expect(othersPrsStateTab(page, 'approved').locator('.count')).toHaveText('1');
+    await othersPrsStateTab(page, 'approved').click();
 
     // Only the open approved PR should be visible
     await expect(page.locator('.notification-item')).toHaveCount(1);
