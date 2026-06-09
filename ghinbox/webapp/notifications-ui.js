@@ -709,15 +709,16 @@
                 }
 
                 let reviewRequests = [];
-                for (const repoInfo of concreteRepos) {
+                for (const source of sources) {
                     try {
-                        const repoReviewRequests = await fetchReviewRequestNotifications(repoInfo);
-                        reviewRequests.push(...repoReviewRequests);
-                        mergedNotifications = mergeReviewRequestNotifications(
-                            mergedNotifications,
-                            repoReviewRequests,
-                            repoInfo
-                        );
+                        const sourceReviewRequests = source.kind === 'repo'
+                            ? await fetchReviewRequestNotifications({
+                                owner: source.owner,
+                                repo: source.repo,
+                                fullName: source.fullName,
+                            })
+                            : await fetchReviewRequestNotificationsForSource(source);
+                        reviewRequests.push(...sourceReviewRequests);
                     } catch (error) {
                         console.error('Review request sync failed:', error);
                         showStatus(
@@ -726,6 +727,13 @@
                             { flash: true }
                         );
                     }
+                }
+                for (const group of groupReviewRequestsByRepo(reviewRequests)) {
+                    mergedNotifications = mergeReviewRequestNotifications(
+                        mergedNotifications,
+                        group.notifications,
+                        group.repoInfo
+                    );
                 }
 
                 const dedupedNotifications = [];
@@ -769,14 +777,10 @@
                 }
 
                 const needsReviewPrNumbers = new Set();
-                for (const repoInfo of concreteRepos) {
-                    const repoReviewRequests = reviewRequests.filter((notification) => {
-                        const notificationRepo = getNotificationRepoInfo(notification, repoInfo);
-                        return notificationRepo?.fullName === repoInfo.fullName;
-                    });
+                for (const group of groupReviewRequestsByRepo(reviewRequests)) {
                     const repoNeedsReview = await getReviewRequestNeedsReviewNumbers(
-                        repoInfo,
-                        repoReviewRequests,
+                        group.repoInfo,
+                        group.notifications,
                         syncLabel
                     );
                     repoNeedsReview.forEach((number) => needsReviewPrNumbers.add(number));

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockDefaultApiRoutes } from './app-fixture';
+import { mockDefaultApiRoutes, viewTab } from './app-fixture';
 import { clearAppStorage } from './storage-utils';
 
 function notification(id: string, repo: string, title: string, number: number) {
@@ -99,6 +99,63 @@ test.describe('Notification Profiles @smoke', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
     await expect(page.locator('.notification-item')).toHaveCount(2);
     expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
+  });
+
+  test('full sync loads review requests for query profiles', async ({ page }) => {
+    await page.route('**/notifications/html/query**', (route) => {
+      const url = new URL(route.request().url());
+      const query = url.searchParams.get('query') || '';
+      const repo = query === 'org:pytorch' ? 'pytorch/pytorch' : 'meta-pytorch/test';
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(response(repo, [])),
+      });
+    });
+
+    const reviewRequestQueries: string[] = [];
+    await page.route('**/github/rest/review-requests**', (route) => {
+      const url = new URL(route.request().url());
+      const query = url.searchParams.get('query') || '';
+      reviewRequestQueries.push(query);
+      const notifications = query === 'org:pytorch'
+        ? [{
+            id: 'review-request:pytorch/pytorch#7',
+            unread: false,
+            reason: 'review_requested',
+            responsibility_source: 'review-requested',
+            updated_at: '2025-01-05T12:00:00Z',
+            last_read_at: null,
+            repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
+            subject: {
+              title: 'Needs my review',
+              url: 'https://github.com/pytorch/pytorch/pull/7',
+              type: 'PullRequest',
+              number: 7,
+              state: 'open',
+              state_reason: null,
+            },
+            actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+            ui: { saved: false, done: false, action_tokens: {} },
+          }]
+        : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications }),
+      });
+    });
+    await page.route('**/github/rest/notifications**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    );
+
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await viewTab(page, 'others-prs').click();
+    await expect(page.locator('[data-id="review-request:pytorch/pytorch#7"]')).toBeVisible();
+    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+    expect(reviewRequestQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
   });
 
   test('remembers custom profiles with multiple repositories', async ({ page }) => {
