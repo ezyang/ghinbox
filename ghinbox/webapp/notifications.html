@@ -27,11 +27,13 @@
     </script>
     <script>
         (function () {
+            const ASSET_VERSION = '2026-06-09-profile-sync';
             const params = new URLSearchParams(window.location.search);
-            const cacheBust = params.get('cache_bust') || localStorage.getItem('ghnotif_cache_bust');
-            if (cacheBust) {
-                localStorage.setItem('ghnotif_cache_bust', cacheBust);
+            const explicitCacheBust = params.get('cache_bust');
+            if (explicitCacheBust) {
+                localStorage.setItem('ghnotif_cache_bust', explicitCacheBust);
             }
+            const cacheBust = explicitCacheBust || ASSET_VERSION;
             const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(
                 '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.css">'
@@ -1698,11 +1700,13 @@
     </script>
     <script>
         (function () {
+            const ASSET_VERSION = '2026-06-09-profile-sync';
             const params = new URLSearchParams(window.location.search);
-            const cacheBust = params.get('cache_bust') || localStorage.getItem('ghnotif_cache_bust');
-            if (cacheBust) {
-                localStorage.setItem('ghnotif_cache_bust', cacheBust);
+            const explicitCacheBust = params.get('cache_bust');
+            if (explicitCacheBust) {
+                localStorage.setItem('ghnotif_cache_bust', explicitCacheBust);
             }
+            const cacheBust = explicitCacheBust || ASSET_VERSION;
             const bust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(`<script src="notifications-idb.js${bust}"><\/script>`);
             document.write(`<script src="notifications-comment-interest.js${bust}"><\/script>`);
