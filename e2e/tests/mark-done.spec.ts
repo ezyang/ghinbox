@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
+import { mockDefaultApiRoutes, mockHtmlAction } from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, readNotificationsCache } from './storage-utils';
 
 // Note: syncNotificationBeforeDone now uses HTML pull + ID-based comment comparison
@@ -15,63 +16,8 @@ import { addAuthCacheInitScript, clearAppStorage, readNotificationsCache } from 
 test.describe('Mark Done @slow @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
-
-    // Mock notifications endpoint
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
-    // Mock user endpoint for auth check
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    // Mock GraphQL endpoint for prefetch
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      });
-    });
-
-    // Mock REST comment endpoints for prefetch and sync
-    // Use single * for issue number segment, not ** which matches multiple segments
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    // Mock REST issues endpoint for prefetch
-    // Use single * for issue number to avoid matching /comments paths
-    await page.route('**/github/rest/repos/**/issues/*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-
-    // Default mock for HTML action endpoint (mark done/undo)
-    // Individual tests can override this with their own handlers
-    await page.route('**/notifications/html/action', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    await mockDefaultApiRoutes(page, { notifications: mixedFixture });
+    await mockHtmlAction(page);
 
     await page.goto('notifications.html');
     await clearAppStorage(page);

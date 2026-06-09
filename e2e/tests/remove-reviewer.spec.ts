@@ -1,5 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
+import { mockDefaultApiRoutes } from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 
 /**
@@ -19,51 +20,7 @@ test.describe('Remove Reviewer @mutation', () => {
       // Disable comment expansion for PRs to ensure only inline button is visible
       localStorage.setItem('ghnotif_comment_expand_prs', 'false');
     });
-
-    // Mock notifications endpoint
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(mixedFixture),
-      });
-    });
-
-    // Mock GraphQL endpoint
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      });
-    });
-
-    // Mock REST comment endpoints
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    // Mock REST issues endpoint
-    await page.route('**/github/rest/repos/**/issues/*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-
-    // Mock user endpoint for auth check
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
+    await mockDefaultApiRoutes(page, { notifications: mixedFixture });
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
