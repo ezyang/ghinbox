@@ -530,7 +530,7 @@ async def needs_login() -> dict:
         )
         return {"needs_login": False, "account": "test"}
 
-    account = os.environ.get("GHSIM_ACCOUNT", DEFAULT_ACCOUNT)
+    account = os.environ.get("GHINBOX_ACCOUNT", DEFAULT_ACCOUNT)
     needs_auth = os.environ.get("GHINBOX_NEEDS_AUTH") == "1"
 
     logger.warning(
@@ -572,8 +572,8 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
         logger.warning("Cleared GHINBOX_NEEDS_AUTH (was: %s)", old_needs_auth)
 
     # Set the account
-    os.environ["GHSIM_ACCOUNT"] = account
-    logger.warning("Set GHSIM_ACCOUNT=%s", account)
+    os.environ["GHINBOX_ACCOUNT"] = account
+    logger.warning("Set GHINBOX_ACCOUNT=%s", account)
 
     # Close existing fetcher so it gets re-created with fresh cookies
     old_fetcher = get_fetcher()
@@ -585,7 +585,7 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
             logger.warning("Error closing old fetcher: %s", e)
         set_fetcher(None)
 
-    headless = os.environ.get("GHSIM_HEADLESS", "1") == "1"
+    headless = os.environ.get("GHINBOX_HEADLESS", "1") == "1"
     logger.warning("headless=%s", headless)
 
     try:
@@ -610,7 +610,7 @@ async def reload_auth() -> dict:
     This endpoint should be called after login completes to initialize
     the notifications fetcher and provision the API token if needed.
     """
-    account = os.environ.get("GHSIM_ACCOUNT", DEFAULT_ACCOUNT)
+    account = os.environ.get("GHINBOX_ACCOUNT", DEFAULT_ACCOUNT)
     auth_path = get_auth_state_path(account)
     has_auth = has_valid_auth(account)
 

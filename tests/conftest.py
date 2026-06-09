@@ -9,7 +9,7 @@ import pytest
 from ghinbox.api import site_auth
 from ghinbox.api.snapshot_store import init_snapshot_db
 
-_ENV_PREFIXES = ("GHINBOX_", "GHSIM_")
+_ENV_PREFIXES = ("GHINBOX_",)
 
 
 @pytest.fixture(autouse=True)

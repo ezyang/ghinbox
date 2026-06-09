@@ -378,7 +378,7 @@ def main() -> int:
 
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")
-        # Don't set GHSIM_ACCOUNT - app will run without fetcher
+        # Don't set GHINBOX_ACCOUNT - app will run without fetcher
         # Set test mode flag so /health/test endpoint works
         os.environ["GHINBOX_TEST_MODE"] = "1"
         if not args.snapshot_db_path and "GHINBOX_SNAPSHOT_DB_PATH" not in os.environ:
@@ -421,8 +421,8 @@ def main() -> int:
                 print("Starting server with web-based login...")
                 print("Visit the server URL to login via browser.")
                 os.environ["GHINBOX_NEEDS_AUTH"] = "1"
-                os.environ["GHSIM_ACCOUNT"] = account
-                os.environ["GHSIM_HEADLESS"] = "1"
+                os.environ["GHINBOX_ACCOUNT"] = account
+                os.environ["GHINBOX_HEADLESS"] = "1"
         else:
             # Account exists, check for token
             if not has_token(account):
@@ -500,8 +500,8 @@ def main() -> int:
             else:
                 print(f"Starting server with account: {account}")
 
-            os.environ["GHSIM_ACCOUNT"] = account
-            os.environ["GHSIM_HEADLESS"] = "0" if args.headed else "1"
+            os.environ["GHINBOX_ACCOUNT"] = account
+            os.environ["GHINBOX_HEADLESS"] = "0" if args.headed else "1"
 
     display_host = "127.0.0.1" if args.host == "0.0.0.0" else args.host
     print(f"Server: http://{display_host}:{args.port}")

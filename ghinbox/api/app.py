@@ -58,9 +58,9 @@ async def lifespan(app: FastAPI):
     """Initialize fetcher on startup if account is configured."""
     init_snapshot_db()
 
-    account = os.environ.get("GHSIM_ACCOUNT")
+    account = os.environ.get("GHINBOX_ACCOUNT")
     if account:
-        headless = os.environ.get("GHSIM_HEADLESS", "1") == "1"
+        headless = os.environ.get("GHINBOX_HEADLESS", "1") == "1"
         fetcher = NotificationsFetcher(account=account, headless=headless)
         set_fetcher(fetcher)
 

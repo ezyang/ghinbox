@@ -15,7 +15,7 @@ import * as path from 'path';
  * By default, a random free port is allocated so multiple test runs can execute
  * concurrently without conflicts. Set TEST_PORT to override with a fixed port.
  * The test server is started with --test flag which:
- * 1. Disables live GitHub fetching (no GHSIM_ACCOUNT set)
+ * 1. Disables live GitHub fetching (no GHINBOX_ACCOUNT set)
  * 2. Enables the /health/test endpoint (returns 200 only in test mode)
  *
  * The /health/test endpoint is the key safety mechanism:

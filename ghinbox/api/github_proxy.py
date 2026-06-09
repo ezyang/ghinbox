@@ -38,7 +38,7 @@ def get_client() -> httpx.AsyncClient:
 
 def get_token() -> str | None:
     """Get the GitHub token for the configured account."""
-    account = os.environ.get("GHSIM_ACCOUNT")
+    account = os.environ.get("GHINBOX_ACCOUNT")
     if not account:
         return None
     return load_token(account)
