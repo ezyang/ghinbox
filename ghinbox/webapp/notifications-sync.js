@@ -879,16 +879,38 @@
         }
 
         async function handleServerFullSync() {
-            const repo = elements.repoInput.value.trim();
-            const parsed = parseRepoInput(repo);
-            if (!parsed) {
-                showStatus(repo ? 'Invalid format. Use owner/repo' : 'Please enter a repository (owner/repo)', 'error');
+            const entries = getCurrentProfileEntries();
+            if (!entries.length) {
+                showStatus('Please enter a repository or query', 'error');
                 return;
             }
             if (state.loading) {
                 return;
             }
+            updateActiveProfileEntries(entries);
 
+            const sources = entries.map(classifyProfileEntry);
+            const invalid = sources.find((source) => !source.value);
+            if (invalid) {
+                showStatus('Invalid empty profile entry', 'error');
+                return;
+            }
+            const invalidFormat = sources.find((source) => source.kind === 'invalid');
+            if (invalidFormat) {
+                showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
+                return;
+            }
+            if (sources.length !== 1 || sources[0].kind !== 'repo') {
+                await handleSync({ mode: 'full' });
+                return;
+            }
+
+            const source = sources[0];
+            const repo = source.fullName;
+            const parsed = {
+                owner: source.owner,
+                repo: source.repo,
+            };
             state.repo = repo;
             localStorage.setItem('ghnotif_repo', repo);
             state.loading = true;

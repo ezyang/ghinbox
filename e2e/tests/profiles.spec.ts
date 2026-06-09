@@ -118,6 +118,30 @@ test.describe('Notification Profiles @smoke', () => {
     expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
   });
 
+  test('full sync supports the default PyTorch profile', async ({ page }) => {
+    const seenQueries: string[] = [];
+    await page.route('**/notifications/html/query**', (route) => {
+      const url = new URL(route.request().url());
+      const query = url.searchParams.get('query') || '';
+      seenQueries.push(query);
+      const repo = query === 'org:pytorch' ? 'pytorch/pytorch' : 'meta-pytorch/test';
+      const title = query === 'org:pytorch' ? 'PyTorch issue' : 'Meta PyTorch issue';
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(response(repo, [
+          notification(`notif-full-${seenQueries.length}`, repo, title, seenQueries.length),
+        ])),
+      });
+    });
+
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
+    await expect(page.locator('.notification-item')).toHaveCount(2);
+    expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
+  });
+
   test('remembers custom profiles with multiple repositories', async ({ page }) => {
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo\nother/repo');
