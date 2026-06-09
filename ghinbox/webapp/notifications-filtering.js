@@ -684,10 +684,6 @@
         };
     }
 
-    function getMobileFilterOptions(view) {
-        return viewState.getMobileFilterOptions(view);
-    }
-
     return {
         DEFAULT_VIEW_FILTERS,
         DEFAULT_VIEW_ORDERS,
@@ -700,7 +696,6 @@
         applyStateFilter,
         cloneDefaultViewFilters,
         getFilteredNotifications,
-        getMobileFilterOptions,
         getSubfilterCounts,
         getViewCounts,
         makeClassifier,

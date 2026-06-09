@@ -73,10 +73,6 @@ function saveNotificationsCache(notifications, key = CACHE_KEY) {
     return idbSetValue(NOTIFICATIONS_STORE, key || CACHE_KEY, notifications);
 }
 
-function clearNotificationsCache(key = CACHE_KEY) {
-    return idbDeleteValue(NOTIFICATIONS_STORE, key || CACHE_KEY);
-}
-
 function loadCommentCacheStorage() {
     return idbGetValue(COMMENT_CACHE_STORE, CACHE_KEY);
 }

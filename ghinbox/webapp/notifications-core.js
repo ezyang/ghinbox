@@ -1236,30 +1236,6 @@
             return makeNotificationClassifier().matchesView(notification, state.view);
         }
 
-        // Apply the state filter for the current view
-        function applyStateFilter(notifications, stateFilter) {
-            return GhinboxFiltering.applyStateFilter(
-                notifications,
-                stateFilter,
-                makeNotificationClassifier()
-            );
-        }
-
-        function applyAuthorFilter(notifications, authorFilter) {
-            return GhinboxFiltering.applyAuthorFilter(
-                notifications,
-                authorFilter,
-                makeNotificationClassifier()
-            );
-        }
-
-        function safeIsNotificationForCurrentUser(notification) {
-            return typeof isNotificationForCurrentUser === 'function'
-                ? isNotificationForCurrentUser(notification)
-                : isMyPr(notification) ||
-                    String(notification.reason || '').toLowerCase() === 'mention';
-        }
-
         function safeIsNotificationDirectedAtCurrentUser(notification) {
             return typeof isNotificationDirectedAtCurrentUser === 'function'
                 ? isNotificationDirectedAtCurrentUser(notification)
@@ -1272,22 +1248,6 @@
 
         function isCommitNotification(notification) {
             return makeNotificationClassifier().isCommitNotification(notification);
-        }
-
-        function applyAudienceFilter(notifications, audienceFilter) {
-            return GhinboxFiltering.applyAudienceFilter(
-                notifications,
-                audienceFilter,
-                makeNotificationClassifier()
-            );
-        }
-
-        function applyInterestFilter(notifications, interestFilter) {
-            return GhinboxFiltering.applyInterestFilter(
-                notifications,
-                interestFilter,
-                makeNotificationClassifier()
-            );
         }
 
         function isTrashNotification(notification) {
