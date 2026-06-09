@@ -114,16 +114,9 @@ def extract_username(page: Page) -> str | None:
             if alt and alt.startswith("@"):
                 return alt[1:]  # Remove the @ prefix
 
-    # Method 2: Navigate to profile and extract from URL
+    # Method 2: Navigate to profile settings so the meta tag below is present
     page.goto("https://github.com/settings/profile")
     page.wait_for_load_state("domcontentloaded")
-
-    # The URL might have the username, or we can extract from the page
-    # Look for the username input field
-    username_input = page.locator('input[id="user_profile_name"]')
-    if username_input.count() > 0:
-        # Actually we need the login, not the display name
-        pass
 
     # Method 3: Get it from the meta tag or page content
     # GitHub has a meta tag with the user login
@@ -140,24 +133,6 @@ def extract_username(page: Page) -> str | None:
         if href and href.startswith("/"):
             return href[1:]  # Remove the leading /
 
-    return None
-
-
-def load_auth_state(account: str) -> dict | None:
-    """
-    Load the auth state for an account if it exists.
-
-    Args:
-        account: The account identifier
-
-    Returns:
-        The storage state dict or None if not found
-    """
-    auth_path = get_auth_state_path(account)
-    if auth_path.exists():
-        import json
-
-        return json.loads(auth_path.read_text())
     return None
 
 

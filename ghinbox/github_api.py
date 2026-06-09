@@ -117,10 +117,6 @@ class GitHubAPI:
             {"subscribed": True, "ignored": False},
         )
 
-    def unwatch_repo(self, owner: str, name: str) -> None:
-        """Unwatch a repository."""
-        self.delete(f"/repos/{owner}/{name}/subscription")
-
     def create_issue(self, owner: str, repo: str, title: str, body: str) -> Any:
         """Create an issue in a repository."""
         return self.post(
@@ -175,10 +171,6 @@ class GitHubAPI:
     def mark_notification_read(self, thread_id: str) -> None:
         """Mark a notification thread as read."""
         self.patch(f"/notifications/threads/{thread_id}")
-
-    def mark_all_notifications_read(self) -> None:
-        """Mark all notifications as read."""
-        self.put("/notifications")
 
     def get_issue(self, owner: str, repo: str, number: int) -> Any:
         """Get a single issue."""

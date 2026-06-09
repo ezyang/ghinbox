@@ -46,23 +46,6 @@ class LoginSession:
     # Internal: reference to LoginFetcher for this session (not serialized)
     _fetcher: LoginFetcher | None = field(default=None, repr=False)
 
-    def to_dict(self) -> dict:
-        """Convert to API response dict."""
-        result = {
-            "session_id": self.session_id,
-            "status": self.state.value,
-            "created_at": self.created_at,
-        }
-        if self.error_message:
-            result["error"] = self.error_message
-        if self.username:
-            result["username"] = self.username
-        if self.requires_2fa:
-            result["requires_2fa"] = True
-            if self.twofa_method:
-                result["twofa_method"] = self.twofa_method
-        return result
-
     @property
     def is_terminal(self) -> bool:
         """Check if this session is in a terminal state."""
@@ -195,16 +178,6 @@ class LoginSessionManager:
         for sid in expired:
             self._remove_session_unlocked(sid)
         return len(expired)
-
-    def cleanup_expired(self) -> int:
-        """Remove expired sessions and return count removed."""
-        with self._sessions_lock:
-            return self._cleanup_expired_unlocked()
-
-    def session_count(self) -> int:
-        """Get count of active sessions."""
-        with self._sessions_lock:
-            return len(self._sessions)
 
 
 # Global instance
