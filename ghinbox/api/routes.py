@@ -114,6 +114,10 @@ def _query_repo_name(query: str) -> str:
     return compact[:80] or "all"
 
 
+def _repo_key(owner: str, repo: str) -> str:
+    return f"{owner}/{repo}"
+
+
 @router.get(
     "/query",
     response_model=NotificationsResponse,
@@ -503,7 +507,7 @@ async def get_bookmark(
     repo: str,
     notification_id: str,
 ) -> NotificationBookmarkResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     return NotificationBookmarkResponse(
         status="ok",
         repo=repo_key,
@@ -523,7 +527,7 @@ async def set_bookmark(
     notification_id: str,
     request: NotificationBookmarkRequest,
 ) -> NotificationBookmarkResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     result = set_notification_bookmark(
         repo_key,
         notification_id,
@@ -547,7 +551,7 @@ async def get_replies_muted(
     repo: str,
     notification_id: str,
 ) -> NotificationRepliesMutedResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     return NotificationRepliesMutedResponse(
         status="ok",
         repo=repo_key,
@@ -567,7 +571,7 @@ async def set_replies_muted(
     notification_id: str,
     request: NotificationRepliesMutedRequest,
 ) -> NotificationRepliesMutedResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     result = set_notification_replies_muted(
         repo_key,
         notification_id,
@@ -591,7 +595,7 @@ async def get_read_comment_watermark(
     repo: str,
     notification_id: str,
 ) -> NotificationReadCommentWatermarkResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     return NotificationReadCommentWatermarkResponse(
         status="ok",
         repo=repo_key,
@@ -614,7 +618,7 @@ async def set_read_comment_watermark(
     notification_id: str,
     request: NotificationReadCommentWatermarkRequest,
 ) -> NotificationReadCommentWatermarkResponse:
-    repo_key = f"{owner}/{repo}"
+    repo_key = _repo_key(owner, repo)
     result = set_notification_read_comment_watermark(
         repo_key,
         notification_id,

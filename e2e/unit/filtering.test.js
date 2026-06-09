@@ -86,6 +86,8 @@ function ids(notifications) {
 test('normalizes persisted legacy and partial view filters', () => {
   assert.deepEqual(normalizeViewFilters({ issues: 'closed' }).issues, {
     state: 'closed',
+    bookmark: 'new',
+    type: 'all',
     interest: 'all',
   });
   assert.deepEqual(normalizeViewFilters({ 'others-prs': { author: 'external' } })['others-prs'], {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { addAuthCacheInitScript, APP_STORAGE_KEYS } from './storage-utils';
 
 /**
  * UI shell coverage for the GitHub notifications webapp.
@@ -129,8 +130,9 @@ test.describe('Repository Input', () => {
     const input = page.locator('#repo-input');
     await input.fill('vercel/next.js');
 
-    const savedValue = await page.evaluate(() =>
-      localStorage.getItem('ghnotif_repo')
+    const savedValue = await page.evaluate(
+      (repoKey) => localStorage.getItem(repoKey),
+      APP_STORAGE_KEYS.repo
     );
     expect(savedValue).toBe('vercel/next.js');
 
@@ -179,12 +181,7 @@ test.describe('Auth Status', () => {
   });
 
   test('shows authenticated state when user is logged in', async ({ page }) => {
-    await page.addInitScript((login) => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login, timestamp: Date.now() })
-      );
-    }, 'testuser');
+    await addAuthCacheInitScript(page);
 
     // Mock user endpoint as fallback if cache lookup fails
     await page.route('**/github/rest/user', (route) => {
@@ -203,12 +200,7 @@ test.describe('Auth Status', () => {
   });
 
   test('shows error state when not authenticated', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: null, timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page, null);
 
     await page.goto('notifications.html');
 

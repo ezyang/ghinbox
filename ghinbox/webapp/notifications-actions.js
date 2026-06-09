@@ -766,33 +766,13 @@
             return new Promise(resolve => setTimeout(resolve, ms));
         }
 
-        const MARK_DONE_AUTH_CACHE_KEY = 'ghnotif_auth_cache';
-        const MARK_DONE_AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
-
-        function getCachedAuthLogin() {
-            try {
-                const raw = localStorage.getItem(MARK_DONE_AUTH_CACHE_KEY);
-                if (!raw) {
-                    return null;
-                }
-                const cached = JSON.parse(raw);
-                if (!cached || !cached.login || !cached.timestamp) {
-                    return null;
-                }
-                if (Date.now() - cached.timestamp > MARK_DONE_AUTH_CACHE_TTL_MS) {
-                    return null;
-                }
-                return cached.login;
-            } catch (error) {
-                return null;
-            }
-        }
-
         function ensureCurrentUserLogin() {
             if (state.currentUserLogin) {
                 return state.currentUserLogin;
             }
-            const cachedLogin = getCachedAuthLogin();
+            const cachedLogin = typeof getCachedAuth === 'function'
+                ? getCachedAuth()?.login
+                : null;
             if (cachedLogin) {
                 state.currentUserLogin = cachedLogin;
             }

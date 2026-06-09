@@ -1,6 +1,8 @@
 import asyncio
+from pathlib import Path
 import socket
 import stat
+import tempfile
 
 from ghinbox.api.server import _bind_debug_socket
 from ghinbox.api import site_auth
@@ -79,21 +81,22 @@ def test_site_auth_allows_public_github_webhook_endpoint(monkeypatch) -> None:
     )
 
 
-def test_bind_debug_socket_replaces_stale_socket(tmp_path) -> None:
-    path = tmp_path / "debug.sock"
+def test_bind_debug_socket_replaces_stale_socket() -> None:
+    with tempfile.TemporaryDirectory(prefix="ghs-") as tmp_dir:
+        path = Path(tmp_dir) / "debug.sock"
 
-    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    stale.bind(str(path))
-    stale.close()
+        stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale.bind(str(path))
+        stale.close()
 
-    sock = _bind_debug_socket(path)
-    try:
-        mode = path.stat().st_mode
-        assert stat.S_ISSOCK(mode)
-        assert stat.S_IMODE(mode) == 0o600
-    finally:
-        sock.close()
-        path.unlink()
+        sock = _bind_debug_socket(path)
+        try:
+            mode = path.stat().st_mode
+            assert stat.S_ISSOCK(mode)
+            assert stat.S_IMODE(mode) == 0o600
+        finally:
+            sock.close()
+            path.unlink()
 
 
 def test_server_secret_storage_is_private(tmp_path, monkeypatch) -> None:

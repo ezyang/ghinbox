@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage, seedCommentCache } from './storage-utils';
+import {
+  addAuthCacheInitScript,
+  clearAppStorage,
+  seedAuthCache,
+  seedCommentCache,
+} from './storage-utils';
 import { openNotificationsWithCachedData } from './app-fixture';
 
 // Create comments with different ages
@@ -97,12 +102,7 @@ const commentCache = {
 
 test.describe('Comment Age Filter', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/rate_limit', (route) => {
       route.fulfill({
@@ -134,20 +134,12 @@ test.describe('Comment Age Filter', () => {
     await page.goto('notifications.html');
     await clearAppStorage(page);
     await page.evaluate(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
     });
+    await seedAuthCache(page);
     await seedCommentCache(page, commentCache);
     await page.reload();
-    await page.evaluate(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await seedAuthCache(page);
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();

@@ -113,30 +113,23 @@
         }
 
         function getNotificationKey(notification) {
-            return String(notification.id);
+            return GhinboxNotificationIdentity.getNotificationKey(notification);
         }
 
         function getIssueNumber(notification) {
-            const number = notification?.subject?.number;
-            return typeof number === 'number' ? number : null;
+            return GhinboxNotificationIdentity.getIssueNumber(notification);
         }
 
         function getNotificationMatchKeyForRepo(notification, repo) {
-            const number = notification?.subject?.number;
-            const type = notification?.subject?.type || 'unknown';
-            const resolvedRepo = repo || getNotificationRepoInfo(notification);
-            if (resolvedRepo && typeof number === 'number') {
-                return `${resolvedRepo.owner}/${resolvedRepo.repo}:${type}:${number}`;
-            }
-            return `id:${getNotificationKey(notification)}`;
+            return GhinboxNotificationIdentity.getNotificationMatchKeyForRepo(notification, repo);
         }
 
         function getNotificationMatchKey(notification) {
-            return getNotificationMatchKeyForRepo(notification, null);
+            return GhinboxNotificationIdentity.getNotificationMatchKey(notification);
         }
 
         function getNotificationDedupKey(notification) {
-            return getNotificationMatchKey(notification) || getNotificationKey(notification);
+            return GhinboxNotificationIdentity.getNotificationDedupKey(notification);
         }
 
         function getUpdatedAtSignature(updatedAt) {
@@ -258,39 +251,7 @@
         }
 
         function getRestNotificationMatchKey(notification) {
-            const repo = notification?.repository?.full_name;
-            const type = notification?.subject?.type || 'unknown';
-            const url = notification?.subject?.url || '';
-            const match = url.match(/\/(issues|pulls)\/(\d+)/);
-            if (!repo || !match) {
-                return null;
-            }
-            return `${repo}:${type}:${match[2]}`;
-        }
-
-        async function fetchJson(url, options = {}) {
-            const response = await fetch(url, options);
-            if (!response.ok) {
-                let detail = '';
-                try {
-                    const errorData = await response.json();
-                    // Check for session expired (401 with session_expired error)
-                    if (response.status === 401 && errorData.detail?.error === 'session_expired') {
-                        showStatus('Session expired. Redirecting to login...', 'error');
-                        // Small delay so user sees the message
-                        await new Promise(resolve => setTimeout(resolve, 1500));
-                        // Use session_refresh=1 to bypass the needs-login check
-                        window.location.href = '/app/login.html?session_refresh=1';
-                        throw new Error('Session expired');
-                    }
-                    detail = JSON.stringify(errorData);
-                } catch (error) {
-                    if (error.message === 'Session expired') throw error;
-                    detail = String(error);
-                }
-                throw new Error(`Request failed: ${url} (${response.status}) ${detail}`);
-            }
-            return response.json();
+            return GhinboxNotificationIdentity.getRestNotificationMatchKey(notification);
         }
 
         async function fetchRestNotificationsMap(targetKeys) {
@@ -436,53 +397,6 @@
             return null;
         }
 
-        function buildReviewRequestSearchUrl(repo, login) {
-            const query = [
-                `repo:${repo.owner}/${repo.repo}`,
-                'is:pr',
-                'is:open',
-                'user-review-requested:@me',
-            ].join(' ');
-            return `/github/rest/search/issues?q=${encodeURIComponent(query)}&per_page=100`;
-        }
-
-        function searchItemToResponsibilityNotification(repo, item) {
-            const user = item.user || {};
-            const state = item.draft ? 'draft' : 'open';
-            return {
-                id: `review-request:${repo.owner}/${repo.repo}#${item.number}`,
-                unread: false,
-                reason: 'review_requested',
-                responsibility_source: 'review-requested',
-                updated_at: item.updated_at || item.created_at || new Date().toISOString(),
-                last_read_at: null,
-                repository: {
-                    owner: repo.owner,
-                    name: repo.repo,
-                    full_name: `${repo.owner}/${repo.repo}`,
-                },
-                subject: {
-                    title: item.title || `Pull request #${item.number}`,
-                    url: item.html_url || `https://github.com/${repo.owner}/${repo.repo}/pull/${item.number}`,
-                    type: 'PullRequest',
-                    number: item.number,
-                    state,
-                    state_reason: null,
-                },
-                actors: user.login
-                    ? [{
-                        login: user.login,
-                        avatar_url: user.avatar_url || '',
-                    }]
-                    : [],
-                ui: {
-                    saved: false,
-                    done: false,
-                    action_tokens: {},
-                },
-            };
-        }
-
         async function fetchReviewRequestNotifications(repo) {
             if (!state.currentUserLogin && typeof checkAuth === 'function') {
                 await checkAuth();
@@ -491,7 +405,7 @@
             if (!login) {
                 return [];
             }
-            const response = await fetch(buildReviewRequestSearchUrl(repo, login));
+            const response = await fetch(GhinboxReviewRequests.buildReviewRequestSearchUrl(repo, login));
             if (!response.ok) {
                 const detail = await response.text();
                 throw new Error(`Review request search failed (${response.status}): ${detail}`);
@@ -500,7 +414,9 @@
             const items = Array.isArray(payload?.items) ? payload.items : [];
             return items
                 .filter((item) => item?.number && item?.pull_request)
-                .map((item) => searchItemToResponsibilityNotification(repo, item));
+                .map((item) =>
+                    GhinboxReviewRequests.searchItemToResponsibilityNotification(repo, item)
+                );
         }
 
         async function getReviewRequestNeedsReviewNumbers(repo, reviewRequests, syncLabel) {
@@ -608,32 +524,10 @@
         }
 
         async function fetchGraphqlForSync(query, variables) {
-            if (typeof fetchGraphql === 'function') {
-                return fetchGraphql(query, variables);
+            if (globalThis.GhinboxHttp?.fetchGraphql) {
+                return globalThis.GhinboxHttp.fetchGraphql(query, variables);
             }
-            const response = await fetch('/github/graphql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, variables }),
-            });
-            if (!response.ok) {
-                const detail = await response.text();
-                throw new Error(`Request failed: /github/graphql (${response.status}) ${detail}`);
-            }
-            const payload = await response.json();
-            if (payload?.data?.rateLimit) {
-                updateGraphqlRateLimit(payload.data.rateLimit);
-            } else if (payload?.extensions?.rateLimit) {
-                updateGraphqlRateLimit(payload.extensions.rateLimit);
-            }
-            if (Array.isArray(payload?.errors) && payload.errors.length) {
-                const messages = payload.errors
-                    .map((error) => error?.message)
-                    .filter(Boolean)
-                    .join('; ');
-                throw new Error(messages || 'GraphQL request failed');
-            }
-            return payload.data;
+            return fetchGraphql(query, variables);
         }
 
         async function refreshPullRequestStates(
@@ -799,7 +693,7 @@
         }
 
         async function loadServerSnapshotOnInit({ forceApply = false } = {}) {
-            const repo = parseRepoInput(state.repo || localStorage.getItem('ghnotif_repo') || '');
+            const repo = parseRepoInput(state.repo || localStorage.getItem(REPO_KEY) || '');
             if (!repo) {
                 return false;
             }
@@ -912,7 +806,7 @@
                 repo: source.repo,
             };
             state.repo = repo;
-            localStorage.setItem('ghnotif_repo', repo);
+            localStorage.setItem(REPO_KEY, repo);
             state.loading = true;
             state.error = null;
             render();
@@ -959,7 +853,7 @@
             }
 
             state.repo = repo;
-            localStorage.setItem('ghnotif_repo', repo);
+            localStorage.setItem(REPO_KEY, repo);
             state.loading = true;
             state.error = null;
             render();
@@ -981,395 +875,4 @@
                 state.loading = false;
                 render();
             }
-        }
-        // Check authentication status
-        const AUTH_CACHE_KEY = 'ghnotif_auth_cache';
-        const AUTH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-        function getCachedAuth() {
-            try {
-                const raw = localStorage.getItem(AUTH_CACHE_KEY);
-                if (!raw) return null;
-                const cached = JSON.parse(raw);
-                if (Date.now() - cached.timestamp > AUTH_CACHE_TTL_MS) {
-                    return null;
-                }
-                return cached;
-            } catch {
-                return null;
-            }
-        }
-
-        function setCachedAuth(login) {
-            try {
-                localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
-                    login,
-                    timestamp: Date.now(),
-                }));
-            } catch {
-                // Ignore storage errors
-            }
-        }
-
-        async function checkAuth({ force = false } = {}) {
-            // Use cached auth if available and not forcing refresh
-            if (!force) {
-                const cached = getCachedAuth();
-                if (cached) {
-                    if (cached.login) {
-                        elements.authStatus.textContent = `Signed in as ${cached.login}`;
-                        elements.authStatus.className = 'auth-status authenticated';
-                        state.currentUserLogin = cached.login;
-                    } else {
-                        elements.authStatus.textContent = 'Not authenticated';
-                        elements.authStatus.className = 'auth-status error';
-                        state.currentUserLogin = null;
-                    }
-                    return;
-                }
-            }
-
-            try {
-                const response = await fetch('/github/rest/user');
-                const data = await response.json();
-
-                if (response.ok && data.login) {
-                    elements.authStatus.textContent = `Signed in as ${data.login}`;
-                    elements.authStatus.className = 'auth-status authenticated';
-                    state.currentUserLogin = data.login;
-                    setCachedAuth(data.login);
-                } else {
-                    elements.authStatus.textContent = 'Not authenticated';
-                    elements.authStatus.className = 'auth-status error';
-                    state.currentUserLogin = null;
-                    setCachedAuth(null);
-                }
-            } catch (e) {
-                elements.authStatus.textContent = 'Auth check failed';
-                elements.authStatus.className = 'auth-status error';
-                state.currentUserLogin = null;
-            }
-        }
-
-        // Handle sync button click
-        async function handleSync({ mode = 'incremental' } = {}) {
-            const repo = elements.repoInput.value.trim();
-            if (!repo) {
-                showStatus('Please enter a repository (owner/repo)', 'error');
-                return;
-            }
-            state.repo = repo;
-            localStorage.setItem('ghnotif_repo', repo);
-            if (state.loading) {
-                return;
-            }
-
-            // Parse owner/repo
-            const parts = repo.split('/');
-            if (parts.length !== 2) {
-                showStatus('Invalid format. Use owner/repo', 'error');
-                return;
-            }
-
-            const [owner, repoName] = parts;
-            const repoInfo = { owner, repo: repoName };
-            const previousNotifications = state.notifications.slice();
-            const previousSelected = new Set(state.selected);
-            const syncMode = mode === 'full' ? 'full' : 'incremental';
-            const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
-            const previousMatchMap =
-                syncMode === 'incremental' &&
-                previousNotifications.length > 0 &&
-                state.lastSyncedRepo === repo
-                    ? buildPreviousMatchMap(previousNotifications)
-                    : null;
-            state.loading = true;
-            state.error = null;
-            state.notifications = [];
-            state.trashNotifications = [];
-            state.selected.clear();
-            state.commentQueue = [];
-            state.commentQueueKeys.clear();
-            state.commentPrefetchProgress.active = false;
-            state.authenticity_token = null;
-            persistAuthenticityToken(null);
-            clearUndoState();
-            render();
-
-            showStatus(`${syncLabel} starting for ${repo}...`, 'info', { flash: true });
-            showStatus(`${syncLabel} in progress...`, 'info');
-
-            try {
-                const allNotifications = [];
-                let afterCursor = null;
-                let pageCount = 0;
-                let overlapIndex = null;
-
-                // Fetch all pages
-                do {
-                    pageCount++;
-                    showStatus(
-                        `${syncLabel}: requesting page ${pageCount} (${formatCursorLabel(afterCursor)})`,
-                        'info',
-                        { flash: true }
-                    );
-
-                    let url = `/notifications/html/repo/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`;
-                    if (afterCursor) {
-                        url += `?after=${encodeURIComponent(afterCursor)}`;
-                    }
-
-                    const response = await fetch(url);
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}));
-                        // Check for session expired (401 with session_expired error)
-                        if (response.status === 401 && errorData.detail?.error === 'session_expired') {
-                            showStatus('Session expired. Redirecting to login...', 'error');
-                            // Small delay so user sees the message
-                            await new Promise(resolve => setTimeout(resolve, 1500));
-                            // Use session_refresh=1 to bypass the needs-login check
-                            window.location.href = '/app/login.html?session_refresh=1';
-                            return;
-                        }
-                        const errorMsg = typeof errorData.detail === 'object'
-                            ? JSON.stringify(errorData.detail)
-                            : (errorData.detail || `HTTP ${response.status}`);
-                        throw new Error(errorMsg);
-                    }
-
-                    const data = await response.json();
-                    allNotifications.push(...data.notifications);
-                    // Store authenticity_token from first page (valid for the session)
-                    if (data.authenticity_token && !state.authenticity_token) {
-                        state.authenticity_token = data.authenticity_token;
-                        persistAuthenticityToken(data.authenticity_token);
-                    }
-                    afterCursor = data.pagination.has_next ? data.pagination.after_cursor : null;
-                    if (previousMatchMap && overlapIndex === null) {
-                        overlapIndex = findIncrementalOverlapIndex(
-                            data.notifications,
-                            previousMatchMap
-                        );
-                        if (overlapIndex !== null) {
-                            showStatus(
-                                `${syncLabel}: overlap found at index ${overlapIndex} (stopping early)`,
-                                'info',
-                                { flash: true }
-                            );
-                            afterCursor = null;
-                        }
-                    }
-                    state.notifications = allNotifications.slice();
-                    showStatus(
-                        `${syncLabel}: received page ${pageCount} (${data.notifications.length} notifications, total ${allNotifications.length})`,
-                        'info'
-                    );
-                    render();
-                    if (syncMode === 'full') {
-                        scheduleSyncPageCommentPrefetch(data.notifications);
-                    }
-
-                } while (afterCursor);
-
-                let mergedNotifications = allNotifications;
-                if (previousMatchMap && overlapIndex !== null) {
-                    showStatus(
-                        `${syncLabel}: merging fetched results with cached list`,
-                        'info',
-                        { flash: true }
-                    );
-                    mergedNotifications = mergeIncrementalNotifications(
-                        allNotifications,
-                        previousNotifications,
-                        overlapIndex + 1
-                    );
-                    const carriedCount = mergedNotifications.length - allNotifications.length;
-                    showStatus(
-                        `${syncLabel}: merged ${allNotifications.length} fetched + ${carriedCount} cached`,
-                        'info'
-                    );
-                } else if (previousMatchMap) {
-                    showStatus(
-                        `${syncLabel}: no overlap found, using fetched pages only`,
-                        'info'
-                    );
-                }
-
-                let reviewRequests = [];
-                try {
-                    showStatus(
-                        `${syncLabel}: checking review requests assigned to you`,
-                        'info',
-                        { flash: true }
-                    );
-                    reviewRequests = await fetchReviewRequestNotifications(repoInfo);
-                    mergedNotifications = mergeReviewRequestNotifications(
-                        mergedNotifications,
-                        reviewRequests,
-                        repoInfo
-                    );
-                    if (reviewRequests.length > 0) {
-                        showStatus(
-                            `${syncLabel}: found ${reviewRequests.length} active review requests`,
-                            'info',
-                            { flash: true }
-                        );
-                    }
-                } catch (error) {
-                    console.error('Review request sync failed:', error);
-                    showStatus(
-                        `${syncLabel}: review request check failed: ${error.message || error}`,
-                        'error',
-                        { flash: true }
-                    );
-                }
-
-                // Sort by updated_at descending
-                showStatus(
-                    `${syncLabel}: sorting ${mergedNotifications.length} notifications`,
-                    'info',
-                    { flash: true }
-                );
-                const sortedNotifications = mergedNotifications.sort((a, b) =>
-                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-                );
-
-                const restLookupKeys =
-                    syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
-                        ? buildIncrementalRestLookupKeys(allNotifications, previousMatchMap)
-                        : null;
-                const missingCount = countMissingLastReadAt(sortedNotifications);
-                const restMissingCount = countMissingLastReadAtForKeys(
-                    sortedNotifications,
-                    restLookupKeys
-                );
-                if (missingCount > 0) {
-                    showStatus(
-                        restLookupKeys && restMissingCount !== missingCount
-                            ? `${syncLabel}: fetching last_read_at for ${restMissingCount}/${missingCount} notifications`
-                            : `${syncLabel}: fetching last_read_at for ${missingCount} notifications`,
-                        'info',
-                        { flash: true }
-                    );
-                } else {
-                    showStatus(
-                        `${syncLabel}: last_read_at already present`,
-                        'info'
-                    );
-                }
-                let notifications = await ensureLastReadAtData(sortedNotifications, {
-                    restLookupKeys,
-                });
-                const remainingMissing = countMissingLastReadAt(notifications);
-                const filledCount = Math.max(missingCount - remainingMissing, 0);
-                if (missingCount > 0) {
-                    showStatus(
-                        `${syncLabel}: filled last_read_at for ${filledCount}/${missingCount} notifications`,
-                        'info'
-                    );
-                }
-
-                if (syncMode === 'incremental') {
-                    const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
-                    const cachedKeys = new Set();
-                    notifications.forEach((notif) => {
-                        const key = getNotificationMatchKeyForRepo(notif, repoInfo);
-                        if (key && !fetchedKeys.has(key)) {
-                            cachedKeys.add(key);
-                        }
-                    });
-                    notifications = await refreshPullRequestStates(repoInfo, notifications, {
-                        syncLabel,
-                        matchKeys: overlapIndex !== null ? cachedKeys : null,
-                    });
-                }
-
-                const needsReviewPrNumbers = await getReviewRequestNeedsReviewNumbers(
-                    repoInfo,
-                    reviewRequests,
-                    syncLabel
-                );
-                notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
-                    needsReviewPrNumbers,
-                });
-                notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
-
-                state.notifications = notifications;
-                state.loading = false;
-                state.lastSyncedRepo = repo;
-                localStorage.setItem(LAST_SYNCED_REPO_KEY, repo);
-
-                // Save to localStorage
-                persistNotifications();
-
-                scheduleCommentPrefetch(notifications);
-
-                showStatus(`Synced ${notifications.length} notifications`, 'success');
-                render();
-
-            } catch (e) {
-                state.loading = false;
-                state.error = e.message;
-                state.notifications = previousNotifications;
-                state.selected = previousSelected;
-                showStatus(`Sync failed: ${e.message}`, 'error');
-                render();
-            }
-        }
-
-        // Show status message
-        function showStatus(message, type, options) {
-            const settings = options || {};
-            const flash = Boolean(settings.flash);
-            const flashDurationMs = Number.isFinite(settings.durationMs)
-                ? settings.durationMs
-                : 1500;
-
-            if (
-                flash &&
-                state.statusState &&
-                !state.statusState.isFlash &&
-                state.statusState.type !== 'info'
-            ) {
-                return;
-            }
-
-            if (state.statusTimer) {
-                clearTimeout(state.statusTimer);
-                state.statusTimer = null;
-            }
-
-            function applyStatus(nextMessage, nextType, isFlash, flashId) {
-                elements.statusBar.textContent = nextMessage;
-                elements.statusBar.className = `status-bar visible ${nextType}`;
-                state.statusState = {
-                    message: nextMessage,
-                    type: nextType,
-                    isFlash,
-                    flashId,
-                };
-            }
-
-            const flashId = flash ? (state.statusFlashId += 1) : null;
-            applyStatus(message, type, flash, flashId);
-
-            if (!flash) {
-                state.lastPersistentStatus = { message, type };
-                return;
-            }
-
-            state.statusTimer = setTimeout(() => {
-                if (!state.statusState || state.statusState.flashId !== flashId) {
-                    return;
-                }
-                const last = state.lastPersistentStatus;
-                if (last) {
-                    applyStatus(last.message, last.type, false, null);
-                    return;
-                }
-                elements.statusBar.textContent = '';
-                elements.statusBar.className = 'status-bar';
-                state.statusState = null;
-            }, flashDurationMs);
         }

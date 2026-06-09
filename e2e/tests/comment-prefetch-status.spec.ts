@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage, seedAuthCache } from './storage-utils';
 
 const notifications = [
   {
@@ -40,12 +40,7 @@ const notifications = [
 
 test.describe('Comment prefetch status', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/rate_limit', (route) => {
       route.fulfill({
@@ -91,11 +86,8 @@ test.describe('Comment prefetch status', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+    await seedAuthCache(page);
     await page.evaluate(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
       if (typeof checkAuth === 'function') {
         checkAuth();
       }

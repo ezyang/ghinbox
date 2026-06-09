@@ -3,7 +3,7 @@
 // This module expects the following globals from notifications-*.js:
 //   state, getNotificationKey, getIssueNumber, parseRepoInput,
 //   showStatus, refreshRateLimit, updateGraphqlRateLimit, setGraphqlRateLimitError,
-//   render, escapeHtml, renderMarkdown, fetchJson
+//   render, escapeHtml, renderMarkdown, fetchJson, fetchGraphql
 
 const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
 const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -414,32 +414,6 @@ async function fetchBulkNotificationComments(notifications) {
         return null;
     }
     return response.json();
-}
-
-async function fetchGraphql(query, variables) {
-    const response = await fetch('/github/graphql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, variables }),
-    });
-    if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`Request failed: /github/graphql (${response.status}) ${detail}`);
-    }
-    const payload = await response.json();
-    if (payload?.data?.rateLimit) {
-        updateGraphqlRateLimit(payload.data.rateLimit);
-    } else if (payload?.extensions?.rateLimit) {
-        updateGraphqlRateLimit(payload.extensions.rateLimit);
-    }
-    if (Array.isArray(payload?.errors) && payload.errors.length) {
-        const messages = payload.errors
-            .map((error) => error?.message)
-            .filter(Boolean)
-            .join('; ');
-        throw new Error(messages || 'GraphQL request failed');
-    }
-    return payload.data;
 }
 
 function buildReviewDecisionQuery(issueNumbers) {
@@ -889,9 +863,15 @@ function getDiffstatInfo(notification) {
 }
 
 function getCommentItems(notification) {
-    const shouldExpand =
-        (state.view === 'issues' && state.commentExpandIssues) ||
-        (state.view !== 'issues' && state.commentExpandPrs);
+    const override = typeof getCommentExpansionOverride === 'function'
+        ? getCommentExpansionOverride(notification)
+        : null;
+    const shouldExpand = override !== null && override !== undefined
+        ? Boolean(override)
+        : (
+            (state.view === 'issues' && state.commentExpandIssues) ||
+            (state.view !== 'issues' && state.commentExpandPrs)
+        );
     if (!shouldExpand) {
         return '';
     }

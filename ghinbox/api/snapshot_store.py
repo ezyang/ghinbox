@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from typing import Literal
 
 SyncStatus = Literal["idle", "running", "success", "error"]
+_BOOL_LOCAL_STATE_FIELDS = {"bookmarked", "replies_muted"}
+_TEXT_LOCAL_STATE_FIELDS = {"read_comment_watermark_at"}
+_LOCAL_STATE_FIELDS = _BOOL_LOCAL_STATE_FIELDS | _TEXT_LOCAL_STATE_FIELDS
 
 
 def _now() -> str:
@@ -226,19 +229,7 @@ def get_notification_bookmark(
     db_path: str | None = None,
 ) -> bool:
     """Return whether a notification is bookmarked locally."""
-    conn = _connect(db_path)
-    try:
-        row = conn.execute(
-            """
-            SELECT bookmarked
-            FROM notification_local_state
-            WHERE repo = ? AND notification_id = ?
-            """,
-            (repo, notification_id),
-        ).fetchone()
-        return bool(row["bookmarked"]) if row else False
-    finally:
-        conn.close()
+    return bool(_get_local_state_value(repo, notification_id, "bookmarked", db_path))
 
 
 def set_notification_bookmark(
@@ -248,30 +239,9 @@ def set_notification_bookmark(
     db_path: str | None = None,
 ) -> dict:
     """Persist a local bookmark flag for a notification."""
-    now = _now()
-    conn = _connect(db_path)
-    try:
-        with conn:
-            conn.execute(
-                """
-                INSERT INTO notification_local_state (
-                    repo, notification_id, bookmarked, updated_at
-                )
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(repo, notification_id) DO UPDATE SET
-                    bookmarked = excluded.bookmarked,
-                    updated_at = excluded.updated_at
-                """,
-                (repo, notification_id, 1 if bookmarked else 0, now),
-            )
-    finally:
-        conn.close()
-    return {
-        "repo": repo,
-        "notification_id": notification_id,
-        "bookmarked": bookmarked,
-        "updated_at": now,
-    }
+    return _set_local_state_value(
+        repo, notification_id, "bookmarked", bookmarked, db_path
+    )
 
 
 def get_notification_replies_muted(
@@ -280,19 +250,7 @@ def get_notification_replies_muted(
     db_path: str | None = None,
 ) -> bool:
     """Return whether generic participation replies are muted locally."""
-    conn = _connect(db_path)
-    try:
-        row = conn.execute(
-            """
-            SELECT replies_muted
-            FROM notification_local_state
-            WHERE repo = ? AND notification_id = ?
-            """,
-            (repo, notification_id),
-        ).fetchone()
-        return bool(row["replies_muted"]) if row else False
-    finally:
-        conn.close()
+    return bool(_get_local_state_value(repo, notification_id, "replies_muted", db_path))
 
 
 def set_notification_replies_muted(
@@ -302,30 +260,13 @@ def set_notification_replies_muted(
     db_path: str | None = None,
 ) -> dict:
     """Persist local suppression of generic participation replies."""
-    now = _now()
-    conn = _connect(db_path)
-    try:
-        with conn:
-            conn.execute(
-                """
-                INSERT INTO notification_local_state (
-                    repo, notification_id, replies_muted, updated_at
-                )
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(repo, notification_id) DO UPDATE SET
-                    replies_muted = excluded.replies_muted,
-                    updated_at = excluded.updated_at
-                """,
-                (repo, notification_id, 1 if replies_muted else 0, now),
-            )
-    finally:
-        conn.close()
-    return {
-        "repo": repo,
-        "notification_id": notification_id,
-        "replies_muted": replies_muted,
-        "updated_at": now,
-    }
+    return _set_local_state_value(
+        repo,
+        notification_id,
+        "replies_muted",
+        replies_muted,
+        db_path,
+    )
 
 
 def get_notification_read_comment_watermark(
@@ -334,23 +275,13 @@ def get_notification_read_comment_watermark(
     db_path: str | None = None,
 ) -> str | None:
     """Return the local read-comment watermark for a notification."""
-    conn = _connect(db_path)
-    try:
-        row = conn.execute(
-            """
-            SELECT read_comment_watermark_at
-            FROM notification_local_state
-            WHERE repo = ? AND notification_id = ?
-            """,
-            (repo, notification_id),
-        ).fetchone()
-        return (
-            str(row["read_comment_watermark_at"])
-            if row and row["read_comment_watermark_at"]
-            else None
-        )
-    finally:
-        conn.close()
+    value = _get_local_state_value(
+        repo,
+        notification_id,
+        "read_comment_watermark_at",
+        db_path,
+    )
+    return str(value) if value else None
 
 
 def set_notification_read_comment_watermark(
@@ -361,28 +292,81 @@ def set_notification_read_comment_watermark(
 ) -> dict:
     """Persist the timestamp after which comments should be shown."""
     watermark = read_comment_watermark_at or _now()
+    return _set_local_state_value(
+        repo,
+        notification_id,
+        "read_comment_watermark_at",
+        watermark,
+        db_path,
+    )
+
+
+def _get_local_state_value(
+    repo: str,
+    notification_id: str,
+    field: str,
+    db_path: str | None = None,
+) -> bool | str | None:
+    if field not in _LOCAL_STATE_FIELDS:
+        raise ValueError(f"Unsupported local state field: {field}")
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            f"""
+            SELECT {field}
+            FROM notification_local_state
+            WHERE repo = ? AND notification_id = ?
+            """,
+            (repo, notification_id),
+        ).fetchone()
+        if row is None or row[field] is None:
+            return False if field in _BOOL_LOCAL_STATE_FIELDS else None
+        if field in _BOOL_LOCAL_STATE_FIELDS:
+            return bool(row[field])
+        return str(row[field])
+    finally:
+        conn.close()
+
+
+def _set_local_state_value(
+    repo: str,
+    notification_id: str,
+    field: str,
+    value: bool | str | None,
+    db_path: str | None = None,
+) -> dict:
+    if field not in _LOCAL_STATE_FIELDS:
+        raise ValueError(f"Unsupported local state field: {field}")
+    stored_value: int | str | None
+    returned_value: bool | str | None
+    if field in _BOOL_LOCAL_STATE_FIELDS:
+        returned_value = bool(value)
+        stored_value = 1 if returned_value else 0
+    else:
+        returned_value = str(value) if value is not None else None
+        stored_value = returned_value
     now = _now()
     conn = _connect(db_path)
     try:
         with conn:
             conn.execute(
-                """
+                f"""
                 INSERT INTO notification_local_state (
-                    repo, notification_id, read_comment_watermark_at, updated_at
+                    repo, notification_id, {field}, updated_at
                 )
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(repo, notification_id) DO UPDATE SET
-                    read_comment_watermark_at = excluded.read_comment_watermark_at,
+                    {field} = excluded.{field},
                     updated_at = excluded.updated_at
                 """,
-                (repo, notification_id, watermark, now),
+                (repo, notification_id, stored_value, now),
             )
     finally:
         conn.close()
     return {
         "repo": repo,
         "notification_id": notification_id,
-        "read_comment_watermark_at": watermark,
+        field: returned_value,
         "updated_at": now,
     }
 

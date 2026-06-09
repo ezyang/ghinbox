@@ -1,6 +1,14 @@
 import { expect, type Page, type Route } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
-import { clearAppStorage, seedCommentCache, seedNotificationsCache } from './storage-utils';
+import {
+  addAuthCacheInitScript,
+  APP_STORAGE_KEYS,
+  clearAppStorage,
+  seedAuthCache,
+  seedCommentCache,
+  seedNotificationsCache,
+  seedRepoSelection,
+} from './storage-utils';
 
 type JsonBody = unknown;
 type RouteHandler = Parameters<Page['route']>[1];
@@ -103,15 +111,12 @@ export async function openNotificationsApp(page: Page, options: {
   const login = options.login ?? DEFAULT_LOGIN;
   const repo = options.repo ?? DEFAULT_REPO;
 
+  await addAuthCacheInitScript(page, login);
   await page.addInitScript(
-    ({ loginValue, repoValue }) => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: loginValue, timestamp: Date.now() })
-      );
-      localStorage.setItem('ghnotif_repo', repoValue);
+    ({ repoKey, repoValue }) => {
+      localStorage.setItem(repoKey, repoValue);
     },
-    { loginValue: login, repoValue: repo }
+    { repoKey: APP_STORAGE_KEYS.repo, repoValue: repo }
   );
   await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
 }
@@ -156,17 +161,8 @@ export async function openNotificationsWithCachedData(page: Page, options: {
   await mockDefaultApiRoutes(page, options);
   await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
   await clearAppStorage(page);
-  await page.evaluate(
-    ({ login, repoValue }) => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login, timestamp: Date.now() })
-      );
-      localStorage.setItem('ghnotif_repo', repoValue);
-      localStorage.setItem('ghnotif_last_synced_repo', repoValue);
-    },
-    { login: options.login ?? DEFAULT_LOGIN, repoValue: repo }
-  );
+  await seedAuthCache(page, options.login ?? DEFAULT_LOGIN);
+  await seedRepoSelection(page, repo, { lastSynced: true });
   if (options.commentCache !== undefined) {
     await seedCommentCache(page, options.commentCache);
   }

@@ -1,6 +1,6 @@
 import { test, expect, type Locator } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
-import { clearAppStorage } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 
 /**
  * Tests for Remove Reviewer button functionality
@@ -14,11 +14,8 @@ function inlineRemoveReviewerButton(notification: Locator) {
 
 test.describe('Remove Reviewer @mutation', () => {
   test.beforeEach(async ({ page }) => {
+    await addAuthCacheInitScript(page);
     await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
       // Disable comment expansion for PRs to ensure only inline button is visible
       localStorage.setItem('ghnotif_comment_expand_prs', 'false');
     });

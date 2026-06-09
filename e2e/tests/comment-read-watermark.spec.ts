@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { addAuthCacheInitScript } from './storage-utils';
 
 function notification(updatedAt: string, ui: Record<string, unknown> = {}) {
   return {
@@ -53,12 +54,9 @@ test.describe('Read comment watermark @mutation', () => {
   test('marks done notifications with a persistent comment read watermark', async ({
     page,
   }) => {
+    await addAuthCacheInitScript(page);
     await page.addInitScript(() => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
     });
 
     await page.route('**/github/rest/rate_limit', (route) => {

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
-import { clearAppStorage, readNotificationsCache } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage, readNotificationsCache } from './storage-utils';
 
 // Note: syncNotificationBeforeDone now uses HTML pull + ID-based comment comparison
 // instead of REST thread timestamp comparison
@@ -14,12 +14,7 @@ import { clearAppStorage, readNotificationsCache } from './storage-utils';
 
 test.describe('Mark Done @slow @mutation', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     // Mock notifications endpoint
     await page.route('**/notifications/html/repo/**', (route) => {

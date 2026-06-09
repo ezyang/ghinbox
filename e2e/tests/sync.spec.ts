@@ -7,6 +7,7 @@ import {
   readNotificationsCache,
   seedCommentCache,
   seedNotificationsCache,
+  seedRepoSelection,
 } from './storage-utils';
 
 /**
@@ -187,10 +188,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       },
     ];
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
 
@@ -338,10 +336,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       },
     ];
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
 
@@ -542,10 +537,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       },
     ];
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
 
@@ -673,10 +665,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       },
     ];
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
 
@@ -823,10 +812,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       },
     ];
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await seedNotificationsCache(page, previousNotifications);
     await page.reload();
 
@@ -1291,10 +1277,7 @@ test.describe('Sync Functionality @slow @sync', () => {
     });
 
     await seedNotificationsCache(page, [staleNotification]);
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await page.reload();
     await expect(page.locator('[data-id="server-refresh-stale-1"]')).toBeVisible();
 
@@ -1351,9 +1334,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       });
     });
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo');
     await page.reload();
 
     await expect(page.locator('[data-id="server-startup-1"]')).toBeVisible();
@@ -1431,9 +1412,7 @@ test.describe('Sync Functionality @slow @sync', () => {
         },
       },
     });
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo');
     await page.reload();
 
     await expect(page.locator('[data-id="server-cached-comments-1"]')).toBeVisible();
@@ -1518,9 +1497,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       });
     });
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo');
     await page.reload();
 
     await expect(page.locator('[data-id="server-bulk-comments-1"]')).toBeVisible();
@@ -1600,9 +1577,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       });
     });
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo');
     await page.reload();
 
     await expect(page.locator('[data-id="server-bundled-comments-1"]')).toBeVisible();
@@ -1693,9 +1668,8 @@ test.describe('Sync Functionality @slow @sync', () => {
     });
 
     await seedNotificationsCache(page, [staleNotification]);
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-      localStorage.setItem('ghnotif_last_synced_repo', 'test/repo');
       localStorage.setItem(
         'ghnotif_server_snapshot_synced_at:test/repo',
         '2024-12-27T12:01:00+00:00'
@@ -1783,9 +1757,7 @@ test.describe('Sync Functionality @slow @sync', () => {
       });
     });
 
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_repo', 'test/repo');
-    });
+    await seedRepoSelection(page, 'test/repo');
     await page.reload();
 
     await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');

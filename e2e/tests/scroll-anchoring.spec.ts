@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 
 /**
  * Scroll Anchoring Tests
@@ -51,12 +51,7 @@ const largeFixture = generateLargeFixture(20);
 
 test.describe('Scroll Anchoring', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/notifications/html/repo/**', (route) => {
       route.fulfill({

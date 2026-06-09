@@ -7,87 +7,18 @@
     }
     root.GhinboxFiltering = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-    const VALID_ORDERS = new Set(['recent', 'size']);
+    const viewState = (typeof globalThis !== 'undefined' && globalThis.GhinboxViewState)
+        ? globalThis.GhinboxViewState
+        : (typeof require === 'function' ? require('./notifications-view-state.js') : null);
+    const VALID_ORDERS = viewState?.VALID_ORDERS || new Set(['recent', 'size']);
     const AI_AUTHOR_LOGIN = 'jansel';
 
-    const DEFAULT_VIEW_FILTERS = {
-        'issues': { state: 'all', interest: 'all' },
-        'my-prs': { state: 'all', interest: 'all' },
-        'pr-notifications': { state: 'all', audience: 'all', interest: 'all' },
-        'others-prs': {
-            state: 'all',
-            author: 'all',
-            interest: 'all',
-        },
-        'cleaned': { state: 'all' },
-    };
-
-    const DEFAULT_VIEW_ORDERS = {
-        'issues': 'recent',
-        'my-prs': 'recent',
-        'pr-notifications': 'recent',
-        'others-prs': 'recent',
-        'cleaned': 'recent',
-    };
-
-    const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'];
-    const VALID_STATE_BY_VIEW = {
-        'issues': new Set(['all', 'open', 'closed']),
-        'my-prs': new Set(['all']),
-        'pr-notifications': new Set(['all', 'open', 'closed']),
-        'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
-        'cleaned': new Set(['all']),
-    };
-
-    function normalizeStateFilter(view, stateFilter) {
-        if (view === 'others-prs' && (stateFilter === 'draft' || stateFilter === 'closed')) {
-            return 'done';
-        }
-        if (VALID_STATE_BY_VIEW[view]?.has(stateFilter)) {
-            return stateFilter;
-        }
-        return DEFAULT_VIEW_FILTERS[view]?.state || 'all';
-    }
-
-    function cloneDefaultViewFilters() {
-        return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
-    }
-
-    function normalizeViewFilters(raw) {
-        const normalized = cloneDefaultViewFilters();
-        if (!raw || typeof raw !== 'object') {
-            return normalized;
-        }
-        VIEW_NAMES.forEach((view) => {
-            const value = raw[view];
-            if (typeof value === 'string') {
-                normalized[view].state = normalizeStateFilter(view, value);
-                return;
-            }
-            if (value && typeof value === 'object') {
-                normalized[view] = {
-                    ...normalized[view],
-                    ...value,
-                };
-                normalized[view].state = normalizeStateFilter(view, normalized[view].state);
-            }
-        });
-        return normalized;
-    }
-
-    function normalizeViewOrders(raw) {
-        const normalized = { ...DEFAULT_VIEW_ORDERS };
-        if (!raw || typeof raw !== 'object') {
-            return normalized;
-        }
-        VIEW_NAMES.forEach((view) => {
-            const value = raw[view];
-            if (typeof value === 'string' && VALID_ORDERS.has(value)) {
-                normalized[view] = value;
-            }
-        });
-        return normalized;
-    }
+    const DEFAULT_VIEW_FILTERS = viewState.DEFAULT_VIEW_FILTERS;
+    const DEFAULT_VIEW_ORDERS = viewState.DEFAULT_VIEW_ORDERS;
+    const normalizeStateFilter = viewState.normalizeStateFilter;
+    const cloneDefaultViewFilters = viewState.cloneDefaultViewFilters;
+    const normalizeViewFilters = viewState.normalizeViewFilters;
+    const normalizeViewOrders = viewState.normalizeViewOrders;
 
     function getNotificationKey(notification) {
         if (notification?.repository?.full_name && notification?.subject?.url) {
@@ -441,6 +372,38 @@
         });
     }
 
+    function isBookmarked(notification) {
+        return Boolean(notification?.ui?.bookmarked);
+    }
+
+    function applyBookmarkFilter(notifications, bookmarkFilter) {
+        if (bookmarkFilter === 'bookmarked') {
+            return notifications.filter(isBookmarked);
+        }
+        if (bookmarkFilter === 'new') {
+            return notifications.filter((notification) => !isBookmarked(notification));
+        }
+        return notifications;
+    }
+
+    function isFeedPullRequest(notification) {
+        return notification?.subject?.type === 'PullRequest';
+    }
+
+    function isFeedIssue(notification) {
+        return notification?.subject?.type === 'Issue';
+    }
+
+    function applyFeedTypeFilter(notifications, typeFilter) {
+        if (typeFilter === 'prs') {
+            return notifications.filter(isFeedPullRequest);
+        }
+        if (typeFilter === 'issues') {
+            return notifications.filter(isFeedIssue);
+        }
+        return notifications;
+    }
+
     function getFilteredNotifications(input) {
         const classifier = input.classifier || makeClassifier(input);
         const view = input.view || 'issues';
@@ -466,6 +429,11 @@
         }
 
         filtered = applyInterestFilter(filtered, filters.interest || 'all', classifier);
+
+        if (view === 'issues') {
+            filtered = applyBookmarkFilter(filtered, filters.bookmark || 'new');
+            filtered = applyFeedTypeFilter(filtered, filters.type || 'all');
+        }
 
         if (input.orderBy === 'size' && view !== 'issues') {
             return sortNotificationsBySize(filtered, classifier);
@@ -549,6 +517,12 @@
                     hasNew: 0,
                     noNew: 0,
                 },
+                bookmark: {
+                    all: trashNotifications.length,
+                    new: 0,
+                    bookmarked: 0,
+                },
+                type: { all: 0, prs: 0, issues: 0 },
             };
         }
 
@@ -560,6 +534,8 @@
         const stateFilter = filters.state || 'all';
         const authorFilter = filters.author || 'all';
         const audienceFilter = filters.audience || 'all';
+        const bookmarkFilter = filters.bookmark || 'new';
+        const interestFilter = filters.interest || 'all';
 
         const stateCounts = {
             all: 0,
@@ -580,6 +556,16 @@
             all: 0,
             'for-you': 0,
             'for-others': 0,
+        };
+        const bookmarkCounts = {
+            all: 0,
+            new: 0,
+            bookmarked: 0,
+        };
+        const typeCounts = {
+            all: 0,
+            prs: 0,
+            issues: 0,
         };
 
         const baseForStateCounts = view === 'others-prs'
@@ -643,12 +629,40 @@
             });
         }
 
+        if (view === 'issues') {
+            bookmarkCounts.all = viewNotifications.length;
+            viewNotifications.forEach((notif) => {
+                if (isBookmarked(notif)) {
+                    bookmarkCounts.bookmarked++;
+                } else {
+                    bookmarkCounts.new++;
+                }
+            });
+
+            let baseForTypeCounts = applyBookmarkFilter(viewNotifications, bookmarkFilter);
+            baseForTypeCounts = applyStateFilter(baseForTypeCounts, stateFilter, classifier);
+            baseForTypeCounts = applyInterestFilter(baseForTypeCounts, interestFilter, classifier);
+            typeCounts.all = baseForTypeCounts.length;
+            baseForTypeCounts.forEach((notif) => {
+                if (isFeedPullRequest(notif)) {
+                    typeCounts.prs++;
+                }
+                if (isFeedIssue(notif)) {
+                    typeCounts.issues++;
+                }
+            });
+        }
+
         let baseForInterestCounts = applyStateFilter(viewNotifications, stateFilter, classifier);
         if (view === 'others-prs') {
             baseForInterestCounts = applyAuthorFilter(baseForInterestCounts, authorFilter, classifier);
         }
         if (view === 'pr-notifications') {
             baseForInterestCounts = applyAudienceFilter(baseForInterestCounts, audienceFilter, classifier);
+        }
+        if (view === 'issues') {
+            baseForInterestCounts = applyBookmarkFilter(baseForInterestCounts, bookmarkFilter);
+            baseForInterestCounts = applyFeedTypeFilter(baseForInterestCounts, filters.type || 'all');
         }
 
         const interestCounts = { all: baseForInterestCounts.length, hasNew: 0, noNew: 0 };
@@ -664,6 +678,8 @@
             state: stateCounts,
             author: authorCounts,
             audience: audienceCounts,
+            bookmark: bookmarkCounts,
+            type: typeCounts,
             interest: interestCounts,
         };
     }
@@ -687,6 +703,8 @@
         VALID_ORDERS,
         applyAudienceFilter,
         applyAuthorFilter,
+        applyBookmarkFilter,
+        applyFeedTypeFilter,
         applyInterestFilter,
         applyStateFilter,
         cloneDefaultViewFilters,

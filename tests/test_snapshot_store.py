@@ -8,11 +8,15 @@ import pytest
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_notification_bookmark,
+    get_notification_read_comment_watermark,
+    get_notification_replies_muted,
     get_snapshot,
     get_sync_state,
     init_snapshot_db,
     save_snapshot,
     set_notification_bookmark,
+    set_notification_read_comment_watermark,
+    set_notification_replies_muted,
     set_sync_state,
 )
 
@@ -113,6 +117,57 @@ def test_bookmark_overlay_survives_replacement_sync(db_path) -> None:
     assert (
         apply_local_state("owner/repo", replacement, db_path)[0]["ui"]["bookmarked"]
         is True
+    )
+
+
+def test_local_notification_state_round_trip(db_path) -> None:
+    assert get_notification_bookmark("owner/repo", "notif-1", db_path=db_path) is False
+    assert (
+        get_notification_replies_muted("owner/repo", "notif-1", db_path=db_path)
+        is False
+    )
+    assert (
+        get_notification_read_comment_watermark(
+            "owner/repo",
+            "notif-1",
+            db_path=db_path,
+        )
+        is None
+    )
+
+    bookmark = set_notification_bookmark(
+        "owner/repo",
+        "notif-1",
+        True,
+        db_path=db_path,
+    )
+    muted = set_notification_replies_muted(
+        "owner/repo",
+        "notif-1",
+        True,
+        db_path=db_path,
+    )
+    watermark = set_notification_read_comment_watermark(
+        "owner/repo",
+        "notif-1",
+        "2025-01-05T11:30:00Z",
+        db_path=db_path,
+    )
+
+    assert bookmark["bookmarked"] is True
+    assert muted["replies_muted"] is True
+    assert watermark["read_comment_watermark_at"] == "2025-01-05T11:30:00Z"
+    assert get_notification_bookmark("owner/repo", "notif-1", db_path=db_path) is True
+    assert (
+        get_notification_replies_muted("owner/repo", "notif-1", db_path=db_path) is True
+    )
+    assert (
+        get_notification_read_comment_watermark(
+            "owner/repo",
+            "notif-1",
+            db_path=db_path,
+        )
+        == "2025-01-05T11:30:00Z"
     )
 
 

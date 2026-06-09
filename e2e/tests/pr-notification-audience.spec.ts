@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage, seedCommentCache } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const makePrNotification = (id: string, number: number, title: string) => ({
   id,
@@ -171,12 +171,7 @@ const commentCache = {
 
 test.describe('Replies queue classification @classification', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

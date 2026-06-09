@@ -1,3 +1,21 @@
+        const renderHooks = [];
+
+        function registerRenderHook(hook) {
+            if (typeof hook === 'function') {
+                renderHooks.push(hook);
+            }
+        }
+
+        function runRenderHooks() {
+            renderHooks.forEach((hook) => {
+                try {
+                    hook();
+                } catch (error) {
+                    console.error('Render hook failed:', error);
+                }
+            });
+        }
+
         function isMobileViewport() {
             return window.innerWidth <= 640;
         }
@@ -1179,6 +1197,8 @@
             const currentAuthorFilter = viewFilters.author || 'all';
             const currentAudienceFilter = viewFilters.audience || 'all';
             const currentInterestFilter = viewFilters.interest || 'all';
+            const currentBookmarkFilter = viewFilters.bookmark || 'all';
+            const currentTypeFilter = viewFilters.type || 'all';
             elements.subfilterTabs.forEach(tab => {
                 const subfilter = tab.dataset.subfilter;
                 const tabView = tab.closest('.subfilter-tabs')?.dataset.forView;
@@ -1187,6 +1207,8 @@
                     group === 'author' ? currentAuthorFilter :
                     group === 'audience' ? currentAudienceFilter :
                     group === 'interest' ? currentInterestFilter :
+                    group === 'bookmark' ? currentBookmarkFilter :
+                    group === 'type' ? currentTypeFilter :
                     currentStateFilter;
                 const isActive =
                     tabView === state.view &&
@@ -1206,6 +1228,8 @@
                                 group === 'author' ? subfilterCounts.author :
                                 group === 'audience' ? subfilterCounts.audience :
                                 group === 'interest' ? subfilterCounts.interest :
+                                group === 'bookmark' ? subfilterCounts.bookmark :
+                                group === 'type' ? subfilterCounts.type :
                                 subfilterCounts.state;
                             const countKey =
                                 group === 'state' && subfilter === 'needs-review' ? 'needsReview' :
@@ -1549,6 +1573,8 @@
                 });
             }
 
+            runRenderHooks();
+
             if (state.scrollLock) {
                 const now = Date.now();
                 if (now <= state.scrollLock.until) {
@@ -1592,13 +1618,6 @@
         }
 
         function parseRepoInput(value) {
-            const trimmed = value.trim();
-            if (!trimmed) {
-                return null;
-            }
-            const parts = trimmed.split('/');
-            if (parts.length !== 2 || !parts[0] || !parts[1]) {
-                return null;
-            }
-            return { owner: parts[0], repo: parts[1] };
+            const repo = GhinboxNotificationIdentity.parseRepoInput(value);
+            return repo ? { owner: repo.owner, repo: repo.repo } : null;
         }

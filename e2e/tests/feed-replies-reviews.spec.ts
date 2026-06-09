@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage, seedCommentCache } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const notificationsResponse = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -297,12 +297,7 @@ const reviewRequestSearch = {
 
 test.describe('Feed, Replies, and Reviews queues @classification', () => {
   test.beforeEach(async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
@@ -657,12 +652,7 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     };
     let archivedIds: string[] = [];
 
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
         status: 200,

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage } from './storage-utils';
+import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 
 const emptyNotifications = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -108,12 +108,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
   test.beforeEach(async ({ page }) => {
     notificationsPayload = emptyNotifications;
 
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

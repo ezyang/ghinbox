@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  addAuthCacheInitScript,
   clearAppStorage,
   readNotificationsCache,
   seedCommentCache,
@@ -258,12 +259,7 @@ test.describe('Low-priority cleanup @mutation', () => {
   test.beforeEach(async ({ page }) => {
     currentNotificationsResponse = notificationsResponse;
 
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: 'testuser', timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page);
 
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

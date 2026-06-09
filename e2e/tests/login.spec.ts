@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { addAuthCacheInitScript } from './storage-utils';
 
 /**
  * E2E tests for the login flow.
@@ -182,12 +183,7 @@ test.describe('Login Page Navigation', () => {
   }) => {
     let needsLogin = true;
 
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        'ghnotif_auth_cache',
-        JSON.stringify({ login: null, timestamp: Date.now() })
-      );
-    });
+    await addAuthCacheInitScript(page, null);
 
     await page.route('**/auth/needs-login', (route) => {
       route.fulfill({

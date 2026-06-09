@@ -1,22 +1,23 @@
 // Comment-related constants are in notifications-comments.js
-        const REPO_KEY = 'ghnotif_repo';
-        const PROFILE_KEY = 'ghnotif_profile';
-        const PROFILES_KEY = 'ghnotif_profiles';
-        const LAST_SYNCED_REPO_KEY = 'ghnotif_last_synced_repo';
-        const VIEW_KEY = 'ghnotif_view';
-        const VIEW_FILTERS_KEY = 'ghnotif_view_filters';
-        const AUTH_TOKEN_KEY = 'ghnotif_authenticity_token';
-        const ORDER_KEY = 'ghnotif_order';
-        const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
-        const AUTO_MARK_TRASH_KEY = 'ghnotif_auto_mark_trash_done';
         const {
             DEFAULT_VIEW_FILTERS,
             DEFAULT_VIEW_ORDERS,
+            STORAGE_KEYS,
             VALID_ORDERS,
             cloneDefaultViewFilters,
             normalizeViewFilters,
             normalizeViewOrders,
-        } = GhinboxFiltering;
+        } = GhinboxViewState;
+        const REPO_KEY = STORAGE_KEYS.repo;
+        const PROFILE_KEY = STORAGE_KEYS.profile;
+        const PROFILES_KEY = STORAGE_KEYS.profiles;
+        const LAST_SYNCED_REPO_KEY = STORAGE_KEYS.lastSyncedRepo;
+        const VIEW_KEY = STORAGE_KEYS.view;
+        const VIEW_FILTERS_KEY = STORAGE_KEYS.viewFilters;
+        const AUTH_TOKEN_KEY = STORAGE_KEYS.authenticityToken;
+        const ORDER_KEY = STORAGE_KEYS.order;
+        const ORDER_BY_VIEW_KEY = STORAGE_KEYS.orderByView;
+        const AUTO_MARK_TRASH_KEY = STORAGE_KEYS.autoMarkTrash;
         const RATE_LIMIT_LOG_MAX = 300;
         const DEFAULT_PROFILE_ID = 'pytorch';
         const DEFAULT_PROFILES = [
@@ -346,35 +347,7 @@
         }
 
         function getNotificationRepoInfo(notification, fallback = null) {
-            const fullName = notification?.repository?.full_name;
-            const parsedFullName = fullName ? parseRepoInput(fullName) : null;
-            if (parsedFullName) {
-                return {
-                    owner: parsedFullName.owner,
-                    repo: parsedFullName.repo,
-                    fullName: `${parsedFullName.owner}/${parsedFullName.repo}`,
-                };
-            }
-            const url = String(notification?.subject?.url || '');
-            const match = url.match(/github\.com\/([^/]+)\/([^/]+)\//);
-            if (match) {
-                return {
-                    owner: match[1],
-                    repo: match[2],
-                    fullName: `${match[1]}/${match[2]}`,
-                };
-            }
-            const parsedFallback = fallback
-                ? parseRepoInput(fallback.fullName || `${fallback.owner}/${fallback.repo}`)
-                : null;
-            if (parsedFallback) {
-                return {
-                    owner: parsedFallback.owner,
-                    repo: parsedFallback.repo,
-                    fullName: `${parsedFallback.owner}/${parsedFallback.repo}`,
-                };
-            }
-            return null;
+            return GhinboxNotificationIdentity.getRepoInfo(notification, fallback);
         }
 
         function persistNotifications() {
@@ -982,7 +955,7 @@
 
         // Set the current view
         function setView(view) {
-            if (!['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'].includes(view)) {
+            if (!GhinboxViewState.VALID_VIEWS.has(view)) {
                 return;
             }
             state.view = view;
