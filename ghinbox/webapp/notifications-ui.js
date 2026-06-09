@@ -999,6 +999,189 @@
             personRemove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 5.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM1.5 12.5A3.5 3.5 0 0 1 5 9h2a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-.5ZM11.22 6.22a.75.75 0 0 1 1.06 0L14 7.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L15.06 9l1.72 1.72a.75.75 0 1 1-1.06 1.06L14 10.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L12.94 9l-1.72-1.72a.75.75 0 0 1 0-1.06Z"></path></svg>`,
         };
 
+        const NOTIFICATION_ACTIONS = {
+            open: {
+                className: 'notification-open-btn', bottomClassName: 'notification-open-btn-bottom',
+                ariaLabel: 'Open notification in new tab', text: 'Open in new tab', icon: () => icons.openInNewTab,
+            },
+            unsubscribe: {
+                className: 'notification-unsubscribe-btn', bottomClassName: 'notification-unsubscribe-btn-bottom',
+                ariaLabel: 'Unsubscribe from notification', text: 'Unsubscribe', icon: () => icons.bellSlash,
+                context: 'Unsubscribe (inline)', handler: handleInlineUnsubscribe,
+            },
+            'remove-reviewer': {
+                className: 'notification-remove-reviewer-btn', bottomClassName: 'notification-remove-reviewer-btn-bottom',
+                ariaLabel: 'Remove me as reviewer', text: 'Remove me', icon: () => icons.personRemove,
+                context: 'Remove reviewer (inline)', handler: handleInlineRemoveReviewer,
+            },
+            done: {
+                className: 'notification-done-btn', bottomClassName: 'notification-done-btn-bottom',
+                ariaLabel: 'Mark notification as done', text: 'Done', icon: () => icons.check,
+                context: 'Mark done (inline)', handler: handleInlineMarkDone,
+            },
+        };
+
+        function renderNotificationActionButton(action, { bottom = false, withText = false } = {}) {
+            const config = NOTIFICATION_ACTIONS[action];
+            if (!config) {
+                return '';
+            }
+            const classes = [config.className];
+            if (bottom && config.bottomClassName) {
+                classes.push(config.bottomClassName);
+            }
+            return `<button type="button" class="${classes.join(' ')}" data-notification-action="${action}" aria-label="${escapeHtml(config.ariaLabel)}">${config.icon()}${withText ? `<span>${escapeHtml(config.text)}</span>` : ''}</button>`;
+        }
+
+        function getNotificationActionAvailability(notif) {
+            const canUseNotificationActions =
+                state.view !== 'cleaned' && (
+                    typeof hasNotificationHtmlAction !== 'function' ||
+                    hasNotificationHtmlAction(notif, 'archive')
+                );
+            return {
+                done: canUseNotificationActions,
+                unsubscribe:
+                    state.view !== 'cleaned' &&
+                    typeof hasNotificationHtmlAction === 'function' &&
+                    hasNotificationHtmlAction(notif, 'unsubscribe'),
+                'remove-reviewer':
+                    state.view !== 'cleaned' && notif.subject.type === 'PullRequest',
+            };
+        }
+
+        function renderNotificationActionsBottom(commentItems, availability) {
+            if (!commentItems) {
+                return '';
+            }
+            const actions = ['open', 'unsubscribe', 'remove-reviewer', 'done']
+                .filter((action) => action === 'open' || availability[action])
+                .map((action) => renderNotificationActionButton(action, {
+                    bottom: true,
+                    withText: true,
+                }))
+                .join('');
+            return `<div class="notification-actions-bottom">${actions}</div>`;
+        }
+
+        function renderNotificationActionsInline(availability) {
+            return ['done', 'unsubscribe', 'remove-reviewer']
+                .filter((action) => availability[action])
+                .map((action) => renderNotificationActionButton(action))
+                .join('');
+        }
+
+        function renderNotificationActors(notif) {
+            if (!Array.isArray(notif.actors) || notif.actors.length === 0) {
+                return '';
+            }
+            const actors = notif.actors.slice(0, 3).map((actor) =>
+                `<img class="actor-avatar" src="${escapeHtml(actor.avatar_url || '')}" alt="${escapeHtml(actor.login || '')}" title="${escapeHtml(actor.login || '')}">`
+            ).join('');
+            return `<div class="notification-actors">${actors}</div>`;
+        }
+
+        function getDiffstatRenderContext(notifications) {
+            const infoById = new Map();
+            const totals = [];
+            notifications.forEach((notif) => {
+                const info = getDiffstatInfo(notif);
+                if (info) {
+                    infoById.set(notif.id, info);
+                    totals.push(info.total);
+                }
+            });
+            return {
+                infoById,
+                range: totals.length
+                    ? { min: Math.min(...totals), max: Math.max(...totals) }
+                    : { min: null, max: null },
+            };
+        }
+
+        function renderNotificationItem(notif, diffstatContext) {
+            const li = document.createElement('li');
+            const isSelected = state.selected.has(notif.id);
+            const isActive = state.activeNotificationId === notif.id;
+            li.className = [
+                'notification-item',
+                notif.unread ? 'unread' : '',
+                isSelected ? 'selected' : '',
+                isActive ? 'keyboard-selected' : '',
+            ].filter(Boolean).join(' ');
+            li.dataset.id = notif.id;
+            li.dataset.url = notif.subject.url || '';
+            li.dataset.type = notif.subject.type;
+            li.dataset.state = notif.subject.state || '';
+            if (isActive) {
+                li.setAttribute('aria-current', 'true');
+            }
+
+            const iconClass = getIconStateClass(notif);
+            const iconSvg = getNotificationIcon(notif);
+            const stateBadge = getStateBadge(notif);
+            const relativeTime = formatRelativeTime(notif.updated_at);
+            const reason = formatReason(notif.reason);
+            const commentStatus = getCommentStatus(notif);
+            const commentBadge = commentStatus
+                ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
+                : '';
+            const diffstatInfo = diffstatContext.infoById.get(notif.id);
+            const diffstatHue = diffstatInfo
+                ? getDiffstatHue(diffstatInfo.total, diffstatContext.range)
+                : null;
+            const diffstatHtml = diffstatInfo
+                ? `<span class="diffstat-tag" style="--diffstat-hue: ${diffstatHue}" title="${escapeHtml(diffstatInfo.title)}">+${diffstatInfo.additions}/-${diffstatInfo.deletions}</span>`
+                : '';
+            const authorLogin = getPullRequestAuthorLogin(notif);
+            const authorHtml = authorLogin
+                ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
+                : '';
+            const commentItems = getCommentItems(notif);
+            const commentList = commentItems
+                ? `<ul class="comment-list">${commentItems}</ul>`
+                : '';
+            const actionAvailability = getNotificationActionAvailability(notif);
+
+            li.innerHTML = `
+                <input
+                    type="checkbox"
+                    class="notification-checkbox"
+                    ${isSelected ? 'checked' : ''}
+                    aria-label="Select notification: ${escapeHtml(notif.subject.title)}"
+                >
+                <div class="notification-icon ${iconClass}" data-type="${notif.subject.type}">
+                    ${iconSvg}
+                </div>
+                <div class="notification-content">
+                    <div class="notification-header">
+                        <a href="${escapeHtml(notif.subject.url)}" class="notification-title" target="_blank" rel="noopener">
+                            ${renderInlineCode(notif.subject.title)}
+                        </a>
+                        ${authorHtml}
+                        <div class="notification-meta">
+                            ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
+                            ${stateBadge}
+                            <span class="notification-reason" data-reason="${escapeHtml(notif.reason)}">${reason}</span>
+                            ${diffstatHtml}
+                            ${commentBadge}
+                        </div>
+                    </div>
+                    ${commentList}
+                    ${renderNotificationActionsBottom(commentItems, actionAvailability)}
+                </div>
+                ${renderNotificationActors(notif)}
+                <div class="notification-actions-inline">
+                    <time class="notification-time" datetime="${notif.updated_at}" title="${new Date(notif.updated_at).toLocaleString()}">
+                        ${relativeTime}
+                    </time>
+                    ${renderNotificationActionsInline(actionAvailability)}
+                </div>
+            `;
+
+            return li;
+        }
+
         // Check if current user is a reviewer on a PR
         async function checkIfUserIsReviewer(notification) {
             if (notification.subject.type !== 'PullRequest') return false;
@@ -1136,6 +1319,48 @@
             }
             return String(login);
         }
+
+        function handleNotificationListClick(event) {
+            const target = event.target instanceof Element ? event.target : event.target.parentElement;
+            if (!target) {
+                return;
+            }
+            const item = target.closest('.notification-item');
+            if (!item || !elements.notificationsList.contains(item)) {
+                return;
+            }
+
+            const notifId = item.dataset.id;
+            const checkbox = target.closest('.notification-checkbox');
+            if (checkbox) {
+                event.stopPropagation();
+                handleNotificationCheckbox(notifId, event);
+                return;
+            }
+
+            const actionButton = target.closest('[data-notification-action]');
+            if (actionButton) {
+                event.stopPropagation();
+                const action = actionButton.dataset.notificationAction;
+                if (action === 'open') {
+                    window.open(item.dataset.url, '_blank', 'noopener');
+                    return;
+                }
+                const actionConfig = NOTIFICATION_ACTIONS[action];
+                if (actionConfig) {
+                    withActionContext(actionConfig.context, () =>
+                        actionConfig.handler(notifId, actionButton)
+                    );
+                }
+                return;
+            }
+
+            if (!isMobileViewport()) {
+                setActiveNotification(notifId);
+            }
+        }
+
+        elements.notificationsList.addEventListener('click', handleNotificationListClick);
 
         function getDiffstatHue(total, range) {
             if (!range || range.min === null || range.max === null) {
@@ -1321,247 +1546,12 @@
             elements.notificationsList.innerHTML = '';
 
             if (displayNotifications.length > 0) {
-                const diffstatInfoById = new Map();
-                const diffstatTotals = [];
-                displayNotifications.forEach(notif => {
-                    const info = getDiffstatInfo(notif);
-                    if (info) {
-                        diffstatInfoById.set(notif.id, info);
-                        diffstatTotals.push(info.total);
-                    }
+                const diffstatContext = getDiffstatRenderContext(displayNotifications);
+                const fragment = document.createDocumentFragment();
+                displayNotifications.forEach((notif) => {
+                    fragment.appendChild(renderNotificationItem(notif, diffstatContext));
                 });
-                const diffstatRange = diffstatTotals.length
-                    ? {
-                        min: Math.min(...diffstatTotals),
-                        max: Math.max(...diffstatTotals),
-                    }
-                    : { min: null, max: null };
-                displayNotifications.forEach(notif => {
-                    const li = document.createElement('li');
-                    const isSelected = state.selected.has(notif.id);
-                    const isActive = state.activeNotificationId === notif.id;
-                    li.className = 'notification-item' +
-                        (notif.unread ? ' unread' : '') +
-                        (isSelected ? ' selected' : '') +
-                        (isActive ? ' keyboard-selected' : '');
-                    li.setAttribute('data-id', notif.id);
-                    li.setAttribute('data-type', notif.subject.type);
-                    li.setAttribute('data-state', notif.subject.state || '');
-                    if (isActive) {
-                        li.setAttribute('aria-current', 'true');
-                    }
-
-                    // Build notification HTML
-                    const iconClass = getIconStateClass(notif);
-                    const iconSvg = getNotificationIcon(notif);
-                    const stateBadge = getStateBadge(notif);
-                    const relativeTime = formatRelativeTime(notif.updated_at);
-                    const reason = formatReason(notif.reason);
-                    const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-                    const stateFilter = viewFilters.state || 'all';
-                    const commentStatus = getCommentStatus(notif);
-                    const commentBadge = commentStatus
-                        ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
-                        : '';
-                    const diffstatInfo = diffstatInfoById.get(notif.id);
-                    const diffstatHue = diffstatInfo
-                        ? getDiffstatHue(diffstatInfo.total, diffstatRange)
-                        : null;
-                    const diffstatHtml = diffstatInfo
-                        ? `<span class="diffstat-tag" style="--diffstat-hue: ${diffstatHue}" title="${escapeHtml(diffstatInfo.title)}">+${diffstatInfo.additions}/-${diffstatInfo.deletions}</span>`
-                        : '';
-                    const authorLogin = getPullRequestAuthorLogin(notif);
-                    const authorHtml = authorLogin
-                        ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
-                        : '';
-                    const commentItems = getCommentItems(notif);
-                    const commentList = commentItems
-                        ? `<ul class="comment-list">${commentItems}</ul>`
-                        : '';
-                    const canUseNotificationActions =
-                        state.view !== 'cleaned' && (
-                            typeof hasNotificationHtmlAction !== 'function' ||
-                            hasNotificationHtmlAction(notif, 'archive')
-                        );
-                    const canUnsubscribe =
-                        state.view !== 'cleaned' &&
-                        typeof hasNotificationHtmlAction === 'function' &&
-                        hasNotificationHtmlAction(notif, 'unsubscribe');
-                    const canRemoveReviewer =
-                        state.view !== 'cleaned' && notif.subject.type === 'PullRequest';
-                    const bottomActions = commentItems
-                        ? `
-                            <div class="notification-actions-bottom">
-                                <button
-                                    type="button"
-                                    class="notification-open-btn notification-open-btn-bottom"
-                                    aria-label="Open notification in new tab"
-                                >
-                                    ${icons.openInNewTab}
-                                    <span>Open in new tab</span>
-                                </button>
-                                ${canUnsubscribe ? `
-                                <button
-                                    type="button"
-                                    class="notification-unsubscribe-btn notification-unsubscribe-btn-bottom"
-                                    aria-label="Unsubscribe from notification"
-                                >
-                                    ${icons.bellSlash}
-                                    <span>Unsubscribe</span>
-                                </button>
-                                ` : ''}
-                                ${canRemoveReviewer ? `
-                                <button
-                                    type="button"
-                                    class="notification-remove-reviewer-btn notification-remove-reviewer-btn-bottom"
-                                    aria-label="Remove me as reviewer"
-                                >
-                                    ${icons.personRemove}
-                                    <span>Remove me</span>
-                                </button>
-                                ` : ''}
-                                ${canUseNotificationActions ? `
-                                <button
-                                    type="button"
-                                    class="notification-done-btn notification-done-btn-bottom"
-                                    aria-label="Mark notification as done"
-                                >
-                                    ${icons.check}
-                                    <span>Done</span>
-                                </button>
-                                ` : ''}
-                            </div>
-                        `
-                        : '';
-                    const doneButton = canUseNotificationActions ? `
-                        <button
-                            type="button"
-                            class="notification-done-btn"
-                            aria-label="Mark notification as done"
-                        >
-                            ${icons.check}
-                        </button>
-                    ` : '';
-                    const unsubscribeButton = canUnsubscribe ? `
-                        <button
-                            type="button"
-                            class="notification-unsubscribe-btn"
-                            aria-label="Unsubscribe from notification"
-                        >
-                            ${icons.bellSlash}
-                        </button>
-                    ` : '';
-                    const removeReviewerButton = canRemoveReviewer ? `
-                        <button
-                            type="button"
-                            class="notification-remove-reviewer-btn"
-                            aria-label="Remove me as reviewer"
-                        >
-                            ${icons.personRemove}
-                        </button>
-                    ` : '';
-
-                    // Actors HTML
-                    let actorsHtml = '';
-                    if (notif.actors && notif.actors.length > 0) {
-                        actorsHtml = '<div class="notification-actors">';
-                        notif.actors.slice(0, 3).forEach(actor => {
-                            actorsHtml += `<img class="actor-avatar" src="${actor.avatar_url}" alt="${actor.login}" title="${actor.login}">`;
-                        });
-                        actorsHtml += '</div>';
-                    }
-
-                    li.innerHTML = `
-                        <input
-                            type="checkbox"
-                            class="notification-checkbox"
-                            ${isSelected ? 'checked' : ''}
-                            aria-label="Select notification: ${escapeHtml(notif.subject.title)}"
-                        >
-                        <div class="notification-icon ${iconClass}" data-type="${notif.subject.type}">
-                            ${iconSvg}
-                        </div>
-                        <div class="notification-content">
-                            <div class="notification-header">
-                                <a href="${notif.subject.url}" class="notification-title" target="_blank" rel="noopener">
-                                    ${renderInlineCode(notif.subject.title)}
-                                </a>
-                                ${authorHtml}
-                                <div class="notification-meta">
-                                    ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
-                                    ${stateBadge}
-                                    <span class="notification-reason" data-reason="${escapeHtml(notif.reason)}">${reason}</span>
-                                    ${diffstatHtml}
-                                    ${commentBadge}
-                                </div>
-                            </div>
-                            ${commentList}
-                            ${bottomActions}
-                        </div>
-                        ${actorsHtml}
-                        <div class="notification-actions-inline">
-                            <time class="notification-time" datetime="${notif.updated_at}" title="${new Date(notif.updated_at).toLocaleString()}">
-                                ${relativeTime}
-                            </time>
-                            ${doneButton}
-                            ${unsubscribeButton}
-                            ${removeReviewerButton}
-                        </div>
-                    `;
-
-                    // Add checkbox click handler
-                    const checkbox = li.querySelector('.notification-checkbox');
-                    checkbox.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        handleNotificationCheckbox(notif.id, e);
-                    });
-
-                    const doneButtons = li.querySelectorAll('.notification-done-btn');
-                    doneButtons.forEach((doneBtn) => {
-                        doneBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            withActionContext('Mark done (inline)', () =>
-                                handleInlineMarkDone(notif.id, doneBtn)
-                            );
-                        });
-                    });
-
-                    const unsubscribeButtons = li.querySelectorAll('.notification-unsubscribe-btn');
-                    unsubscribeButtons.forEach((unsubscribeBtn) => {
-                        unsubscribeBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            withActionContext('Unsubscribe (inline)', () =>
-                                handleInlineUnsubscribe(notif.id, unsubscribeBtn)
-                            );
-                        });
-                    });
-
-                    const removeReviewerButtons = li.querySelectorAll('.notification-remove-reviewer-btn');
-                    removeReviewerButtons.forEach((removeBtn) => {
-                        removeBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            withActionContext('Remove reviewer (inline)', () =>
-                                handleInlineRemoveReviewer(notif.id, removeBtn)
-                            );
-                        });
-                    });
-
-                    const openButtons = li.querySelectorAll('.notification-open-btn');
-                    openButtons.forEach((openBtn) => {
-                        openBtn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            window.open(notif.subject.url, '_blank', 'noopener');
-                        });
-                    });
-
-                    li.addEventListener('click', () => {
-                        if (!isMobileViewport()) {
-                            setActiveNotification(notif.id);
-                        }
-                    });
-
-                    elements.notificationsList.appendChild(li);
-                });
+                elements.notificationsList.appendChild(fragment);
             }
 
             runRenderHooks();
