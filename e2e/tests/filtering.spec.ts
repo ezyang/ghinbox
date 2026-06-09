@@ -25,7 +25,7 @@ async function expectNoStatusFlash(page, text) {
  * Filtering Tests
  *
  * Tests for filtering notifications by queue (Feed, Replies, Reviews)
- * and by subfilter (All, Open, Closed, Needs Review, Approved, Committers, AI, External).
+ * and by subfilter (All, Open, Closed, PRs, Issues, Needs Review, Approved, Committers, AI, External).
  */
 
 test.describe('Filtering @classification', () => {
@@ -102,6 +102,13 @@ test.describe('Filtering @classification', () => {
       await expect(issuesSubfilters).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="open"]')).toBeVisible();
       await expect(issuesSubfilters.locator('[data-subfilter="closed"]')).toBeVisible();
+    });
+
+    test('displays Feed type subfilter tabs when Feed view is active', async ({ page }) => {
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+      await expect(typeSubfilters).toBeVisible();
+      await expect(typeSubfilters.locator('[data-subfilter="prs"]')).toBeVisible();
+      await expect(typeSubfilters.locator('[data-subfilter="issues"]')).toBeVisible();
     });
 
     test('hides other subfilter tabs when Feed view is active', async ({ page }) => {
@@ -247,6 +254,13 @@ test.describe('Filtering @classification', () => {
       // 4 feed items total: 1 open, 3 closed/merged
       await expect(issuesSubfilters.locator('[data-subfilter="open"] .count')).toHaveText('1');
       await expect(issuesSubfilters.locator('[data-subfilter="closed"] .count')).toHaveText('3');
+    });
+
+    test('shows PR and issue counts for Feed view', async ({ page }) => {
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+
+      await expect(typeSubfilters.locator('[data-subfilter="prs"] .count')).toHaveText('1');
+      await expect(typeSubfilters.locator('[data-subfilter="issues"] .count')).toHaveText('3');
     });
 
     test('hides count on the active subfilter', async ({ page }) => {
@@ -435,6 +449,39 @@ test.describe('Filtering @classification', () => {
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
       await expect(countHeader).toHaveText('3 notifications');
     });
+
+    test('clicking Feed type subfilters switches between PRs and issues', async ({ page }) => {
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+
+      await typeSubfilters.locator('[data-subfilter="prs"]').click();
+      await expect(typeSubfilters.locator('[data-subfilter="prs"]')).toHaveClass(/active/);
+      await expect(typeSubfilters.locator('[data-subfilter="prs"] .count')).toHaveText('');
+      await expect(page.locator('.notification-item')).toHaveCount(1);
+      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-1"]')).not.toBeAttached();
+
+      await typeSubfilters.locator('[data-subfilter="issues"]').click();
+      await expect(typeSubfilters.locator('[data-subfilter="issues"]')).toHaveClass(/active/);
+      await expect(page.locator('.notification-item')).toHaveCount(3);
+      await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-3"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-5"]')).toBeVisible();
+      await expect(page.locator('[data-id="notif-4"]')).not.toBeAttached();
+    });
+
+    test('Feed type subfilters compose with Open and Closed', async ({ page }) => {
+      const stateSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]');
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+
+      await stateSubfilters.locator('[data-subfilter="open"]').click();
+      await typeSubfilters.locator('[data-subfilter="issues"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(1);
+      await expect(page.locator('[data-id="notif-1"]')).toBeVisible();
+
+      await typeSubfilters.locator('[data-subfilter="prs"]').click();
+      await expect(page.locator('.notification-item')).toHaveCount(0);
+      await expect(page.locator('#empty-state')).toBeVisible();
+    });
   });
 
   test.describe('View Persistence', () => {
@@ -470,6 +517,18 @@ test.describe('Filtering @classification', () => {
       expect(parsed.issues).toHaveProperty('state', 'closed');
     });
 
+    test('saves Feed type subfilter preference to localStorage', async ({ page }) => {
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+      await typeSubfilters.locator('[data-subfilter="prs"]').click();
+
+      const savedViewFilters = await page.evaluate(() =>
+        localStorage.getItem('ghnotif_view_filters')
+      );
+      const parsed = JSON.parse(savedViewFilters!);
+      expect(parsed).toHaveProperty('issues');
+      expect(parsed.issues).toHaveProperty('type', 'prs');
+    });
+
     test('restores subfilter and applies to loaded notifications', async ({ page }) => {
       await page.evaluate(() => {
         localStorage.setItem('ghnotif_view', 'issues');
@@ -488,6 +547,24 @@ test.describe('Filtering @classification', () => {
 
       const items = page.locator('.notification-item');
       await expect(items).toHaveCount(3);
+    });
+
+    test('restores Feed type subfilter and applies to loaded notifications', async ({ page }) => {
+      await page.evaluate(() => {
+        localStorage.setItem('ghnotif_view', 'issues');
+        localStorage.setItem(
+          'ghnotif_view_filters',
+          JSON.stringify({ issues: { type: 'prs' } })
+        );
+      });
+      await seedNotificationsCache(page, mixedFixture.notifications);
+
+      await page.reload();
+
+      const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
+      await expect(typeSubfilters.locator('[data-subfilter="prs"]')).toHaveClass(/active/);
+      await expect(page.locator('.notification-item')).toHaveCount(1);
+      await expect(page.locator('[data-id="notif-4"]')).toBeVisible();
     });
 
     test('ignores invalid view values in localStorage', async ({ page }) => {

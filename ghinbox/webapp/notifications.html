@@ -1148,6 +1148,22 @@
                             Closed <span class="count">0</span>
                         </button>
                     </nav>
+                    <nav class="subfilter-tabs" role="group" aria-label="Filter feed by type" data-for-view="issues" data-subfilter-group="type">
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="prs"
+                            aria-pressed="false"
+                        >
+                            PRs <span class="count">0</span>
+                        </button>
+                        <button
+                            class="subfilter-tab"
+                            data-subfilter="issues"
+                            aria-pressed="false"
+                        >
+                            Issues <span class="count">0</span>
+                        </button>
+                    </nav>
 
                     <!-- Subfilter Tabs for Replies -->
                     <nav class="subfilter-tabs hidden" role="group" aria-label="Filter replies by status" data-for-view="pr-notifications" data-subfilter-group="state">
@@ -1429,7 +1445,7 @@
             const ORDER_KEY = 'ghnotif_order';
             const ORDER_BY_VIEW_KEY = 'ghnotif_order_by_view';
             const DEFAULT_VIEW_FILTERS = {
-                'issues': { state: 'all', bookmark: 'new' },
+                'issues': { state: 'all', bookmark: 'new', type: 'all' },
                 'my-prs': { state: 'all' },
                 'pr-notifications': { state: 'all', audience: 'all' },
                 'others-prs': { state: 'all', author: 'all' },
@@ -1451,9 +1467,14 @@
                 'cleaned': new Set(['all']),
             };
             const VALID_AUTHOR = new Set(['all', 'committer', 'ai', 'external']);
+            const VALID_ISSUE_TYPES = new Set(['all', 'prs', 'issues']);
             const VALID_ORDERS = new Set(['recent', 'size']);
             const VIEW_QUERY_KEYS = {
-                'issues': { state: 'issues_state', order: 'issues_order' },
+                'issues': {
+                    state: 'issues_state',
+                    type: 'issues_type',
+                    order: 'issues_order',
+                },
                 'my-prs': { state: 'my_prs_state', order: 'my_prs_order' },
                 'pr-notifications': {
                     state: 'pr_notifications_state',
@@ -1477,6 +1498,13 @@
                 return DEFAULT_VIEW_FILTERS[view]?.state || 'all';
             }
 
+            function normalizeIssueTypeFilter(typeFilter) {
+                if (VALID_ISSUE_TYPES.has(typeFilter)) {
+                    return typeFilter;
+                }
+                return DEFAULT_VIEW_FILTERS.issues.type;
+            }
+
             function cloneDefaults() {
                 return JSON.parse(JSON.stringify(DEFAULT_VIEW_FILTERS));
             }
@@ -1498,6 +1526,9 @@
                             ...value,
                         };
                         normalized[view].state = normalizeStateFilter(view, normalized[view].state);
+                        if (view === 'issues') {
+                            normalized[view].type = normalizeIssueTypeFilter(normalized[view].type);
+                        }
                     }
                 });
                 return normalized;
@@ -1585,16 +1616,21 @@
 
                 params.delete('state');
                 params.delete('author');
+                params.delete('type');
 
                 Object.keys(VIEW_QUERY_KEYS).forEach((viewName) => {
                     const config = VIEW_QUERY_KEYS[viewName];
                     const filtersForView = filters[viewName] || DEFAULT_VIEW_FILTERS[viewName];
                     const stateFilter = filtersForView.state || 'all';
                     const authorFilter = filtersForView.author || 'all';
+                    const typeFilter = filtersForView.type || 'all';
                     const orderValue = orders[viewName] || DEFAULT_VIEW_ORDERS[viewName];
                     params.set(config.state, stateFilter);
                     if (config.author) {
                         params.set(config.author, authorFilter);
+                    }
+                    if (config.type) {
+                        params.set(config.type, typeFilter);
                     }
                     params.set(config.order, orderValue);
                 });
@@ -1633,6 +1669,7 @@
                 let hasOrderParams = false;
                 const legacyState = params.get('state');
                 const legacyAuthor = params.get('author');
+                const legacyType = params.get('type');
 
                 Object.keys(VIEW_QUERY_KEYS).forEach((viewName) => {
                     const config = VIEW_QUERY_KEYS[viewName];
@@ -1648,6 +1685,15 @@
                             (viewName === normalizedView ? legacyAuthor : null);
                         if (authorParam && VALID_AUTHOR.has(authorParam)) {
                             filters[viewName].author = authorParam;
+                            hasFilterParams = true;
+                        }
+                    }
+
+                    if (config.type) {
+                        const typeParam = params.get(config.type) ||
+                            (viewName === normalizedView ? legacyType : null);
+                        if (typeParam && VALID_ISSUE_TYPES.has(typeParam)) {
+                            filters[viewName].type = typeParam;
                             hasFilterParams = true;
                         }
                     }
@@ -1728,10 +1774,16 @@
 
                         if (DEFAULT_VIEW_FILTERS?.issues) {
                             DEFAULT_VIEW_FILTERS.issues.bookmark = 'new';
+                            DEFAULT_VIEW_FILTERS.issues.type = 'all';
                         }
                         if (state?.viewFilters?.issues && !state.viewFilters.issues.bookmark) {
                             state.viewFilters.issues.bookmark = 'new';
                         }
+                        if (state?.viewFilters?.issues && !state.viewFilters.issues.type) {
+                            state.viewFilters.issues.type = 'all';
+                        }
+
+                        const VALID_FEED_TYPE_FILTERS = new Set(['all', 'prs', 'issues']);
 
                         function isBookmarked(notification) {
                             return Boolean(notification?.ui?.bookmarked);
@@ -1742,11 +1794,13 @@
                             return filters.bookmark || 'new';
                         }
 
-                        function filterBookmarks(notifications) {
-                            if (state.view !== 'issues') {
-                                return notifications;
-                            }
-                            const filter = currentBookmarkFilter();
+                        function currentFeedTypeFilter() {
+                            const filters = state.viewFilters.issues || DEFAULT_VIEW_FILTERS.issues || {};
+                            const filter = filters.type || 'all';
+                            return VALID_FEED_TYPE_FILTERS.has(filter) ? filter : 'all';
+                        }
+
+                        function applyBookmarkFilter(notifications, filter) {
                             if (filter === 'bookmarked') {
                                 return notifications.filter(isBookmarked);
                             }
@@ -1756,9 +1810,41 @@
                             return notifications;
                         }
 
+                        function filterBookmarks(notifications) {
+                            if (state.view !== 'issues') {
+                                return notifications;
+                            }
+                            return applyBookmarkFilter(notifications, currentBookmarkFilter());
+                        }
+
+                        function isFeedPullRequest(notification) {
+                            return notification?.subject?.type === 'PullRequest';
+                        }
+
+                        function isFeedIssue(notification) {
+                            return notification?.subject?.type === 'Issue';
+                        }
+
+                        function applyFeedTypeFilter(notifications, filter) {
+                            if (filter === 'prs') {
+                                return notifications.filter(isFeedPullRequest);
+                            }
+                            if (filter === 'issues') {
+                                return notifications.filter(isFeedIssue);
+                            }
+                            return notifications;
+                        }
+
+                        function filterFeedType(notifications) {
+                            if (state.view !== 'issues') {
+                                return notifications;
+                            }
+                            return applyFeedTypeFilter(notifications, currentFeedTypeFilter());
+                        }
+
                         const originalGetFilteredNotifications = getFilteredNotifications;
                         getFilteredNotifications = function () {
-                            return filterBookmarks(originalGetFilteredNotifications());
+                            return filterFeedType(filterBookmarks(originalGetFilteredNotifications()));
                         };
 
                         const originalGetSubfilterCounts = getSubfilterCounts;
@@ -1773,6 +1859,20 @@
                                 all: feedNotifications.length,
                                 new: feedNotifications.filter((notification) => !isBookmarked(notification)).length,
                                 bookmarked: feedNotifications.filter(isBookmarked).length,
+                            };
+                            let baseForTypeCounts = applyBookmarkFilter(feedNotifications, currentBookmarkFilter());
+                            baseForTypeCounts = applyStateFilter(
+                                baseForTypeCounts,
+                                state.viewFilters.issues?.state || 'all'
+                            );
+                            baseForTypeCounts = applyInterestFilter(
+                                baseForTypeCounts,
+                                state.viewFilters.issues?.interest || 'all'
+                            );
+                            counts.type = {
+                                all: baseForTypeCounts.length,
+                                prs: baseForTypeCounts.filter(isFeedPullRequest).length,
+                                issues: baseForTypeCounts.filter(isFeedIssue).length,
                             };
                             return counts;
                         };
@@ -1949,6 +2049,19 @@
                                     const count = tab.querySelector('.count');
                                     if (count) {
                                         count.textContent = active ? '' : String(counts[tab.dataset.subfilter] || 0);
+                                    }
+                                });
+
+                            const typeCounts = getSubfilterCounts().type || { prs: 0, issues: 0 };
+                            document
+                                .querySelectorAll('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"] .subfilter-tab')
+                                .forEach((tab) => {
+                                    const active = state.view === 'issues' && currentFeedTypeFilter() === tab.dataset.subfilter;
+                                    tab.classList.toggle('active', active);
+                                    tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+                                    const count = tab.querySelector('.count');
+                                    if (count) {
+                                        count.textContent = active ? '' : String(typeCounts[tab.dataset.subfilter] || 0);
                                     }
                                 });
 

@@ -50,6 +50,7 @@ test.describe('Query State', () => {
     await repoInput.fill('test/repo');
 
     await page.locator('[data-for-view="issues"][data-subfilter-group="state"] [data-subfilter="open"]').click();
+    await page.locator('[data-for-view="issues"][data-subfilter-group="type"] [data-subfilter="prs"]').click();
     await page.locator('#order-select').selectOption('size');
 
     await page.locator('#view-others-prs').click();
@@ -65,6 +66,7 @@ test.describe('Query State', () => {
     await expect(page).toHaveURL(/view=others-prs/);
     await expect(page).toHaveURL(/repo=test%2Frepo/);
     await expect(page).toHaveURL(/issues_state=open/);
+    await expect(page).toHaveURL(/issues_type=prs/);
     await expect(page).toHaveURL(/issues_order=size/);
     await expect(page).toHaveURL(/others_prs_state=needs-review/);
     await expect(page).toHaveURL(/others_prs_author=committer/);
