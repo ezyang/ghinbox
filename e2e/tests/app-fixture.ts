@@ -78,6 +78,9 @@ export async function mockDefaultApiRoutes(page: Page, options: {
     })
   );
   await page.route('**/notifications/html/repo/**', (route) => fulfillJson(route, notifications));
+  await page.route('**/github/rest/review-requests**', (route) =>
+    fulfillJson(route, { notifications: [] })
+  );
   await page.route('**/github/graphql', (route) => fulfillJson(route, { data: { repository: {} } }));
   await page.route('**/github/rest/repos/**/issues/**/comments**', (route) => fulfillJson(route, []));
   await page.route('**/github/rest/repos/**/issues/**', (route) => {

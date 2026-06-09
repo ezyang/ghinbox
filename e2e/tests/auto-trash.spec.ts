@@ -280,11 +280,11 @@ test.describe('Low-priority cleanup @mutation', () => {
       });
     });
 
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ items: [] }),
+        body: JSON.stringify({ notifications: [] }),
       });
     });
 

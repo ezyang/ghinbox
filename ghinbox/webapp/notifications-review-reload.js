@@ -67,61 +67,6 @@
         };
     }
 
-    function getRepoFromGithubUrl(value) {
-        if (!value) {
-            return null;
-        }
-        try {
-            const url = new URL(String(value));
-            const parts = url.pathname.split('/').filter(Boolean);
-            if (url.hostname === 'api.github.com') {
-                const reposIndex = parts.indexOf('repos');
-                if (reposIndex >= 0 && parts[reposIndex + 1] && parts[reposIndex + 2]) {
-                    return {
-                        owner: parts[reposIndex + 1],
-                        repo: parts[reposIndex + 2],
-                        fullName: parts[reposIndex + 1] + '/' + parts[reposIndex + 2],
-                    };
-                }
-            }
-            if (url.hostname === 'github.com' || url.hostname.endsWith('.github.com')) {
-                if (parts[0] && parts[1]) {
-                    return {
-                        owner: parts[0],
-                        repo: parts[1],
-                        fullName: parts[0] + '/' + parts[1],
-                    };
-                }
-            }
-        } catch (error) {
-            return null;
-        }
-        return null;
-    }
-
-    function getSearchItemRepo(source, item) {
-        const candidates = [
-            item?.repository_url,
-            item?.html_url,
-            item?.pull_request?.url,
-            item?.url,
-        ];
-        for (const candidate of candidates) {
-            const repo = getRepoFromGithubUrl(candidate);
-            if (repo) {
-                return repo;
-            }
-        }
-        if (source.kind === 'repo') {
-            return {
-                owner: source.owner,
-                repo: source.repo,
-                fullName: source.fullName,
-            };
-        }
-        return null;
-    }
-
     function groupNotificationsByRepo(notifications) {
         const groups = new Map();
         notifications.forEach((notification) => {
@@ -169,35 +114,30 @@
         }
     }
 
-    function extractLabelNames(item) {
-        return Array.isArray(item?.labels)
-            ? item.labels
-                .map((label) =>
-                    typeof label === 'string' ? label : label?.name
-                )
-                .filter((name) => typeof name === 'string' && name.trim())
-            : [];
-    }
-
-    function seedSearchMetadataCache(notification, item) {
+    function seedSearchMetadataCache(notification) {
         if (!state.commentCache?.threads || typeof getNotificationKey !== 'function') {
             return;
         }
         const threadId = getNotificationKey(notification);
         const existing = state.commentCache.threads[threadId] || {};
         const nowIso = new Date().toISOString();
-        const labelNames = extractLabelNames(item);
-        const hasLabels = Array.isArray(item?.labels);
+        const authorLogin = notification?.actors?.[0]?.login;
+        const hasLabels = Array.isArray(notification?.labels);
+        const labelNames = hasLabels
+            ? notification.labels
+                .map((label) => label?.name)
+                .filter((name) => typeof name === 'string' && name.trim())
+            : [];
         const next = {
             ...existing,
             notificationUpdatedAt: notification.updated_at || existing.notificationUpdatedAt,
         };
-        if (item?.user?.login) {
-            next.authorLogin = item.user.login;
+        if (authorLogin) {
+            next.authorLogin = authorLogin;
             next.authorLoginFetchedAt = nowIso;
         }
-        if (item?.author_association !== undefined && item?.author_association !== null) {
-            next.authorAssociation = item.author_association;
+        if (notification?.author_association !== undefined && notification?.author_association !== null) {
+            next.authorAssociation = notification.author_association;
             next.authorAssociationFetchedAt = nowIso;
         }
         if (hasLabels) {
@@ -207,34 +147,9 @@
         state.commentCache.threads[threadId] = next;
     }
 
-    function searchItemToStreamingReviewNotification(source, item) {
-        const repo = getSearchItemRepo(source, item);
-        if (!repo) {
-            return null;
-        }
-        const notification =
-            GhinboxReviewRequests.searchItemToResponsibilityNotification(repo, item);
-        if (!notification) {
-            return null;
-        }
-        const labelNames = extractLabelNames(item);
-        if (Array.isArray(item?.labels)) {
-            notification.labels = labelNames.map((name) => ({ name }));
-        }
-        if (item?.state) {
-            notification.subject.state = item.draft ? 'draft' : String(item.state).toLowerCase();
-        }
-        seedSearchMetadataCache(notification, item);
-        return notification;
-    }
-
     async function fetchStreamingReviewRequestNotifications(source) {
         if (!state.currentUserLogin && typeof checkAuth === 'function') {
             await checkAuth();
-        }
-        const login = String(state.currentUserLogin || '').trim();
-        if (!login) {
-            return [];
         }
         const response = await fetch(
             GhinboxReviewRequests.buildReviewRequestSearchUrlForSource(source)
@@ -244,11 +159,9 @@
             throw new Error(`Review request search failed (${response.status}): ${detail}`);
         }
         const payload = await response.json();
-        const items = Array.isArray(payload?.items) ? payload.items : [];
-        return items
-            .filter((item) => item?.number && item?.pull_request)
-            .map((item) => searchItemToStreamingReviewNotification(source, item))
-            .filter(Boolean);
+        const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
+        notifications.forEach(seedSearchMetadataCache);
+        return notifications;
     }
 
     async function refreshPullRequestStatesIncrementally(repo, repoInfo, matchKeys, syncLabel) {

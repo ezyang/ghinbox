@@ -16,6 +16,13 @@ from ghinbox.api.github_proxy import (
     get_client,
     get_token,
 )
+from ghinbox.api.notification_shapes import (
+    REVIEW_REQUEST_SEARCH_PER_PAGE,
+    build_comment_cache_entry as _build_comment_cache_entry,
+    build_review_request_search_query as _build_review_request_search_query,
+    notification_to_bulk_comment_item as _notification_to_bulk_comment_item,
+    search_item_to_review_request_notification as _search_item_to_review_request_notification,
+)
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     clear_snapshot_store,
@@ -29,8 +36,6 @@ from ghinbox.api.routes import mark_github_session_expired
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
-
-REVIEW_REQUEST_SEARCH_PER_PAGE = 100
 
 _running_tasks: dict[str, asyncio.Task] = {}
 _periodic_task: asyncio.Task | None = None
@@ -46,62 +51,6 @@ def _repo_key(owner: str, repo: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _build_review_request_search_query(owner: str, repo: str) -> str:
-    return " ".join(
-        [
-            f"repo:{owner}/{repo}",
-            "is:pr",
-            "is:open",
-            "user-review-requested:@me",
-        ]
-    )
-
-
-def _search_item_to_review_request_notification(
-    owner: str,
-    repo: str,
-    item: dict,
-) -> dict | None:
-    number = item.get("number")
-    if not number or item.get("pull_request") is None:
-        return None
-    user = item.get("user") or {}
-    state = "draft" if item.get("draft") else "open"
-    updated_at = item.get("updated_at") or item.get("created_at") or _now()
-    return {
-        "id": f"review-request:{owner}/{repo}#{number}",
-        "unread": False,
-        "reason": "review_requested",
-        "responsibility_source": "review-requested",
-        "updated_at": updated_at,
-        "last_read_at": None,
-        "subject": {
-            "title": item.get("title") or f"Pull request #{number}",
-            "url": item.get("html_url")
-            or f"https://github.com/{owner}/{repo}/pull/{number}",
-            "type": "PullRequest",
-            "number": number,
-            "state": state,
-            "state_reason": None,
-        },
-        "actors": (
-            [
-                {
-                    "login": user["login"],
-                    "avatar_url": user.get("avatar_url") or "",
-                }
-            ]
-            if user.get("login")
-            else []
-        ),
-        "ui": {
-            "saved": False,
-            "done": False,
-            "action_tokens": {},
-        },
-    }
 
 
 def _merge_review_request_notifications(
@@ -133,66 +82,6 @@ def _merge_review_request_notifications(
     return merged
 
 
-def _get_comment_fetch_window(notification: dict) -> tuple[str | None, str | None]:
-    subject = notification.get("subject") if isinstance(notification, dict) else {}
-    ui = notification.get("ui") if isinstance(notification, dict) else {}
-    anchor = subject.get("anchor") if isinstance(subject, dict) else None
-    read_comment_watermark_at = (
-        ui.get("read_comment_watermark_at") if isinstance(ui, dict) else None
-    )
-    last_read_at = read_comment_watermark_at or notification.get("last_read_at")
-    return anchor, last_read_at
-
-
-def _notification_to_bulk_comment_item(
-    owner: str,
-    repo: str,
-    notification: dict,
-) -> dict | None:
-    subject = notification.get("subject") if isinstance(notification, dict) else {}
-    if not isinstance(subject, dict):
-        return None
-    number = subject.get("number")
-    if not isinstance(number, int):
-        return None
-    anchor, last_read_at = _get_comment_fetch_window(notification)
-    return {
-        "key": str(notification.get("id") or ""),
-        "owner": owner,
-        "repo": repo,
-        "number": number,
-        "is_pr": subject.get("type") == "PullRequest",
-        "subject_state": subject.get("state"),
-        "anchor": anchor,
-        "last_read_at": last_read_at,
-    }
-
-
-def _build_comment_cache_entry(
-    notification: dict,
-    result: dict,
-    fetched_at: str,
-) -> dict:
-    anchor, last_read_at = _get_comment_fetch_window(notification)
-    entry = {
-        "notificationUpdatedAt": notification.get("updated_at"),
-        "anchor": anchor,
-        "lastReadAt": last_read_at,
-        "unread": notification.get("unread"),
-        "comments": result.get("comments")
-        if isinstance(result.get("comments"), list)
-        else [],
-        "stateEvents": result.get("stateEvents")
-        if isinstance(result.get("stateEvents"), list)
-        else [],
-        "allComments": bool(result.get("allComments")),
-        "fetchedAt": fetched_at,
-    }
-    if result.get("error"):
-        entry["error"] = result.get("error")
-    return entry
-
-
 async def _fetch_snapshot_comment_cache(
     owner: str,
     repo: str,
@@ -205,7 +94,7 @@ async def _fetch_snapshot_comment_cache(
     items = [
         item
         for notification in notifications
-        if (item := _notification_to_bulk_comment_item(owner, repo, notification))
+        if (item := _notification_to_bulk_comment_item(notification, owner, repo))
         is not None
     ]
     if not items:

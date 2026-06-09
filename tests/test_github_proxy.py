@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 
 from ghinbox.api import github_proxy
+from ghinbox.api.notification_shapes import notification_to_bulk_comment_item
 
 
 def test_bulk_comment_item_includes_close_events_for_closed_notifications(
@@ -91,3 +92,69 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
         ("repos/test/repo/issues/10/comments", {}),
         ("repos/test/repo/issues/10/events", {"per_page": "100"}),
     ]
+
+
+def test_bulk_comment_item_can_be_built_from_notification_payload() -> None:
+    item = notification_to_bulk_comment_item(
+        {
+            "id": "thread-42",
+            "last_read_at": "2026-06-08T09:00:00Z",
+            "repository": {"full_name": "test/repo"},
+            "subject": {
+                "type": "PullRequest",
+                "number": 42,
+                "state": "open",
+                "anchor": "discussion_r42",
+            },
+        }
+    )
+
+    assert item == {
+        "key": "thread-42",
+        "owner": "test",
+        "repo": "repo",
+        "number": 42,
+        "is_pr": True,
+        "subject_state": "open",
+        "anchor": "discussion_r42",
+        "last_read_at": "2026-06-08T09:00:00Z",
+    }
+
+
+def test_review_requests_endpoint_normalizes_search_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_github_get_json(client, token: str, path: str, params=None):
+        assert client == "client"
+        assert token == "token"
+        assert path == "search/issues"
+        assert params == {
+            "q": "repo:test/repo is:pr is:open user-review-requested:@me",
+            "per_page": "100",
+        }
+        return 200, {
+            "items": [
+                {
+                    "number": 42,
+                    "title": "Review me",
+                    "html_url": "https://github.com/test/repo/pull/42",
+                    "repository_url": "https://api.github.com/repos/test/repo",
+                    "pull_request": {},
+                    "user": {"login": "alice", "avatar_url": "avatar"},
+                    "author_association": "MEMBER",
+                    "labels": [{"name": "mergedog"}],
+                    "updated_at": "2026-06-08T10:00:00Z",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(github_proxy, "get_token", lambda: "token")
+    monkeypatch.setattr(github_proxy, "get_client", lambda: "client")
+    monkeypatch.setattr(github_proxy, "_github_get_json", fake_github_get_json)
+
+    result = asyncio.run(github_proxy.review_requests(owner="test", repo="repo"))
+
+    assert result["notifications"][0]["id"] == "review-request:test/repo#42"
+    assert result["notifications"][0]["repository"]["full_name"] == "test/repo"
+    assert result["notifications"][0]["labels"] == [{"name": "mergedog"}]
+    assert result["notifications"][0]["author_association"] == "MEMBER"

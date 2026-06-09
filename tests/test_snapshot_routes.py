@@ -58,6 +58,11 @@ def test_search_item_becomes_synthetic_review_request_notification() -> None:
     assert notification["id"] == "review-request:test/repo#10"
     assert notification["reason"] == "review_requested"
     assert notification["responsibility_source"] == "review-requested"
+    assert notification["repository"] == {
+        "owner": "test",
+        "name": "repo",
+        "full_name": "test/repo",
+    }
     assert notification["subject"]["type"] == "PullRequest"
     assert notification["subject"]["number"] == 10
     assert notification["subject"]["state"] == "open"

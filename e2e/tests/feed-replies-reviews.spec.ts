@@ -278,19 +278,25 @@ const commentCache = {
 };
 
 const reviewRequestSearch = {
-  total_count: 1,
-  incomplete_results: false,
-  items: [
+  notifications: [
     {
-      number: 3,
-      title: 'Needs an explicit review',
-      html_url: 'https://github.com/test/repo/pull/3',
-      state: 'open',
-      draft: false,
+      id: 'review-request:test/repo#3',
+      unread: false,
+      reason: 'review_requested',
+      responsibility_source: 'review-requested',
       updated_at: '2026-05-14T11:00:00Z',
-      created_at: '2026-05-14T10:00:00Z',
-      user: { login: 'carol', avatar_url: 'https://avatars.githubusercontent.com/u/3?v=4' },
-      pull_request: {},
+      last_read_at: null,
+      repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+      subject: {
+        title: 'Needs an explicit review',
+        url: 'https://github.com/test/repo/pull/3',
+        type: 'PullRequest',
+        number: 3,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [{ login: 'carol', avatar_url: 'https://avatars.githubusercontent.com/u/3?v=4' }],
+      ui: { saved: false, done: false, action_tokens: {} },
     },
   ],
 };
@@ -326,7 +332,7 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
       });
     });
 
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -586,30 +592,44 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
       },
     };
     const search = {
-      total_count: 2,
-      incomplete_results: false,
-      items: [
+      notifications: [
         {
-          number: 1,
-          title: 'Needs review with feed chatter',
-          html_url: 'https://github.com/test/repo/pull/1',
-          state: 'open',
-          draft: false,
+          id: 'review-request:test/repo#1',
+          unread: false,
+          reason: 'review_requested',
+          responsibility_source: 'review-requested',
           updated_at: '2026-05-14T11:00:00Z',
-          created_at: '2026-05-14T10:00:00Z',
-          user: { login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' },
-          pull_request: {},
+          last_read_at: null,
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          subject: {
+            title: 'Needs review with feed chatter',
+            url: 'https://github.com/test/repo/pull/1',
+            type: 'PullRequest',
+            number: 1,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+          ui: { saved: false, done: false, action_tokens: {} },
         },
         {
-          number: 2,
-          title: 'Needs review with directed reply',
-          html_url: 'https://github.com/test/repo/pull/2',
-          state: 'open',
-          draft: false,
+          id: 'review-request:test/repo#2',
+          unread: false,
+          reason: 'review_requested',
+          responsibility_source: 'review-requested',
           updated_at: '2026-05-14T11:10:00Z',
-          created_at: '2026-05-14T10:10:00Z',
-          user: { login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' },
-          pull_request: {},
+          last_read_at: null,
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          subject: {
+            title: 'Needs review with directed reply',
+            url: 'https://github.com/test/repo/pull/2',
+            type: 'PullRequest',
+            number: 2,
+            state: 'open',
+            state_reason: null,
+          },
+          actors: [{ login: 'bob', avatar_url: 'https://avatars.githubusercontent.com/u/2?v=4' }],
+          ui: { saved: false, done: false, action_tokens: {} },
         },
       ],
     };
@@ -680,7 +700,7 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
     });
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(search) });
     });
     await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {

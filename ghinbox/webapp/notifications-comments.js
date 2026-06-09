@@ -376,39 +376,14 @@ function shouldFetchStateEvents(notification) {
     return COMMENT_INTEREST.isClosedOrMergedNotification(notification);
 }
 
-function buildBulkCommentRequestItem(notification) {
-    const issueNumber = getIssueNumber(notification);
-    if (!issueNumber) {
-        return null;
-    }
-    const repo = getNotificationRepoInfo(notification);
-    if (!repo) {
-        return null;
-    }
-    const { anchor, lastReadAt } = COMMENT_CACHE_POLICY.getCommentFetchWindow(notification);
-    return {
-        key: getNotificationKey(notification),
-        owner: repo.owner,
-        repo: repo.repo,
-        number: issueNumber,
-        is_pr: notification.subject?.type === 'PullRequest',
-        subject_state: notification.subject?.state || null,
-        anchor,
-        last_read_at: lastReadAt,
-    };
-}
-
 async function fetchBulkNotificationComments(notifications) {
-    const items = notifications
-        .map(buildBulkCommentRequestItem)
-        .filter((item) => item !== null);
-    if (!items.length) {
+    if (!notifications.length) {
         return null;
     }
     const response = await fetch('/github/rest/comments/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ notifications }),
     });
     if (!response.ok) {
         return null;

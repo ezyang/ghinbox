@@ -129,14 +129,19 @@ test.describe('Read comment watermark @mutation', () => {
     let secondBulkLastReadAt: string | null = null;
     await page.route('**/github/rest/comments/bulk', async (route) => {
       const payload = route.request().postDataJSON() as {
-        items?: Array<{ key?: string; last_read_at?: string | null }>;
+        notifications?: Array<{
+          last_read_at?: string | null;
+          ui?: { read_comment_watermark_at?: string | null };
+        }>;
       };
-      const item = payload.items?.[0];
-      if (item?.last_read_at === savedWatermark) {
-        secondBulkLastReadAt = item.last_read_at;
+      const notification = payload.notifications?.[0];
+      const lastReadAt =
+        notification?.ui?.read_comment_watermark_at ?? notification?.last_read_at;
+      if (lastReadAt === savedWatermark) {
+        secondBulkLastReadAt = lastReadAt;
       }
       const comments =
-        item?.last_read_at === savedWatermark
+        lastReadAt === savedWatermark
           ? [
               {
                 id: 202,

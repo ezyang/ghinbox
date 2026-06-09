@@ -11,6 +11,12 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ghinbox.api.notification_shapes import (
+    REVIEW_REQUEST_SEARCH_PER_PAGE,
+    build_review_request_search_query,
+    notification_to_bulk_comment_item,
+    search_item_to_review_request_notification,
+)
 from ghinbox.token import load_token
 
 router = APIRouter(prefix="/github", tags=["github-proxy"])
@@ -188,9 +194,35 @@ async def bulk_comments(request: Request) -> dict:
 
     payload = await request.json()
     items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list) and isinstance(payload, dict):
+        notifications = payload.get("notifications")
+        repository = payload.get("repository")
+        fallback_owner = (
+            repository.get("owner") if isinstance(repository, dict) else None
+        )
+        fallback_repo = (
+            repository.get("repo") or repository.get("name")
+            if isinstance(repository, dict)
+            else None
+        )
+        if isinstance(notifications, list):
+            items = [
+                item
+                for notification in notifications
+                if isinstance(notification, dict)
+                and (
+                    item := notification_to_bulk_comment_item(
+                        notification,
+                        str(fallback_owner) if fallback_owner else None,
+                        str(fallback_repo) if fallback_repo else None,
+                    )
+                )
+                is not None
+            ]
     if not isinstance(items, list):
         raise HTTPException(
-            status_code=400, detail="Expected JSON body with items list."
+            status_code=400,
+            detail="Expected JSON body with items or notifications list.",
         )
 
     client = get_client()
@@ -205,6 +237,59 @@ async def bulk_comments(request: Request) -> dict:
     results = await asyncio.gather(*(run_item(item) for item in items))
     threads = {key: result for key, result in results if key}
     return {"threads": threads}
+
+
+@router.get(
+    "/rest/review-requests",
+    summary="Review-request notifications",
+    description="Fetches and normalizes active PR review requests for the authenticated user.",
+)
+async def review_requests(
+    owner: str | None = None,
+    repo: str | None = None,
+    query: str | None = None,
+) -> dict:
+    if not query and not (owner and repo):
+        raise HTTPException(
+            status_code=400,
+            detail="Expected owner/repo parameters or a query parameter.",
+        )
+    token = get_token()
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="No GitHub token configured. Start server with --account.",
+        )
+
+    search_query = build_review_request_search_query(owner, repo, query)
+    status, payload = await _github_get_json(
+        get_client(),
+        token,
+        "search/issues",
+        {"q": search_query, "per_page": str(REVIEW_REQUEST_SEARCH_PER_PAGE)},
+    )
+    if status >= 400:
+        raise HTTPException(
+            status_code=status,
+            detail=f"Review request search failed ({status}): {payload}",
+        )
+    items = payload.get("items") if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        items = []
+    notifications = [
+        notification
+        for item in items
+        if isinstance(item, dict)
+        and (
+            notification := search_item_to_review_request_notification(
+                owner,
+                repo,
+                item,
+            )
+        )
+        is not None
+    ]
+    return {"notifications": notifications}
 
 
 @router.api_route(

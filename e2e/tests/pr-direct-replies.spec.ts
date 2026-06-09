@@ -174,11 +174,11 @@ test.describe('PR direct replies @classification', () => {
       });
     });
 
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ total_count: 0, incomplete_results: false, items: [] }),
+        body: JSON.stringify({ notifications: [] }),
       });
     });
 

@@ -401,22 +401,13 @@
             if (!state.currentUserLogin && typeof checkAuth === 'function') {
                 await checkAuth();
             }
-            const login = String(state.currentUserLogin || '').trim();
-            if (!login) {
-                return [];
-            }
-            const response = await fetch(GhinboxReviewRequests.buildReviewRequestSearchUrl(repo, login));
+            const response = await fetch(GhinboxReviewRequests.buildReviewRequestSearchUrl(repo));
             if (!response.ok) {
                 const detail = await response.text();
                 throw new Error(`Review request search failed (${response.status}): ${detail}`);
             }
             const payload = await response.json();
-            const items = Array.isArray(payload?.items) ? payload.items : [];
-            return items
-                .filter((item) => item?.number && item?.pull_request)
-                .map((item) =>
-                    GhinboxReviewRequests.searchItemToResponsibilityNotification(repo, item)
-                );
+            return Array.isArray(payload?.notifications) ? payload.notifications : [];
         }
 
         async function getReviewRequestNeedsReviewNumbers(repo, reviewRequests, syncLabel) {

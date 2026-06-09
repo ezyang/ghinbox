@@ -1,6 +1,45 @@
 import { test, expect } from '@playwright/test';
 import { openNotificationsWithCachedData, subfilterTab, viewTab } from './app-fixture';
 
+function reviewRequestNotification({
+  repo = 'test/repo',
+  number,
+  title,
+  author = 'alice',
+  labels = [],
+  updatedAt = '2026-01-02T00:00:00Z',
+}: {
+  repo?: string;
+  number: number;
+  title: string;
+  author?: string;
+  labels?: Array<{ name: string }>;
+  updatedAt?: string;
+}) {
+  const [owner, name] = repo.split('/');
+  return {
+    id: `review-request:${repo}#${number}`,
+    unread: false,
+    reason: 'review_requested',
+    responsibility_source: 'review-requested',
+    updated_at: updatedAt,
+    last_read_at: null,
+    repository: { owner, name, full_name: repo },
+    subject: {
+      title,
+      url: `https://github.com/${repo}/pull/${number}`,
+      type: 'PullRequest',
+      number,
+      state: 'open',
+      state_reason: null,
+    },
+    actors: [{ login: author, avatar_url: '' }],
+    author_association: 'MEMBER',
+    labels,
+    ui: { saved: false, done: false, action_tokens: {} },
+  };
+}
+
 test.describe('Reload reviews button @sync', () => {
   test('refreshes review requests without reloading all notifications', async ({ page }) => {
     await openNotificationsWithCachedData(page, {
@@ -26,23 +65,13 @@ test.describe('Reload reviews button @sync', () => {
       });
     });
 
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       reviewSearches++;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [
-            {
-              number: 101,
-              title: 'Review me',
-              html_url: 'https://github.com/test/repo/pull/101',
-              pull_request: { url: 'https://api.github.com/repos/test/repo/pulls/101' },
-              user: { login: 'alice', avatar_url: '' },
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-02T00:00:00Z',
-            },
-          ],
+          notifications: [reviewRequestNotification({ number: 101, title: 'Review me' })],
         }),
       });
     });
@@ -147,24 +176,17 @@ test.describe('Reload reviews button @sync', () => {
       });
     });
 
-    await page.route('**/github/rest/search/issues**', (route) =>
+    await page.route('**/github/rest/review-requests**', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [
-            {
+          notifications: [
+            reviewRequestNotification({
               number: 101,
               title: 'Review me incrementally',
-              html_url: 'https://github.com/test/repo/pull/101',
-              pull_request: { url: 'https://api.github.com/repos/test/repo/pulls/101' },
-              user: { login: 'alice', avatar_url: '' },
-              author_association: 'MEMBER',
               labels: [{ name: 'mergedog' }],
-              state: 'open',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: '2026-01-02T00:00:00Z',
-            },
+            }),
           ],
         }),
       })
@@ -200,9 +222,9 @@ test.describe('Reload reviews button @sync', () => {
     await page.unroute('**/github/graphql').catch(() => undefined);
 
     const seenQueries: string[] = [];
-    await page.route('**/github/rest/search/issues**', (route) => {
+    await page.route('**/github/rest/review-requests**', (route) => {
       const url = new URL(route.request().url());
-      const query = url.searchParams.get('q') || '';
+      const query = url.searchParams.get('query') || '';
       seenQueries.push(query);
       const isMetaPyTorch = query.includes('org:meta-pytorch');
       const repo = isMetaPyTorch ? 'meta-pytorch/test' : 'pytorch/pytorch';
@@ -211,21 +233,14 @@ test.describe('Reload reviews button @sync', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          items: [
-            {
+          notifications: [
+            reviewRequestNotification({
+              repo,
               number,
               title: isMetaPyTorch ? 'Meta PyTorch review' : 'PyTorch review',
-              html_url: `https://github.com/${repo}/pull/${number}`,
-              pull_request: {
-                url: `https://api.github.com/repos/${repo}/pulls/${number}`,
-              },
-              user: { login: isMetaPyTorch ? 'bob' : 'alice', avatar_url: '' },
-              author_association: 'MEMBER',
-              labels: [],
-              state: 'open',
-              created_at: '2026-01-01T00:00:00Z',
-              updated_at: isMetaPyTorch ? '2026-01-03T00:00:00Z' : '2026-01-02T00:00:00Z',
-            },
+              author: isMetaPyTorch ? 'bob' : 'alice',
+              updatedAt: isMetaPyTorch ? '2026-01-03T00:00:00Z' : '2026-01-02T00:00:00Z',
+            }),
           ],
         }),
       });
@@ -280,9 +295,6 @@ test.describe('Reload reviews button @sync', () => {
     await expect(page.locator('.notification-item')).toContainText('PyTorch review');
     await expect(page.locator('.notification-item')).toContainText('Meta PyTorch review');
     await expect(page.locator('#status-bar')).toContainText('Reloaded 2 review notifications');
-    expect(seenQueries).toEqual([
-      'org:pytorch is:pr is:open user-review-requested:@me',
-      'org:meta-pytorch is:pr is:open user-review-requested:@me',
-    ]);
+    expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
   });
 });

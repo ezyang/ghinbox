@@ -1459,13 +1459,13 @@ test.describe('Sync Functionality @slow @sync', () => {
     await page.route('**/github/rest/comments/bulk', async (route) => {
       bulkCommentRequests += 1;
       const body = route.request().postDataJSON();
-      expect(body.items).toHaveLength(1);
-      expect(body.items[0]).toMatchObject({
-        key: 'server-bulk-comments-1',
-        owner: 'test',
-        repo: 'repo',
-        number: 42,
-        is_pr: false,
+      expect(body.notifications).toHaveLength(1);
+      expect(body.notifications[0]).toMatchObject({
+        id: 'server-bulk-comments-1',
+        subject: {
+          number: 42,
+          type: 'Issue',
+        },
       });
       await route.fulfill({
         status: 200,
