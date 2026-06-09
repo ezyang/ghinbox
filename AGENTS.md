@@ -1,3 +1,6 @@
+- Read `SOUL.md` before making architectural decisions (where state lives,
+  client vs server, where logic goes, where test data comes from). It is the
+  project's constitution; when code and soul disagree, build toward the soul.
 - Do NOT attempt to install packages unless the user explicitly asks you to do
   so.  Only the packages specified in pyproject.toml are available.  You cannot add new packages.  If you desperately want another package, tell the user.
 - Use `ghinbox/webapp/notifications.html` as the default UI file to edit; do not add or modify other notification UI files unless explicitly requested.
