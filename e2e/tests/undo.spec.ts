@@ -77,6 +77,9 @@ test.describe('Undo @mutation', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
+    // Wait for the background comment prefetch to settle: each progress
+    // update re-renders the list, which detaches elements mid-click.
+    await expect(page.locator('#comment-cache-status')).toHaveText('Comments cached: 5');
   });
 
   test.describe('Undo via Keyboard', () => {

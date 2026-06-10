@@ -27,6 +27,9 @@ test.describe('Mark Done @slow @mutation', () => {
     await page.locator('#sync-btn').click();
     // Wait for Feed notifications to load
     await expect(page.locator('.notification-item')).toHaveCount(4);
+    // Wait for the background comment prefetch to settle: each progress
+    // update re-renders the list, which detaches elements mid-click.
+    await expect(page.locator('#comment-cache-status')).toHaveText('Comments cached: 5');
   });
 
   test.describe('Mark Done Button', () => {
@@ -419,11 +422,17 @@ test.describe('Mark Done @slow @mutation', () => {
       const archiveBatches: string[][] = [];
 
       await page.route('**/notifications/html/repo/**', (route) => {
-        reloadCount++;
+        // Mark-done also PUTs read-comment watermarks under this path prefix;
+        // only notification GETs count as reloads.
+        if (route.request().method() === 'GET') {
+          reloadCount++;
+        }
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(mixedFixture),
+          body: JSON.stringify(
+            route.request().method() === 'GET' ? mixedFixture : { status: 'ok' }
+          ),
         });
       });
       reloadCount = 0;
@@ -465,10 +474,10 @@ test.describe('Mark Done @slow @mutation', () => {
 
       await expect(statusBar).toContainText('Marked as done');
       await expect(statusBar).toHaveClass(/auto-dismiss/);
-      await statusBar.click();
+      await statusBar.locator('.status-message').click();
       await expect(statusBar).not.toHaveClass(/auto-dismiss/);
       await expect(statusBar).toHaveClass(/status-pinned/);
-      await statusBar.click();
+      await statusBar.locator('.status-close-btn').click();
       await expect(statusBar).toBeHidden();
 
       await expect(page.locator('.notification-item')).toHaveCount(3);
