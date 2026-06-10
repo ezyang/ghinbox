@@ -17,6 +17,10 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from ghinbox.auth import (
     AUTH_STATE_DIR,
+    PROFILE_LINK_SELECTOR,
+    PROFILE_SETTINGS_URL,
+    USER_LOGIN_META_SELECTOR,
+    USER_MENU_SELECTOR,
     get_auth_state_path,
     save_username,
 )
@@ -59,7 +63,7 @@ async def extract_username_async(page: Page) -> str | None:
         The username or None if it couldn't be extracted
     """
     # Method 1: Look for the username in the user menu button
-    user_button = page.locator('button[aria-label="Open user navigation menu"]')
+    user_button = page.locator(USER_MENU_SELECTOR)
     if await user_button.count() > 0:
         # The username is often in the image alt or nearby elements
         img = user_button.locator("img")
@@ -69,19 +73,19 @@ async def extract_username_async(page: Page) -> str | None:
                 return alt[1:]  # Remove the @ prefix
 
     # Method 2: Navigate to profile and extract from URL
-    await page.goto("https://github.com/settings/profile")
+    await page.goto(PROFILE_SETTINGS_URL)
     await page.wait_for_load_state("domcontentloaded")
 
     # Method 3: Get it from the meta tag or page content
     # GitHub has a meta tag with the user login
-    meta = page.locator('meta[name="user-login"]')
+    meta = page.locator(USER_LOGIN_META_SELECTOR)
     if await meta.count() > 0:
         content = await meta.get_attribute("content")
         if content:
             return content
 
     # Method 4: Parse from the profile URL link
-    profile_link = page.locator('a[href^="/"]:has-text("Your profile")')
+    profile_link = page.locator(PROFILE_LINK_SELECTOR)
     if await profile_link.count() > 0:
         href = await profile_link.get_attribute("href")
         if href and href.startswith("/"):
@@ -250,7 +254,7 @@ class LoginFetcher:
         try:
             # Check if logged in using multiple indicators
             logged_in_selectors = [
-                'button[aria-label="Open user navigation menu"]',
+                USER_MENU_SELECTOR,
                 "img.avatar.circle",  # User avatar in header
                 'meta[name="user-login"][content]:not([content=""])',  # Meta tag with username
                 'a[href*="/settings/profile"]',  # Settings link only visible when logged in

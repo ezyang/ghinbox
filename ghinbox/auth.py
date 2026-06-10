@@ -19,6 +19,14 @@ AUTH_STATE_DIR = Path("auth_state")
 # Special account name for the default/primary user
 DEFAULT_ACCOUNT = "default"
 
+# Selectors shared with the async login fetcher (ghinbox/api/login_fetcher.py)
+# so logged-in detection and username extraction cannot drift between the
+# sync and async Playwright stacks.
+USER_MENU_SELECTOR = 'button[aria-label="Open user navigation menu"]'
+USER_LOGIN_META_SELECTOR = 'meta[name="user-login"]'
+PROFILE_LINK_SELECTOR = 'a[href^="/"]:has-text("Your profile")'
+PROFILE_SETTINGS_URL = "https://github.com/settings/profile"
+
 
 def get_auth_state_path(account: str) -> Path:
     """Get the path to the auth state file for a given account."""
@@ -52,7 +60,7 @@ def is_logged_in(page: Page) -> bool:
     # The avatar appears in the header when logged in
     # Look for elements that only appear when logged in
     # The user menu button has a specific structure
-    logged_in_indicator = page.locator('button[aria-label="Open user navigation menu"]')
+    logged_in_indicator = page.locator(USER_MENU_SELECTOR)
     return logged_in_indicator.count() > 0
 
 
@@ -70,7 +78,7 @@ def wait_for_login(page: Page) -> bool:
     print("Please log in to GitHub in the browser window.")
     # Wait for the user navigation menu to appear (indicates logged in)
     page.wait_for_selector(
-        'button[aria-label="Open user navigation menu"]',
+        USER_MENU_SELECTOR,
         timeout=0,
         state="visible",
     )
@@ -105,7 +113,7 @@ def extract_username(page: Page) -> str | None:
         The username or None if it couldn't be extracted
     """
     # Method 1: Look for the username in the user menu button
-    user_button = page.locator('button[aria-label="Open user navigation menu"]')
+    user_button = page.locator(USER_MENU_SELECTOR)
     if user_button.count() > 0:
         # The username is often in the image alt or nearby elements
         img = user_button.locator("img")
@@ -115,19 +123,19 @@ def extract_username(page: Page) -> str | None:
                 return alt[1:]  # Remove the @ prefix
 
     # Method 2: Navigate to profile settings so the meta tag below is present
-    page.goto("https://github.com/settings/profile")
+    page.goto(PROFILE_SETTINGS_URL)
     page.wait_for_load_state("domcontentloaded")
 
     # Method 3: Get it from the meta tag or page content
     # GitHub has a meta tag with the user login
-    meta = page.locator('meta[name="user-login"]')
+    meta = page.locator(USER_LOGIN_META_SELECTOR)
     if meta.count() > 0:
         content = meta.get_attribute("content")
         if content:
             return content
 
     # Method 4: Parse from the profile URL link
-    profile_link = page.locator('a[href^="/"]:has-text("Your profile")')
+    profile_link = page.locator(PROFILE_LINK_SELECTOR)
     if profile_link.count() > 0:
         href = profile_link.get_attribute("href")
         if href and href.startswith("/"):
