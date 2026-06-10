@@ -151,21 +151,9 @@
             };
         }
 
-        // Shared done queue with bounded concurrency
-        const doneQueue = {
-            pending: [],           // Array of { notifId, notification }
-            inFlight: new Map(),   // notifId -> promise
-            totalQueued: 0,        // Total queued in current session (resets when fully drained)
-            completed: 0,
-            failed: 0,
-            skipped: 0,
-            failedResults: [],     // { id, error }
-            failedNotifications: [],
-            successfulIds: [],
-            active: false,
-            _drainResolvers: [],   // Resolvers for waitForDrain()
-        };
-        const DONE_CONCURRENCY = 8;
+        // Shared done queue with bounded concurrency (pure state machine in
+        // GhinboxDoneQueue; this file owns the per-item I/O).
+        const doneQueue = GhinboxDoneQueue.createQueue();
 
         // Expose doneQueue on state for UI access
         state.doneQueue = doneQueue;
@@ -184,102 +172,33 @@
         }
 
         function enqueueDoneItems(ids, notificationLookup, options = {}) {
-            if (!doneQueue.active) {
-                // New session - reset counters
-                doneQueue.totalQueued = 0;
-                doneQueue.completed = 0;
-                doneQueue.failed = 0;
-                doneQueue.skipped = 0;
-                doneQueue.suppressProgress = false;
-                doneQueue.failedResults = [];
-                doneQueue.failedNotifications = [];
-                doneQueue.successfulIds = [];
-            }
-            ids.forEach(id => {
-                const notification = notificationLookup.get(id) || notificationLookup.get(id);
-                doneQueue.pending.push({
+            const items = ids.map(id => {
+                const notification = notificationLookup.get(id);
+                return {
                     notifId: id,
                     notification,
                     reloadedNotifications: options.reloadedNotifications || null,
                     cachedCommentIds: getCachedCommentIdSet(notification),
-                });
+                };
             });
-            doneQueue.totalQueued += ids.length;
+            GhinboxDoneQueue.enqueueItems(doneQueue, items);
         }
 
         function updateQueueProgress() {
-            // For single-item operations, skip intermediate progress to avoid flashing
-            if (doneQueue.totalQueued === 1 || doneQueue.suppressProgress) {
+            const status = GhinboxDoneQueue.getProgressStatus(doneQueue);
+            if (!status) {
                 return;
             }
-            const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
-            const remaining = doneQueue.totalQueued - processed;
-            showStatus(
-                `Done ${processed}/${doneQueue.totalQueued} (${remaining} pending)`,
-                'success',
-                { autoDismiss: false }
-            );
+            showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
             render();
         }
 
         function showFinalQueueStatus() {
-            const total = doneQueue.totalQueued;
-            const succeeded = doneQueue.successfulIds.length;
-            const failed = doneQueue.failedResults.length;
-            const skipped = doneQueue.skipped;
-
-            if (total === 1 && failed === 0 && skipped === 0) {
-                showStatus('Marked as done', 'success', { autoDismiss: true });
-                return;
+            const status = GhinboxDoneQueue.getFinalStatus(doneQueue);
+            showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
+            if (status.type === 'error') {
+                console.error('[MarkDone] Failures:', doneQueue.failedResults);
             }
-
-            if (failed === 0 && skipped === 0) {
-                showStatus(
-                    `Done ${succeeded}/${total} (0 pending)`,
-                    'success',
-                    { autoDismiss: true }
-                );
-                return;
-            }
-
-            if (failed === 0 && skipped > 0) {
-                const skippedSuffix = ` (${skipped} had new comments)`;
-                if (succeeded > 0) {
-                    showStatus(
-                        `Done ${succeeded}/${total}${skippedSuffix}`,
-                        'info',
-                        { autoDismiss: true }
-                    );
-                } else {
-                    showStatus(
-                        `Skipped ${skipped}: new comments detected`,
-                        'info',
-                        { autoDismiss: true }
-                    );
-                }
-                return;
-            }
-
-            if (succeeded === 0) {
-                const firstError = doneQueue.failedResults[0]?.error || 'Unknown error';
-                const skippedSuffix = skipped > 0
-                    ? ` (${skipped} had new comments)`
-                    : '';
-                showStatus(`Failed to mark notifications: ${firstError}${skippedSuffix}`, 'error');
-                console.error('[MarkDone] All failed. Errors:', doneQueue.failedResults);
-                return;
-            }
-
-            // Partial failure
-            const firstError = doneQueue.failedResults[0]?.error || 'Unknown error';
-            const skippedSuffix = skipped > 0
-                ? `, ${skipped} skipped`
-                : '';
-            showStatus(
-                `${succeeded} done, ${failed} failed${skippedSuffix}: ${firstError}`,
-                'error'
-            );
-            console.error('[MarkDone] Partial failure. Errors:', doneQueue.failedResults);
         }
 
         async function processOneDoneItem(item) {
@@ -290,13 +209,12 @@
                     cachedCommentIds,
                 });
                 if (syncResult?.status === 'updated') {
-                    doneQueue.skipped++;
+                    GhinboxDoneQueue.recordSkipped(doneQueue);
                     return;
                 }
                 if (syncResult?.status === 'error') {
                     const errorDetail = syncResult.error || 'Failed to sync notification';
-                    doneQueue.failed++;
-                    doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+                    GhinboxDoneQueue.recordFailure(doneQueue, notifId, errorDetail);
                     return;
                 }
 
@@ -310,74 +228,28 @@
                     const delay = result.retryAfter || 60000;
                     showStatus(`Rate limited. Waiting ${Math.ceil(delay / 1000)}s...`, 'info');
                     await sleep(delay);
-                    doneQueue.pending.push(item);
+                    GhinboxDoneQueue.requeueItem(doneQueue, item);
                     return;
                 }
 
                 if (result.success) {
-                    doneQueue.completed++;
-                    doneQueue.successfulIds.push(notifId);
+                    GhinboxDoneQueue.recordSuccess(doneQueue, notifId);
                 } else {
                     const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
                     console.error(`[MarkDone] Failed for ${notifId}:`, errorDetail);
-                    doneQueue.failed++;
-                    doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+                    GhinboxDoneQueue.recordFailure(doneQueue, notifId, errorDetail);
                 }
             } catch (e) {
                 const errorDetail = e.message || String(e);
                 console.error(`[MarkDone] Exception for ${notifId}:`, e);
-                doneQueue.failed++;
-                doneQueue.failedResults.push({ id: notifId, error: errorDetail });
+                GhinboxDoneQueue.recordFailure(doneQueue, notifId, errorDetail);
             }
         }
 
-        async function processDoneQueue() {
-            if (doneQueue.active) {
-                // Already running - the existing processor will pick up newly enqueued items
-                return new Promise(resolve => {
-                    doneQueue._drainResolvers.push(resolve);
-                });
-            }
-
-            doneQueue.active = true;
-            updateQueueProgress();
-
-            try {
-                while (doneQueue.pending.length > 0 || doneQueue.inFlight.size > 0) {
-                    // Fill up to DONE_CONCURRENCY slots
-                    while (doneQueue.pending.length > 0 && doneQueue.inFlight.size < DONE_CONCURRENCY) {
-                        const item = doneQueue.pending.shift();
-                        const promise = processOneDoneItem(item).then(() => {
-                            doneQueue.inFlight.delete(item.notifId);
-                            updateQueueProgress();
-                        });
-                        doneQueue.inFlight.set(item.notifId, promise);
-                    }
-
-                    if (doneQueue.inFlight.size > 0) {
-                        await Promise.race(doneQueue.inFlight.values());
-                    }
-                }
-            } finally {
-                doneQueue.active = false;
-                // Resolve all drain waiters
-                const resolvers = doneQueue._drainResolvers.splice(0);
-                resolvers.forEach(r => r());
-            }
-        }
-
-        function resetDoneQueueForBatch(total) {
-            doneQueue.pending = [];
-            doneQueue.inFlight.clear();
-            doneQueue.totalQueued = total;
-            doneQueue.completed = 0;
-            doneQueue.failed = 0;
-            doneQueue.skipped = 0;
-            doneQueue.failedResults = [];
-            doneQueue.failedNotifications = [];
-            doneQueue.successfulIds = [];
-            doneQueue.suppressProgress = true;
-            doneQueue.active = true;
+        function processDoneQueue() {
+            return GhinboxDoneQueue.processQueue(doneQueue, processOneDoneItem, {
+                onProgress: updateQueueProgress,
+            });
         }
 
         async function markNotificationsDoneBatch(notifIds, notificationLookup) {
@@ -485,7 +357,7 @@
         }
 
         async function processDoneBatch(selectedIds, notificationLookup) {
-            resetDoneQueueForBatch(selectedIds.length);
+            GhinboxDoneQueue.resetForBatch(doneQueue, selectedIds.length);
             updateQueueProgress();
 
             try {
@@ -506,15 +378,10 @@
                     }
 
                     if (result.success) {
-                        doneQueue.completed = selectedIds.length;
-                        doneQueue.successfulIds = [...selectedIds];
+                        GhinboxDoneQueue.recordBatchSuccess(doneQueue, selectedIds);
                     } else {
                         const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
-                        doneQueue.failed = selectedIds.length;
-                        doneQueue.failedResults = selectedIds.map(id => ({
-                            id,
-                            error: errorDetail,
-                        }));
+                        GhinboxDoneQueue.recordBatchFailure(doneQueue, selectedIds, errorDetail);
                     }
                     break;
                 }
@@ -1370,22 +1237,7 @@
         }
 
         function restoreNotificationsInOrder(notifications) {
-            const notificationsToRestore = notifications
-                .slice()
-                .sort(
-                    (a, b) =>
-                        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-                );
-            notificationsToRestore.forEach(notification => {
-                const insertIndex = state.notifications.findIndex(
-                    n => new Date(n.updated_at) < new Date(notification.updated_at)
-                );
-                if (insertIndex === -1) {
-                    state.notifications.push(notification);
-                } else {
-                    state.notifications.splice(insertIndex, 0, notification);
-                }
-            });
+            GhinboxUndo.insertByUpdatedAt(state.notifications, notifications);
         }
 
         function removeTrashNotifications(notifications) {
@@ -1403,47 +1255,15 @@
         }
 
         function pushToUndoStack(action, notifications) {
-            const normalizedNotifications = Array.isArray(notifications)
-                ? notifications
-                : [notifications];
-            if (normalizedNotifications.length === 0) {
-                return null;
-            }
-            const undoEntry = {
-                action,
-                notifications: normalizedNotifications,
-                timestamp: Date.now(),
-            };
-            state.undoStack.push(undoEntry);
-            // Keep only the most recent undo (single action undo)
-            if (state.undoStack.length > 1) {
-                state.undoStack = [state.undoStack[state.undoStack.length - 1]];
-            }
-            return undoEntry;
+            return GhinboxUndo.pushEntry(state.undoStack, action, notifications, Date.now());
         }
 
         function removeUndoEntry(undoEntry) {
-            if (!undoEntry) {
-                return;
-            }
-            const index = state.undoStack.indexOf(undoEntry);
-            if (index !== -1) {
-                state.undoStack.splice(index, 1);
-            }
+            GhinboxUndo.removeEntry(state.undoStack, undoEntry);
         }
 
         function updateUndoEntry(undoEntry, notifications) {
-            if (!undoEntry) {
-                return;
-            }
-            const normalizedNotifications = Array.isArray(notifications)
-                ? notifications
-                : [notifications];
-            if (normalizedNotifications.length === 0) {
-                removeUndoEntry(undoEntry);
-                return;
-            }
-            undoEntry.notifications = normalizedNotifications;
+            GhinboxUndo.updateEntry(state.undoStack, undoEntry, notifications);
         }
 
         async function parseUndoResponse(response) {
@@ -1479,8 +1299,7 @@
             }
 
             // Check if undo is still valid (within 30 seconds)
-            const elapsed = Date.now() - undoItem.timestamp;
-            if (elapsed > 30000) {
+            if (GhinboxUndo.isExpired(undoItem, Date.now())) {
                 showStatus('Undo expired. Actions can only be undone within 30 seconds.', 'info');
                 state.undoStack.pop();
                 return;
@@ -1490,22 +1309,12 @@
             showStatus('Undo in progress...', 'info');
 
             try {
-                const action = undoItem.action === 'done' ? 'unarchive' : 'subscribe';
-                const notificationsByToken = new Map();
-                let missingToken = false;
-
-                undoItem.notifications.forEach(notification => {
-                    const token =
-                        notification?.ui?.action_tokens?.[action] ||
-                        state.authenticity_token;
-                    if (!token) {
-                        missingToken = true;
-                        return;
-                    }
-                    const group = notificationsByToken.get(token) || [];
-                    group.push(notification);
-                    notificationsByToken.set(token, group);
-                });
+                const action = GhinboxUndo.getUndoAction(undoItem.action);
+                const { groups: notificationsByToken, missingToken } = GhinboxUndo.groupByToken(
+                    undoItem.notifications,
+                    action,
+                    state.authenticity_token
+                );
 
                 if (missingToken) {
                     showStatus(
@@ -1551,24 +1360,15 @@
 
                 if (failedNotifications.length === 0) {
                     state.undoStack.pop();
-                    const restoredCount = restoredNotifications.length;
-                    showStatus(
-                        `Undo successful: restored ${restoredCount} notification${
-                            restoredCount !== 1 ? 's' : ''
-                        }`,
-                        'success',
-                        { autoDismiss: true }
-                    );
                 } else {
                     updateUndoEntry(undoItem, failedNotifications);
-                    const restoredCount = restoredNotifications.length;
-                    const failedCount = failedNotifications.length;
-                    const detailSuffix = errorDetail ? ` (${errorDetail})` : '';
-                    showStatus(
-                        `Undo failed: restored ${restoredCount}, failed ${failedCount}${detailSuffix}`,
-                        'error'
-                    );
                 }
+                const status = GhinboxUndo.getCompletionStatus({
+                    restoredCount: restoredNotifications.length,
+                    failedCount: failedNotifications.length,
+                    errorDetail,
+                });
+                showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
 
             } catch (e) {
                 const errorDetail = e.message || String(e);

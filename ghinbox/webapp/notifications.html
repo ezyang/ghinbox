@@ -27,7 +27,7 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-06-10-fetchjson-consolidation';
+            const ASSET_VERSION = '2026-06-10-done-queue-undo-modules';
             const params = new URLSearchParams(window.location.search);
             const explicitCacheBust = params.get('cache_bust');
             if (explicitCacheBust) {
@@ -1268,6 +1268,8 @@
                 'notifications-query-state.js',
                 'notifications-identity.js',
                 'notifications-sync-merge.js',
+                'notifications-done-queue.js',
+                'notifications-undo.js',
                 'notifications-http.js',
                 'notifications-review-requests.js',
                 'notifications-idb.js',

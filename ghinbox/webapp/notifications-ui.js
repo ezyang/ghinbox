@@ -1463,7 +1463,7 @@
             const doneQueue = state.doneQueue;
             const showSelectAll =
                 filteredNotifications.length > 0 ||
-                (doneQueue && doneQueue.active && doneQueue.totalQueued > 1);
+                GhinboxDoneQueue.isBatchActive(doneQueue);
             elements.selectAllRow.style.display = showSelectAll ? 'flex' : 'none';
 
             // Update select all checkbox state
@@ -1510,17 +1510,11 @@
 
             // Update progress bar
             const prefetchProgress = state.commentPrefetchProgress;
-            if (
-                doneQueue &&
-                doneQueue.active &&
-                doneQueue.totalQueued > 1 &&
-                !doneQueue.suppressProgress
-            ) {
+            const doneProgress = doneQueue ? GhinboxDoneQueue.getProgressBarState(doneQueue) : null;
+            if (doneProgress) {
                 elements.progressContainer.className = 'progress-container visible';
-                const processed = doneQueue.completed + doneQueue.failed + doneQueue.skipped;
-                const percent = (processed / doneQueue.totalQueued) * 100;
-                elements.progressBarFill.style.width = `${percent}%`;
-                elements.progressText.textContent = `Marking ${processed} of ${doneQueue.totalQueued}...`;
+                elements.progressBarFill.style.width = `${doneProgress.percent}%`;
+                elements.progressText.textContent = doneProgress.message;
             } else if (prefetchProgress?.active && prefetchProgress.total > 0) {
                 elements.progressContainer.className = 'progress-container';
             } else {
