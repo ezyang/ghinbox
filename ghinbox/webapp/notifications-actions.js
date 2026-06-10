@@ -460,7 +460,7 @@
                             read_comment_watermark_at: readAt,
                         };
                     }
-                    const response = await fetch(
+                    await fetchJson(
                         `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/read-comment-watermarks/${encodeURIComponent(notifId)}`,
                         {
                             method: 'PUT',
@@ -472,12 +472,6 @@
                             }),
                         }
                     );
-                    if (!response.ok) {
-                        const detail = await response.text();
-                        throw new Error(
-                            `Failed to save read comment watermark (${response.status}): ${detail}`
-                        );
-                    }
                 })
             );
             results.forEach((result, index) => {
@@ -790,42 +784,10 @@
             if (!repo) {
                 return { status: 'error', error: 'Missing repository.' };
             }
-            let response;
-            try {
-                const url = `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
-                response = await fetch(url);
-            } catch (error) {
-                return { status: 'error', error: error.message || String(error) };
-            }
-            if (!response.ok) {
-                // Check for session expired (401 with session_expired error)
-                if (response.status === 401) {
-                    try {
-                        const errorData = await response.json();
-                        if (errorData.detail?.error === 'session_expired') {
-                            showStatus('Session expired. Redirecting to login...', 'error');
-                            await new Promise(resolve => setTimeout(resolve, 1500));
-                            window.location.href = '/app/login.html?session_refresh=1';
-                            return { status: 'error', error: 'Session expired' };
-                        }
-                    } catch (_) {
-                        // fall through to generic error
-                    }
-                }
-                let detail = '';
-                try {
-                    detail = await response.text();
-                } catch (error) {
-                    detail = String(error);
-                }
-                return {
-                    status: 'error',
-                    error: `Reload failed: ${response.status} ${response.statusText} ${detail}`,
-                };
-            }
             let payload;
             try {
-                payload = await response.json();
+                const url = `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}`;
+                payload = await fetchJson(url);
             } catch (error) {
                 return { status: 'error', error: error.message || String(error) };
             }

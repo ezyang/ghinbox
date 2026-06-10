@@ -151,14 +151,9 @@
         if (!state.currentUserLogin && typeof checkAuth === 'function') {
             await checkAuth();
         }
-        const response = await fetch(
+        const payload = await fetchJson(
             GhinboxReviewRequests.buildReviewRequestSearchUrlForSource(source)
         );
-        if (!response.ok) {
-            const detail = await response.text();
-            throw new Error(`Review request search failed (${response.status}): ${detail}`);
-        }
-        const payload = await response.json();
         const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
         notifications.forEach(seedSearchMetadataCache);
         return notifications;

@@ -10,7 +10,10 @@
         try {
             const parsed = JSON.parse(text);
             return {
-                detail: JSON.stringify(parsed),
+                detail:
+                    typeof parsed?.detail === 'string'
+                        ? parsed.detail
+                        : JSON.stringify(parsed),
                 sessionExpired:
                     response.status === 401 &&
                     parsed?.detail?.error === 'session_expired',
@@ -28,7 +31,9 @@
         if (root.location) {
             root.location.href = SESSION_REFRESH_URL;
         }
-        throw new Error('Session expired');
+        const error = new Error('Session expired');
+        error.sessionExpired = true;
+        throw error;
     }
 
     async function fetchJson(url, options = {}) {
@@ -38,7 +43,10 @@
             if (sessionExpired) {
                 await handleSessionExpired();
             }
-            throw new Error(`Request failed: ${url} (${response.status}) ${detail}`);
+            const error = new Error(`Request failed: ${url} (${response.status}) ${detail}`);
+            error.status = response.status;
+            error.detail = detail;
+            throw error;
         }
         return response.json();
     }
@@ -70,6 +78,8 @@
     const api = {
         fetchGraphql,
         fetchJson,
+        handleSessionExpired,
+        readErrorDetail,
     };
 
     root.GhinboxHttp = api;

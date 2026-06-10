@@ -44,11 +44,7 @@
 
         async function refreshRestRateLimit() {
             try {
-                const response = await fetch('/github/rest/rate_limit');
-                if (!response.ok) {
-                    throw new Error(`Request failed (${response.status})`);
-                }
-                const data = await response.json();
+                const data = await fetchJson('/github/rest/rate_limit');
                 state.rateLimit = data;
                 state.rateLimitError = null;
                 const nextReset = data?.resources?.core?.reset || null;
@@ -302,12 +298,7 @@
             if (!state.currentUserLogin && typeof checkAuth === 'function') {
                 await checkAuth();
             }
-            const response = await fetch(GhinboxReviewRequests.buildReviewRequestSearchUrl(repo));
-            if (!response.ok) {
-                const detail = await response.text();
-                throw new Error(`Review request search failed (${response.status}): ${detail}`);
-            }
-            const payload = await response.json();
+            const payload = await fetchJson(GhinboxReviewRequests.buildReviewRequestSearchUrl(repo));
             return Array.isArray(payload?.notifications) ? payload.notifications : [];
         }
 
@@ -315,14 +306,9 @@
             if (!state.currentUserLogin && typeof checkAuth === 'function') {
                 await checkAuth();
             }
-            const response = await fetch(
+            const payload = await fetchJson(
                 GhinboxReviewRequests.buildReviewRequestSearchUrlForSource(source)
             );
-            if (!response.ok) {
-                const detail = await response.text();
-                throw new Error(`Review request search failed (${response.status}): ${detail}`);
-            }
-            const payload = await response.json();
             return Array.isArray(payload?.notifications) ? payload.notifications : [];
         }
 
@@ -652,17 +638,9 @@
 
         async function pollServerSync(repo) {
             while (true) {
-                const response = await fetch(
+                const data = await fetchJson(
                     `/api/snapshots/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/sync`
                 );
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    const detail = typeof errorData.detail === 'string'
-                        ? errorData.detail
-                        : `HTTP ${response.status}`;
-                    throw new Error(detail);
-                }
-                const data = await response.json();
                 const sync = data.sync || {};
                 if (sync.status === 'running') {
                     const details = [];
@@ -735,7 +713,7 @@
             showStatus(`Full Sync starting on server for ${repo}...`, 'info', { flash: true });
 
             try {
-                const response = await fetch(
+                await fetchJson(
                     `/api/snapshots/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/sync`,
                     {
                         method: 'POST',
@@ -743,14 +721,11 @@
                         body: JSON.stringify({ mode: 'full' }),
                     }
                 );
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
                 showStatus(`Full Sync running on server for ${repo}...`, 'info');
                 await pollServerSync(parsed);
             } catch (error) {
                 const message = error.message || String(error);
-                if (message.includes('No GitHub fetcher configured') || message.includes('HTTP 503')) {
+                if (error.status === 503 || message.includes('No GitHub fetcher configured')) {
                     state.loading = false;
                     await handleSync({ mode: 'full' });
                     return;

@@ -651,23 +651,7 @@
                             url += `${url.includes('?') ? '&' : '?'}after=${encodeURIComponent(afterCursor)}`;
                         }
 
-                        const response = await fetch(url);
-
-                        if (!response.ok) {
-                            const errorData = await response.json().catch(() => ({}));
-                            if (response.status === 401 && errorData.detail?.error === 'session_expired') {
-                                showStatus('Session expired. Redirecting to login...', 'error');
-                                await new Promise(resolve => setTimeout(resolve, 1500));
-                                window.location.href = '/app/login.html?session_refresh=1';
-                                return;
-                            }
-                            const errorMsg = typeof errorData.detail === 'object'
-                                ? JSON.stringify(errorData.detail)
-                                : (errorData.detail || `HTTP ${response.status}`);
-                            throw new Error(errorMsg);
-                        }
-
-                        const data = await response.json();
+                        const data = await fetchJson(url);
                         const pageNotifications = Array.isArray(data.notifications)
                             ? data.notifications
                             : [];
@@ -1197,10 +1181,7 @@
             if (!state.currentUserLogin) return false;
 
             try {
-                const response = await fetch(`/github/rest/repos/${owner}/${repo}/pulls/${prNumber}`);
-                if (!response.ok) return false;
-
-                const pr = await response.json();
+                const pr = await fetchJson(`/github/rest/repos/${owner}/${repo}/pulls/${prNumber}`);
                 const requestedReviewers = pr.requested_reviewers || [];
 
                 return requestedReviewers.some(r =>

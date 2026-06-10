@@ -20,7 +20,7 @@
         if (!repo) {
             throw new Error('Invalid repository');
         }
-        const response = await fetch(
+        return fetchJson(
             `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${path}/${encodeURIComponent(notificationId)}`,
             {
                 method: 'PUT',
@@ -28,13 +28,6 @@
                 body: JSON.stringify(body),
             }
         );
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(
-                typeof errorData.detail === 'string' ? errorData.detail : `HTTP ${response.status}`
-            );
-        }
-        return response.json();
     }
 
     function setBookmarkState(notificationId, bookmarked) {

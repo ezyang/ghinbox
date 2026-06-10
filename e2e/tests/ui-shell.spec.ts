@@ -78,11 +78,11 @@ test.describe('UI Shell', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-06-09-sync-merge-module'
+      'notifications.css?v=2026-06-10-fetchjson-consolidation'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-06-09-sync-merge-module'
+      'notifications-sync.js?v=2026-06-10-fetchjson-consolidation'
     );
   });
 
