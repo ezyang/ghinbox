@@ -1373,8 +1373,8 @@
             // Show/hide loading state
             elements.loading.className = state.loading ? 'loading visible' : 'loading';
 
-            // Get filtered notifications
-            const filteredNotifications = state.loading ? [] : getFilteredNotifications();
+            // Keep rendering already-applied notifications while async server syncs continue.
+            const filteredNotifications = getFilteredNotifications();
             const displayNotifications = filteredNotifications;
             ensureActiveNotification(filteredNotifications);
 
