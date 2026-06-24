@@ -510,7 +510,7 @@ test.describe('Mark Done @slow @mutation', () => {
       await expect(statusBar).toBeHidden({ timeout: 7000 });
     });
 
-    test('progress bar stays hidden during batched Mark Done operation', async ({ page }) => {
+    test('progress bar is visible during batched Mark Done operation and hides after completion', async ({ page }) => {
       let releaseResponse: (() => void) | null = null;
       const responseGate = new Promise<void>((resolve) => {
         releaseResponse = resolve;
@@ -533,10 +533,8 @@ test.describe('Mark Done @slow @mutation', () => {
 
       const progressContainer = page.locator('#progress-container');
       const progressText = page.locator('#progress-text');
-      await expect(progressContainer).not.toHaveClass(/visible/);
-      await expect(progressText).not.toContainText(/Marking \d+ of 4/, {
-        timeout: 1200,
-      });
+      await expect(progressContainer).toHaveClass(/visible/);
+      await expect(progressText).toHaveText('Marking 0 of 4...');
 
       if (!releaseResponse) {
         throw new Error('Expected releaseResponse to be assigned');
@@ -544,6 +542,7 @@ test.describe('Mark Done @slow @mutation', () => {
       releaseResponse();
 
       await expect(page.locator('#status-bar')).toContainText('Done 4/4 (0 pending)');
+      await expect(progressContainer).not.toHaveClass(/visible/);
     });
 
     test('progress bar hides after completion', async ({ page }) => {

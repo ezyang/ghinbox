@@ -19,6 +19,7 @@
             failed: 0,
             skipped: 0,
             suppressProgress: false,
+            suppressStatusProgress: false,
             failedResults: [],     // { id, error }
             successfulIds: [],
             active: false,
@@ -32,6 +33,7 @@
         queue.failed = 0;
         queue.skipped = 0;
         queue.suppressProgress = false;
+        queue.suppressStatusProgress = false;
         queue.failedResults = [];
         queue.successfulIds = [];
     }
@@ -50,7 +52,7 @@
         queue.inFlight.clear();
         resetCounters(queue);
         queue.totalQueued = total;
-        queue.suppressProgress = true;
+        queue.suppressStatusProgress = true;
         queue.active = true;
     }
 
@@ -88,7 +90,7 @@
 
     function getProgressStatus(queue) {
         // For single-item operations, skip intermediate progress to avoid flashing
-        if (queue.totalQueued === 1 || queue.suppressProgress) {
+        if (queue.totalQueued === 1 || queue.suppressStatusProgress) {
             return null;
         }
         const processed = getProcessedCount(queue);

@@ -28,6 +28,7 @@ test('enqueueItems resets counters when queue is idle', () => {
   queue.failed = 2;
   queue.skipped = 1;
   queue.suppressProgress = true;
+  queue.suppressStatusProgress = true;
   queue.failedResults = [{ id: 'x', error: 'old' }];
   queue.successfulIds = ['x'];
 
@@ -38,6 +39,7 @@ test('enqueueItems resets counters when queue is idle', () => {
   assert.equal(queue.failed, 0);
   assert.equal(queue.skipped, 0);
   assert.equal(queue.suppressProgress, false);
+  assert.equal(queue.suppressStatusProgress, false);
   assert.deepEqual(queue.failedResults, []);
   assert.deepEqual(queue.successfulIds, []);
   assert.equal(queue.pending.length, 2);
@@ -55,14 +57,15 @@ test('enqueueItems accumulates while a drain is active', () => {
   assert.equal(queue.pending.length, 3);
 });
 
-test('resetForBatch clears pending work and suppresses progress', () => {
+test('resetForBatch clears pending work and suppresses status progress', () => {
   const queue = createQueue();
   enqueueItems(queue, [item('a')]);
   resetForBatch(queue, 5);
 
   assert.equal(queue.pending.length, 0);
   assert.equal(queue.totalQueued, 5);
-  assert.equal(queue.suppressProgress, true);
+  assert.equal(queue.suppressProgress, false);
+  assert.equal(queue.suppressStatusProgress, true);
   assert.equal(queue.active, true);
 });
 
@@ -96,7 +99,7 @@ test('recordBatchSuccess and recordBatchFailure cover whole batches', () => {
   ]);
 });
 
-test('getProgressStatus suppresses single-item and suppressed batches', () => {
+test('getProgressStatus suppresses single-item and status-suppressed batches', () => {
   const single = createQueue();
   enqueueItems(single, [item('a')]);
   assert.equal(getProgressStatus(single), null);
@@ -226,12 +229,9 @@ test('isBatchActive requires active queue with more than one item', () => {
   assert.equal(isBatchActive(queue), false);
 });
 
-test('getProgressBarState hides suppressed batches and reports percent', () => {
+test('getProgressBarState reports batched progress and respects explicit suppression', () => {
   const queue = createQueue();
   resetForBatch(queue, 4);
-  assert.equal(getProgressBarState(queue), null);
-
-  queue.suppressProgress = false;
   recordSuccess(queue, 'a');
   assert.deepEqual(getProgressBarState(queue), {
     processed: 1,
@@ -239,6 +239,9 @@ test('getProgressBarState hides suppressed batches and reports percent', () => {
     percent: 25,
     message: 'Marking 1 of 4...',
   });
+
+  queue.suppressProgress = true;
+  assert.equal(getProgressBarState(queue), null);
 });
 
 test('processQueue drains all items and records outcomes', async () => {

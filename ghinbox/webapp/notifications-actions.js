@@ -229,10 +229,9 @@
 
         function updateQueueProgress() {
             const status = GhinboxDoneQueue.getProgressStatus(doneQueue);
-            if (!status) {
-                return;
+            if (status) {
+                showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
             }
-            showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
             render();
         }
 
