@@ -570,7 +570,7 @@
         }
 
         // Handle sync button click
-        async function handleSync({ mode = 'incremental' } = {}) {
+        async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
             const entries = getCurrentProfileEntries();
             if (!entries.length) {
                 showStatus('Please enter a repository or query', 'error');
@@ -605,6 +605,16 @@
             const previousSelected = new Set(state.selected);
             const syncMode = mode === 'full' ? 'full' : 'incremental';
             const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
+            if (
+                allowServer &&
+                syncMode === 'incremental' &&
+                typeof tryServerQuickSync === 'function'
+            ) {
+                const handledByServer = await tryServerQuickSync(sources);
+                if (handledByServer) {
+                    return;
+                }
+            }
             const previousMatchMap =
                 syncMode === 'incremental' &&
                 sources.length === 1 &&

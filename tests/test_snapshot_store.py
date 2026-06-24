@@ -101,6 +101,54 @@ def test_bookmark_state_overlays_snapshot(db_path) -> None:
     assert get_notification_bookmark("owner/repo", "notif-1", db_path=db_path) is True
 
 
+def test_snapshot_can_replace_notifications_while_preserving_comment_cache(
+    db_path,
+) -> None:
+    notifications = [
+        {
+            "id": "notif-1",
+            "updated_at": "2024-12-27T10:00:00Z",
+            "subject": {"title": "First", "type": "Issue"},
+        }
+    ]
+    comment_cache = {
+        "version": 1,
+        "threads": {
+            "notif-1": {
+                "comments": [{"id": 1, "body": "cached"}],
+                "allComments": True,
+                "fetchedAt": "2024-12-27T10:00:02+00:00",
+            }
+        },
+    }
+    replacement = [
+        {
+            "id": "notif-2",
+            "updated_at": "2024-12-28T10:00:00Z",
+            "subject": {"title": "Second", "type": "Issue"},
+        }
+    ]
+
+    save_snapshot(
+        "owner/repo",
+        notifications,
+        comment_cache=comment_cache,
+        db_path=db_path,
+    )
+    save_snapshot(
+        "owner/repo",
+        replacement,
+        preserve_comment_cache=True,
+        db_path=db_path,
+    )
+
+    snapshot = get_snapshot("owner/repo", db_path)
+
+    assert snapshot is not None
+    assert snapshot["notifications"] == replacement
+    assert snapshot["comment_cache"] == comment_cache
+
+
 def test_bookmark_overlay_survives_replacement_sync(db_path) -> None:
     set_notification_bookmark("owner/repo", "notif-1", True, db_path=db_path)
     replacement = [
@@ -175,8 +223,10 @@ def test_missing_sync_state_is_idle(db_path) -> None:
     state = get_sync_state("owner/repo", db_path)
 
     assert state["status"] == "idle"
+    assert state["phase"] == "idle"
     assert state["pages_fetched"] == 0
     assert state["notifications_count"] == 0
+    assert state["comments_total"] == 0
 
 
 def test_sync_state_round_trip(db_path) -> None:

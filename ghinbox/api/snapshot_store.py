@@ -99,6 +99,23 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                     ADD COLUMN comment_cache TEXT
                     """
                 )
+            sync_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(snapshot_sync_state)")
+            }
+            for column_name, definition in (
+                ("phase", "TEXT NOT NULL DEFAULT 'idle'"),
+                ("comments_total", "INTEGER NOT NULL DEFAULT 0"),
+                ("comments_fetched", "INTEGER NOT NULL DEFAULT 0"),
+                ("comments_failed", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if column_name not in sync_columns:
+                    conn.execute(
+                        f"""
+                        ALTER TABLE snapshot_sync_state
+                        ADD COLUMN {column_name} {definition}
+                        """
+                    )
     finally:
         conn.close()
 
@@ -182,6 +199,7 @@ def save_snapshot(
     notifications: list[dict],
     *,
     comment_cache: dict | None = None,
+    preserve_comment_cache: bool = False,
     authenticity_token: str | None = None,
     source_url: str | None = None,
     generated_at: str | None = None,
@@ -192,15 +210,20 @@ def save_snapshot(
     conn = _connect(db_path)
     try:
         with conn:
+            comment_cache_update = (
+                "comment_cache = notification_snapshots.comment_cache"
+                if preserve_comment_cache
+                else "comment_cache = excluded.comment_cache"
+            )
             conn.execute(
-                """
+                f"""
                 INSERT INTO notification_snapshots (
                     repo, data, comment_cache, authenticity_token, source_url, generated_at, synced_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(repo) DO UPDATE SET
                     data = excluded.data,
-                    comment_cache = excluded.comment_cache,
+                    {comment_cache_update},
                     authenticity_token = excluded.authenticity_token,
                     source_url = excluded.source_url,
                     generated_at = excluded.generated_at,
@@ -384,8 +407,9 @@ def get_sync_state(repo: str, db_path: str | None = None) -> dict:
     try:
         row = conn.execute(
             """
-            SELECT status, mode, started_at, finished_at, error,
-                   pages_fetched, notifications_count
+            SELECT status, mode, phase, started_at, finished_at, error,
+                   pages_fetched, notifications_count,
+                   comments_total, comments_fetched, comments_failed
             FROM snapshot_sync_state
             WHERE repo = ?
             """,
@@ -395,11 +419,15 @@ def get_sync_state(repo: str, db_path: str | None = None) -> dict:
             return {
                 "status": "idle",
                 "mode": "full",
+                "phase": "idle",
                 "started_at": None,
                 "finished_at": None,
                 "error": None,
                 "pages_fetched": 0,
                 "notifications_count": 0,
+                "comments_total": 0,
+                "comments_fetched": 0,
+                "comments_failed": 0,
             }
         return dict(row)
     finally:
@@ -411,42 +439,57 @@ def set_sync_state(
     *,
     status: SyncStatus,
     mode: str = "full",
+    phase: str | None = None,
     started_at: str | None = None,
     finished_at: str | None = None,
     error: str | None = None,
     pages_fetched: int = 0,
     notifications_count: int = 0,
+    comments_total: int = 0,
+    comments_fetched: int = 0,
+    comments_failed: int = 0,
     db_path: str | None = None,
 ) -> dict:
     """Upsert and return sync state."""
+    if phase is None:
+        phase = "complete" if status == "success" else status
     conn = _connect(db_path)
     try:
         with conn:
             conn.execute(
                 """
                 INSERT INTO snapshot_sync_state (
-                    repo, status, mode, started_at, finished_at, error,
-                    pages_fetched, notifications_count
+                    repo, status, mode, phase, started_at, finished_at, error,
+                    pages_fetched, notifications_count,
+                    comments_total, comments_fetched, comments_failed
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(repo) DO UPDATE SET
                     status = excluded.status,
                     mode = excluded.mode,
+                    phase = excluded.phase,
                     started_at = excluded.started_at,
                     finished_at = excluded.finished_at,
                     error = excluded.error,
                     pages_fetched = excluded.pages_fetched,
-                    notifications_count = excluded.notifications_count
+                    notifications_count = excluded.notifications_count,
+                    comments_total = excluded.comments_total,
+                    comments_fetched = excluded.comments_fetched,
+                    comments_failed = excluded.comments_failed
                 """,
                 (
                     repo,
                     status,
                     mode,
+                    phase,
                     started_at,
                     finished_at,
                     error,
                     pages_fetched,
                     notifications_count,
+                    comments_total,
+                    comments_fetched,
+                    comments_failed,
                 ),
             )
     finally:

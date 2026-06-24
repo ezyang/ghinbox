@@ -10,6 +10,7 @@ from ghinbox.api import github_proxy, notification_shapes, snapshot_routes
 from ghinbox.api.fetcher import FetchResult
 from ghinbox.api.snapshot_store import (
     get_snapshot,
+    get_sync_state,
     init_snapshot_db,
     set_notification_read_comment_watermark,
 )
@@ -136,10 +137,20 @@ def test_snapshot_sync_merges_review_request_search_results(
         owner: str,
         repo: str,
         notifications: list[dict],
+        *,
+        on_progress=None,
     ) -> dict:
         assert owner == "test"
         assert repo == "repo"
         captured_comment_cache_notifications.extend(notifications)
+        intermediate_snapshot = get_snapshot("test/repo", db_path)
+        assert intermediate_snapshot is not None
+        assert intermediate_snapshot["notifications"][0]["id"] == (
+            "review-request:test/repo#10"
+        )
+        assert intermediate_snapshot["comment_cache"] is None
+        if on_progress is not None:
+            on_progress(("review-request:test/repo#10", {"comments": []}))
         return {"version": 1, "threads": {}}
 
     monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
@@ -190,6 +201,11 @@ def test_snapshot_sync_merges_review_request_search_results(
         captured_comment_cache_notifications[0]["ui"]["read_comment_watermark_at"]
         == "2025-01-05T11:30:00Z"
     )
+    sync_state = get_sync_state("test/repo", db_path)
+    assert sync_state["phase"] == "complete"
+    assert sync_state["comments_total"] == 1
+    assert sync_state["comments_fetched"] == 1
+    assert sync_state["comments_failed"] == 0
 
 
 def test_snapshot_comment_cache_uses_bulk_comment_fetch(

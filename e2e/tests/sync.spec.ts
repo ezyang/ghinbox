@@ -1194,6 +1194,235 @@ test.describe('Sync Functionality @slow @sync', () => {
     expect(htmlFetchCalled).toBe(false);
   });
 
+  test('quick sync runs on server for a single repo when available', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-quick-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Server quick sync notification',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let syncStarted = false;
+    let htmlFetchCalled = false;
+    let runningStatusPolled = false;
+    let finishSync: () => void;
+    const syncCanFinish = new Promise<void>((resolve) => {
+      finishSync = resolve;
+    });
+
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      htmlFetchCalled = true;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(emptyResponse),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', async (route) => {
+      if (route.request().method() === 'POST') {
+        syncStarted = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              phase: 'notifications',
+              pages_fetched: 0,
+              notifications_count: 0,
+            },
+          }),
+        });
+        return;
+      }
+      if (!runningStatusPolled) {
+        runningStatusPolled = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              phase: 'notifications',
+              pages_fetched: 1,
+              notifications_count: 1,
+            },
+          }),
+        });
+        return;
+      }
+      await syncCanFinish;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: 'success',
+            mode: 'full',
+            phase: 'complete',
+            pages_fetched: 1,
+            notifications_count: 1,
+          },
+          snapshot: {
+            notifications: [snapshotNotification],
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect.poll(() => runningStatusPolled).toBe(true);
+    await expect(page.locator('#status-bar')).toContainText('Quick Sync running on server', { timeout: 1200 });
+    finishSync!();
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('[data-id="server-quick-1"]')).toBeVisible();
+    expect(syncStarted).toBe(true);
+    expect(htmlFetchCalled).toBe(false);
+  });
+
+  test('server sync applies notification snapshot while comments are still running', async ({ page }) => {
+    const snapshotNotification = {
+      id: 'server-running-1',
+      unread: true,
+      reason: 'mention',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Visible before comments finish',
+        url: 'https://github.com/test/repo/issues/42',
+        type: 'Issue',
+        number: 42,
+        state: 'open',
+        state_reason: null,
+      },
+      actors: [],
+      ui: { saved: false, done: false },
+    };
+    let bulkCommentRequests = 0;
+    let finishSync: () => void;
+    const syncCanFinish = new Promise<void>((resolve) => {
+      finishSync = resolve;
+    });
+    let runningPollServed = false;
+
+    await page.route('**/github/rest/comments/bulk', (route) => {
+      bulkCommentRequests += 1;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ threads: {} }),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', async (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              phase: 'notifications',
+              pages_fetched: 0,
+              notifications_count: 0,
+            },
+          }),
+        });
+        return;
+      }
+      if (!runningPollServed) {
+        runningPollServed = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: {
+              status: 'running',
+              mode: 'full',
+              phase: 'comments',
+              pages_fetched: 1,
+              notifications_count: 1,
+              comments_total: 1,
+              comments_fetched: 0,
+              comments_failed: 0,
+            },
+            snapshot: {
+              notifications: [snapshotNotification],
+              authenticity_token: 'server-token',
+              synced_at: '2024-12-27T12:00:30+00:00',
+            },
+          }),
+        });
+        return;
+      }
+      await syncCanFinish;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: 'success',
+            mode: 'full',
+            phase: 'complete',
+            pages_fetched: 1,
+            notifications_count: 1,
+            comments_total: 1,
+            comments_fetched: 1,
+            comments_failed: 0,
+          },
+          snapshot: {
+            notifications: [snapshotNotification],
+            comment_cache: {
+              version: 1,
+              threads: {
+                'server-running-1': {
+                  notificationUpdatedAt: '2024-12-27T12:00:00Z',
+                  comments: [{ id: 1002, body: 'Fetched by server' }],
+                  allComments: true,
+                  fetchedAt: new Date().toISOString(),
+                },
+              },
+            },
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+        }),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('[data-id="server-running-1"]')).toBeVisible();
+    await expect(page.locator('#status-bar')).toContainText('comments 0/1');
+    expect(bulkCommentRequests).toBe(0);
+
+    finishSync!();
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
+    expect(bulkCommentRequests).toBe(0);
+  });
+
   test('server refresh applies server snapshot without syncing GitHub', async ({ page }) => {
     const staleNotification = {
       id: 'server-refresh-stale-1',

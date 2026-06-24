@@ -80,6 +80,8 @@ async def _fetch_snapshot_comment_cache(
     owner: str,
     repo: str,
     notifications: list[dict],
+    *,
+    on_progress=None,
 ) -> dict | None:
     token = get_token()
     if not token:
@@ -94,7 +96,11 @@ async def _fetch_snapshot_comment_cache(
     if not items:
         return {"version": 1, "threads": {}}
 
-    results = await fetch_bulk_comment_results(token_value, items)
+    results = await fetch_bulk_comment_results(
+        token_value,
+        items,
+        on_progress=on_progress,
+    )
     notifications_by_key = {
         str(notification.get("id") or ""): notification
         for notification in notifications
@@ -117,11 +123,16 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
     source_url: str | None = None
     generated_at: str | None = None
     pages_fetched = 0
+    phase = "notifications"
+    comments_total = 0
+    comments_fetched = 0
+    comments_failed = 0
 
     set_sync_state(
         repo_key,
         status="running",
         mode="full",
+        phase=phase,
         started_at=started_at,
         pages_fetched=0,
         notifications_count=0,
@@ -171,6 +182,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
                 repo_key,
                 status="running",
                 mode="full",
+                phase=phase,
                 started_at=started_at,
                 pages_fetched=pages_fetched,
                 notifications_count=len(all_notifications),
@@ -191,11 +203,58 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             key=lambda notification: notification.get("updated_at", ""),
             reverse=True,
         )
+        save_snapshot(
+            repo_key,
+            all_notifications,
+            preserve_comment_cache=True,
+            authenticity_token=authenticity_token,
+            source_url=source_url,
+            generated_at=generated_at,
+        )
         notifications_for_comment_cache = apply_local_state(repo_key, all_notifications)
+        comments_total = sum(
+            1
+            for notification in notifications_for_comment_cache
+            if _notification_to_bulk_comment_item(notification, owner, repo) is not None
+        )
+        phase = "comments" if comments_total else "complete"
+        set_sync_state(
+            repo_key,
+            status="running",
+            mode="full",
+            phase=phase,
+            started_at=started_at,
+            pages_fetched=pages_fetched,
+            notifications_count=len(all_notifications),
+            comments_total=comments_total,
+            comments_fetched=comments_fetched,
+            comments_failed=comments_failed,
+        )
+
+        def on_comment_progress(result: tuple[str, dict]) -> None:
+            nonlocal comments_fetched, comments_failed
+            comments_fetched += 1
+            _, payload = result
+            if payload.get("error"):
+                comments_failed += 1
+            set_sync_state(
+                repo_key,
+                status="running",
+                mode="full",
+                phase="comments",
+                started_at=started_at,
+                pages_fetched=pages_fetched,
+                notifications_count=len(all_notifications),
+                comments_total=comments_total,
+                comments_fetched=comments_fetched,
+                comments_failed=comments_failed,
+            )
+
         comment_cache = await _fetch_snapshot_comment_cache(
             owner,
             repo,
             notifications_for_comment_cache,
+            on_progress=on_comment_progress,
         )
         save_snapshot(
             repo_key,
@@ -209,21 +268,29 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             repo_key,
             status="success",
             mode="full",
+            phase="complete",
             started_at=started_at,
             finished_at=_now(),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
+            comments_total=comments_total,
+            comments_fetched=comments_fetched,
+            comments_failed=comments_failed,
         )
     except SessionExpiredError as error:
         set_sync_state(
             repo_key,
             status="error",
             mode="full",
+            phase=phase,
             started_at=started_at,
             finished_at=_now(),
             error=str(error),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
+            comments_total=comments_total,
+            comments_fetched=comments_fetched,
+            comments_failed=comments_failed,
         )
         mark_github_session_expired()
     except Exception as error:
@@ -231,11 +298,15 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             repo_key,
             status="error",
             mode="full",
+            phase=phase,
             started_at=started_at,
             finished_at=_now(),
             error=str(error),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
+            comments_total=comments_total,
+            comments_fetched=comments_fetched,
+            comments_failed=comments_failed,
         )
     finally:
         _running_tasks.pop(repo_key, None)

@@ -44,15 +44,23 @@ def get_token() -> str | None:
     return load_token(account)
 
 
-async def _github_get_json(
-    client: httpx.AsyncClient,
-    token: str,
-    path: str,
-    params: dict[str, str] | None = None,
-) -> tuple[int, object]:
-    url = f"{GITHUB_API_BASE}/{path}"
+def _github_url(path_or_url: str, params: dict[str, str] | None = None) -> str:
+    if path_or_url.startswith("https://"):
+        url = path_or_url
+    else:
+        url = f"{GITHUB_API_BASE}/{path_or_url}"
     if params:
         url += f"?{urlencode(params)}"
+    return url
+
+
+async def _github_get_json_with_headers(
+    client: httpx.AsyncClient,
+    token: str,
+    path_or_url: str,
+    params: dict[str, str] | None = None,
+) -> tuple[int, object, httpx.Headers]:
+    url = _github_url(path_or_url, params)
     response = await client.get(
         url,
         headers={
@@ -62,8 +70,69 @@ async def _github_get_json(
         },
     )
     if response.status_code >= 400:
-        return response.status_code, response.text
-    return response.status_code, response.json()
+        return response.status_code, response.text, response.headers
+    return response.status_code, response.json(), response.headers
+
+
+async def _github_get_json(
+    client: httpx.AsyncClient,
+    token: str,
+    path: str,
+    params: dict[str, str] | None = None,
+) -> tuple[int, object]:
+    status, payload, _headers = await _github_get_json_with_headers(
+        client,
+        token,
+        path,
+        params,
+    )
+    return status, payload
+
+
+def _next_link_url(link_header: str | None) -> str | None:
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        section = part.strip()
+        if 'rel="next"' not in section:
+            continue
+        if not section.startswith("<"):
+            continue
+        end_index = section.find(">")
+        if end_index <= 1:
+            continue
+        return section[1:end_index]
+    return None
+
+
+async def _github_get_paginated_list(
+    client: httpx.AsyncClient,
+    token: str,
+    path: str,
+    params: dict[str, str] | None = None,
+) -> tuple[int, object]:
+    items: list[object] = []
+    path_or_url = path
+    page_params = dict(params or {})
+    page_params.setdefault("per_page", "100")
+
+    while True:
+        status, payload, headers = await _github_get_json_with_headers(
+            client,
+            token,
+            path_or_url,
+            page_params,
+        )
+        if status >= 400:
+            return status, payload
+        if not isinstance(payload, list):
+            return status, payload
+        items.extend(payload)
+        next_url = _next_link_url(headers.get("link"))
+        if not next_url:
+            return status, items
+        path_or_url = next_url
+        page_params = {}
 
 
 class ReviewRequestSearchError(RuntimeError):
@@ -112,7 +181,9 @@ async def fetch_review_request_notifications(
 
 
 async def fetch_bulk_comment_results(
-    token: str, items: list[dict]
+    token: str,
+    items: list[dict],
+    on_progress=None,
 ) -> list[tuple[str, dict]]:
     """Fetch comment threads for multiple notifications with bounded concurrency."""
     client = get_client()
@@ -120,7 +191,10 @@ async def fetch_bulk_comment_results(
 
     async def run_item(item: dict) -> tuple[str, dict]:
         async with limit:
-            return await _fetch_bulk_comment_item(client, token, item)
+            result = await _fetch_bulk_comment_item(client, token, item)
+        if on_progress is not None:
+            on_progress(result)
+        return result
 
     return await asyncio.gather(*(run_item(item) for item in items))
 
@@ -183,7 +257,7 @@ async def _fetch_bulk_comment_item(
                     }
                 )
 
-    status, issue_comments = await _github_get_json(
+    status, issue_comments = await _github_get_paginated_list(
         client,
         token,
         f"repos/{owner}/{repo}/issues/{number}/comments",
@@ -197,7 +271,7 @@ async def _fetch_bulk_comment_item(
         comments.extend(issue_comments)
 
     if is_pr:
-        status, review_comments = await _github_get_json(
+        status, review_comments = await _github_get_paginated_list(
             client,
             token,
             f"repos/{owner}/{repo}/pulls/{number}/comments",
@@ -210,11 +284,11 @@ async def _fetch_bulk_comment_item(
                 comments.append(comment)
 
     if fetch_state_events:
-        status, issue_events = await _github_get_json(
+        status, issue_events = await _github_get_paginated_list(
             client,
             token,
             f"repos/{owner}/{repo}/issues/{number}/events",
-            {"per_page": "100"},
+            {},
         )
         if status < 400 and isinstance(issue_events, list):
             state_events.extend(

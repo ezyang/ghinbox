@@ -558,10 +558,11 @@
             saveCommentCache();
         }
 
-        function applyServerSnapshot(repo, snapshot) {
+        function applyServerSnapshot(repo, snapshot, options = {}) {
             if (!snapshot || !Array.isArray(snapshot.notifications)) {
                 return false;
             }
+            const schedulePrefetch = options.schedulePrefetch !== false;
             state.repo = `${repo.owner}/${repo.repo}`;
             state.notifications = snapshot.notifications;
             state.lastSyncedRepo = state.repo;
@@ -575,7 +576,9 @@
             }
             persistNotifications();
             applyServerSnapshotCommentCache(snapshot);
-            scheduleCommentPrefetch(state.notifications);
+            if (schedulePrefetch) {
+                scheduleCommentPrefetch(state.notifications);
+            }
             return true;
         }
 
@@ -636,23 +639,53 @@
             }
         }
 
-        async function pollServerSync(repo) {
+        function formatServerSyncProgressDetails(sync) {
+            const details = [];
+            const phase = typeof sync.phase === 'string' ? sync.phase : '';
+            if (phase && !['idle', 'running', 'notifications', 'complete'].includes(phase)) {
+                details.push(phase);
+            }
+            if (Number.isFinite(sync.pages_fetched)) {
+                details.push(`${sync.pages_fetched} pages`);
+            }
+            if (Number.isFinite(sync.notifications_count)) {
+                details.push(`${sync.notifications_count} notifications`);
+            }
+            if (Number.isFinite(sync.comments_total) && sync.comments_total > 0) {
+                const fetched = Number.isFinite(sync.comments_fetched)
+                    ? sync.comments_fetched
+                    : 0;
+                let comments = `comments ${fetched}/${sync.comments_total}`;
+                if (Number.isFinite(sync.comments_failed) && sync.comments_failed > 0) {
+                    comments += `, ${sync.comments_failed} failed`;
+                }
+                details.push(comments);
+            }
+            return details.length > 0 ? ` (${details.join(', ')})` : '';
+        }
+
+        function shouldApplyRunningServerSnapshot(repo, snapshot) {
+            if (!snapshot || !Array.isArray(snapshot.notifications) || !snapshot.synced_at) {
+                return false;
+            }
+            return snapshot.synced_at !== localStorage.getItem(getServerSnapshotSyncedAtKey(repo));
+        }
+
+        async function pollServerSync(repo, options = {}) {
+            const syncLabel = options.syncLabel || 'Full Sync';
             while (true) {
                 const data = await fetchJson(
                     `/api/snapshots/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/sync`
                 );
                 const sync = data.sync || {};
                 if (sync.status === 'running') {
-                    const details = [];
-                    if (Number.isFinite(sync.pages_fetched)) {
-                        details.push(`${sync.pages_fetched} pages`);
+                    if (shouldApplyRunningServerSnapshot(repo, data.snapshot)) {
+                        applyServerSnapshot(repo, data.snapshot, { schedulePrefetch: false });
+                        render();
                     }
-                    if (Number.isFinite(sync.notifications_count)) {
-                        details.push(`${sync.notifications_count} notifications`);
-                    }
-                    const detailText = details.length > 0 ? ` (${details.join(', ')})` : '';
+                    const detailText = formatServerSyncProgressDetails(sync);
                     showStatus(
-                        `Full Sync running on server for ${repo.owner}/${repo.repo}${detailText}...`,
+                        `${syncLabel} running on server for ${repo.owner}/${repo.repo}${detailText}...`,
                         'info'
                     );
                     await new Promise(resolve => setTimeout(resolve, 1500));
@@ -670,6 +703,68 @@
                 }
                 return sync;
             }
+        }
+
+        async function runServerSnapshotSyncForSource(source, options = {}) {
+            const syncLabel = options.syncLabel || 'Full Sync';
+            const fallbackMode = options.fallbackMode || null;
+            const fallbackOnUnavailable = Boolean(options.fallbackOnUnavailable);
+            const repo = source.fullName;
+            const parsed = {
+                owner: source.owner,
+                repo: source.repo,
+            };
+            state.repo = repo;
+            localStorage.setItem(REPO_KEY, repo);
+            state.loading = true;
+            state.error = null;
+            render();
+            showStatus(`${syncLabel} starting on server for ${repo}...`, 'info', { flash: true });
+
+            try {
+                await fetchJson(
+                    `/api/snapshots/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/sync`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode: 'full' }),
+                    }
+                );
+                showStatus(`${syncLabel} running on server for ${repo}...`, 'info');
+                await pollServerSync(parsed, { syncLabel });
+                return true;
+            } catch (error) {
+                const message = error.message || String(error);
+                const unavailable =
+                    error.status === 503 || message.includes('No GitHub fetcher configured');
+                if (unavailable && fallbackOnUnavailable) {
+                    state.loading = false;
+                    render();
+                    return false;
+                }
+                if (unavailable && fallbackMode) {
+                    state.loading = false;
+                    render();
+                    await handleSync({ mode: fallbackMode, allowServer: false });
+                    return true;
+                }
+                state.error = message;
+                showStatus(`${syncLabel} failed: ${message}`, 'error');
+                return true;
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+
+        async function tryServerQuickSync(sources) {
+            if (sources.length !== 1 || sources[0].kind !== 'repo') {
+                return false;
+            }
+            return runServerSnapshotSyncForSource(sources[0], {
+                syncLabel: 'Quick Sync',
+                fallbackOnUnavailable: true,
+            });
         }
 
         async function handleServerFullSync() {
@@ -695,47 +790,14 @@
                 return;
             }
             if (sources.length !== 1 || sources[0].kind !== 'repo') {
-                await handleSync({ mode: 'full' });
+                await handleSync({ mode: 'full', allowServer: false });
                 return;
             }
 
-            const source = sources[0];
-            const repo = source.fullName;
-            const parsed = {
-                owner: source.owner,
-                repo: source.repo,
-            };
-            state.repo = repo;
-            localStorage.setItem(REPO_KEY, repo);
-            state.loading = true;
-            state.error = null;
-            render();
-            showStatus(`Full Sync starting on server for ${repo}...`, 'info', { flash: true });
-
-            try {
-                await fetchJson(
-                    `/api/snapshots/${encodeURIComponent(parsed.owner)}/${encodeURIComponent(parsed.repo)}/sync`,
-                    {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ mode: 'full' }),
-                    }
-                );
-                showStatus(`Full Sync running on server for ${repo}...`, 'info');
-                await pollServerSync(parsed);
-            } catch (error) {
-                const message = error.message || String(error);
-                if (error.status === 503 || message.includes('No GitHub fetcher configured')) {
-                    state.loading = false;
-                    await handleSync({ mode: 'full' });
-                    return;
-                }
-                state.error = message;
-                showStatus(`Full Sync failed: ${message}`, 'error');
-            } finally {
-                state.loading = false;
-                render();
-            }
+            await runServerSnapshotSyncForSource(sources[0], {
+                syncLabel: 'Full Sync',
+                fallbackMode: 'full',
+            });
         }
 
         async function handleServerSnapshotRefresh() {

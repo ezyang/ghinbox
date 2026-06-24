@@ -28,6 +28,14 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
                 "closed_at": "2026-06-08T11:00:00Z",
                 "user": {"login": "alice"},
             }
+        raise AssertionError(f"unexpected GitHub path: {path}")
+
+    async def fake_github_get_paginated_list(
+        client, token: str, path: str, params=None
+    ):
+        assert client == "client"
+        assert token == "token"
+        calls.append((path, params))
         if path == "repos/test/repo/issues/10/comments":
             return 200, [
                 {
@@ -54,6 +62,11 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
         raise AssertionError(f"unexpected GitHub path: {path}")
 
     monkeypatch.setattr(github_proxy, "_github_get_json", fake_github_get_json)
+    monkeypatch.setattr(
+        github_proxy,
+        "_github_get_paginated_list",
+        fake_github_get_paginated_list,
+    )
 
     key, result = asyncio.run(
         github_proxy._fetch_bulk_comment_item(
@@ -90,7 +103,52 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
     assert calls == [
         ("repos/test/repo/issues/10", None),
         ("repos/test/repo/issues/10/comments", {}),
-        ("repos/test/repo/issues/10/events", {"per_page": "100"}),
+        ("repos/test/repo/issues/10/events", {}),
+    ]
+
+
+def test_paginated_github_list_adds_per_page_and_follows_next(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    next_url = "https://api.github.com/repos/test/repo/issues/10/comments?page=2"
+
+    async def fake_github_get_json_with_headers(
+        client,
+        token: str,
+        path_or_url: str,
+        params=None,
+    ):
+        assert client == "client"
+        assert token == "token"
+        calls.append((path_or_url, params))
+        if len(calls) == 1:
+            return 200, [{"id": 1}], {"link": f'<{next_url}>; rel="next"'}
+        return 200, [{"id": 2}], {}
+
+    monkeypatch.setattr(
+        github_proxy,
+        "_github_get_json_with_headers",
+        fake_github_get_json_with_headers,
+    )
+
+    status, payload = asyncio.run(
+        github_proxy._github_get_paginated_list(
+            cast(Any, "client"),
+            "token",
+            "repos/test/repo/issues/10/comments",
+            {"since": "2026-06-08T09:00:00Z"},
+        )
+    )
+
+    assert status == 200
+    assert payload == [{"id": 1}, {"id": 2}]
+    assert calls == [
+        (
+            "repos/test/repo/issues/10/comments",
+            {"since": "2026-06-08T09:00:00Z", "per_page": "100"},
+        ),
+        (next_url, {}),
     ]
 
 
