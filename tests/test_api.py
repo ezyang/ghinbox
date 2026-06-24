@@ -453,6 +453,245 @@ class TestNotificationActions:
             },
         ]
 
+    def test_submit_action_records_github_api_rate_limit_audit(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test internal GitHub API calls are logged with sanitized rate-limit data."""
+        current_html_id = (
+            "NT_kwHNNPzaACRSZXBvc2l0b3J5OzY1NjAwOTc1O0lzc3VlOzQ3MjMzNjQ2Njc"
+        )
+
+        class FakeResponse:
+            def __init__(
+                self,
+                status_code: int,
+                payload: object | None = None,
+                headers: dict[str, str] | None = None,
+                text: str = "",
+            ) -> None:
+                self.status_code = status_code
+                self.payload = payload
+                self.headers = headers or {}
+                self.text = text
+
+            def json(self) -> object:
+                return self.payload
+
+        class FakeClient:
+            async def get(
+                self,
+                url: str,
+                headers: dict[str, str],
+                params: dict[str, str],
+            ) -> FakeResponse:
+                return FakeResponse(
+                    200,
+                    [
+                        {
+                            "id": "24335693536",
+                            "subject": {
+                                "url": "https://api.github.com/repos/pytorch/pytorch/pulls/187924"
+                            },
+                        }
+                    ],
+                    headers={
+                        "X-RateLimit-Limit": "5000",
+                        "X-RateLimit-Remaining": "4998",
+                        "X-RateLimit-Used": "2",
+                        "X-RateLimit-Reset": "1782317623",
+                        "X-RateLimit-Resource": "core",
+                    },
+                )
+
+            async def request(
+                self,
+                method: str,
+                url: str,
+                headers: dict[str, str],
+            ) -> FakeResponse:
+                return FakeResponse(
+                    205,
+                    headers={
+                        "X-RateLimit-Limit": "5000",
+                        "X-RateLimit-Remaining": "4997",
+                        "X-RateLimit-Used": "3",
+                        "X-RateLimit-Reset": "1782317623",
+                        "X-RateLimit-Resource": "core",
+                    },
+                )
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr(
+            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_snapshot",
+            lambda repo: {
+                "notifications": [
+                    {
+                        "id": current_html_id,
+                        "subject": {
+                            "url": (
+                                "https://github.com/pytorch/pytorch/pull/187924"
+                                f"?notification_referrer_id={current_html_id}"
+                            )
+                        },
+                    }
+                ]
+            },
+        )
+
+        clear_response = client.post("/debug/github-api-calls/clear")
+        assert clear_response.status_code == 200
+
+        action_response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [current_html_id],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert action_response.status_code == 200
+        request_id = action_response.headers["x-ghinbox-request-id"]
+
+        audit_response = client.get("/debug/github-api-calls")
+        assert audit_response.status_code == 200
+        calls = audit_response.json()["calls"]
+        assert calls == [
+            {
+                "timestamp": calls[0]["timestamp"],
+                "event": "github_api_call",
+                "request_id": request_id,
+                "source": "archive.thread_lookup",
+                "method": "GET",
+                "endpoint": "/repos/pytorch/pytorch/notifications",
+                "status_code": 200,
+                "duration_ms": calls[0]["duration_ms"],
+                "query_keys": ["all", "per_page"],
+                "rate_limit": {
+                    "limit": "5000",
+                    "remaining": "4998",
+                    "used": "2",
+                    "reset": "1782317623",
+                    "resource": "core",
+                },
+            },
+            {
+                "timestamp": calls[1]["timestamp"],
+                "event": "github_api_call",
+                "request_id": request_id,
+                "source": "archive.thread_delete",
+                "method": "DELETE",
+                "endpoint": "/notifications/threads/24335693536",
+                "status_code": 205,
+                "duration_ms": calls[1]["duration_ms"],
+                "rate_limit": {
+                    "limit": "5000",
+                    "remaining": "4997",
+                    "used": "3",
+                    "reset": "1782317623",
+                    "resource": "core",
+                },
+            },
+        ]
+        assert "api-token" not in str(calls)
+        assert current_html_id not in str(calls)
+
+    def test_submit_action_caps_current_html_id_rest_lookup(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test current ID lookup falls back before walking unbounded REST pages."""
+        current_html_id = (
+            "NT_kwHNNPzaACRSZXBvc2l0b3J5OzY1NjAwOTc1O0lzc3VlOzQ3MjMzNjQ2Njc"
+        )
+        lookup_calls: list[dict[str, object]] = []
+        fallback_calls: list[list[str]] = []
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def __init__(self, page: int) -> None:
+                self.headers = (
+                    {
+                        "link": (
+                            "<https://api.github.com/repos/pytorch/pytorch/"
+                            f'notifications?page={page + 1}>; rel="next"'
+                        )
+                    }
+                    if page < 3
+                    else {}
+                )
+
+            def json(self) -> object:
+                return []
+
+        class FakeClient:
+            async def get(
+                self,
+                url: str,
+                headers: dict[str, str],
+                params: dict[str, str],
+            ) -> FakeResponse:
+                lookup_calls.append({"url": url, "params": params})
+                return FakeResponse(len(lookup_calls))
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                assert action == "archive"
+                assert authenticity_token == "form-token"
+                fallback_calls.append(notification_ids)
+                return ActionResult(status="ok", github_status_code=200)
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.MAX_REST_THREAD_LOOKUP_PAGES", 2)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr(
+            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_snapshot",
+            lambda repo: {
+                "notifications": [
+                    {
+                        "id": current_html_id,
+                        "subject": {
+                            "url": (
+                                "https://github.com/pytorch/pytorch/pull/187924"
+                                f"?notification_referrer_id={current_html_id}"
+                            )
+                        },
+                    }
+                ]
+            },
+        )
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [current_html_id],
+                "authenticity_token": "form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert len(lookup_calls) == 2
+        assert fallback_calls == [[current_html_id]]
+
     def test_submit_action_accepts_batched_notification_ids(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

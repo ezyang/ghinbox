@@ -77,4 +77,16 @@ test.describe('Observability endpoints', () => {
     );
     expect(JSON.stringify(body.actions[0])).not.toContain('secret-e2e-token');
   });
+
+  test('reports outbound GitHub API audit buffer', async ({ request }) => {
+    const clearResponse = await request.post('/debug/github-api-calls/clear');
+    expect(clearResponse.status()).toBe(200);
+
+    const auditResponse = await request.get('/debug/github-api-calls');
+    expect(auditResponse.status()).toBe(200);
+    const body = await auditResponse.json();
+
+    expect(body.max_recent_calls).toBe(200);
+    expect(body.calls).toEqual([]);
+  });
 });

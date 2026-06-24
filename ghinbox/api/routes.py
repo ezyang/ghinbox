@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Request
@@ -19,7 +19,10 @@ from pydantic import BaseModel
 from ghinbox.api.fetcher import ActionResult, get_fetcher, run_fetcher_call
 from ghinbox.api.github_proxy import GITHUB_API_BASE, get_client, get_token
 from ghinbox.api.models import NotificationsResponse
-from ghinbox.api.observability import emit_notification_action_audit
+from ghinbox.api.observability import (
+    emit_github_api_call_audit,
+    emit_notification_action_audit,
+)
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_snapshot,
@@ -32,6 +35,7 @@ from ghinbox.parser.notifications import SessionExpiredError, parse_notification
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
 MAX_GITHUB_NOTIFICATION_ACTION_IDS = 25
+MAX_REST_THREAD_LOOKUP_PAGES = 10
 SubjectKey = tuple[str, str, str, int]
 
 
@@ -103,6 +107,12 @@ def _github_api_headers(token: str) -> dict[str, str]:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def _github_audit_url(url: str, params: dict[str, str]) -> str:
+    if not params:
+        return url
+    return f"{url}?{urlencode(params)}"
 
 
 def _subject_key_from_url(url: str) -> SubjectKey | None:
@@ -179,6 +189,8 @@ def _snapshot_subject_keys_by_notification_id(
 async def _rest_thread_ids_by_subject_key(
     token: str,
     subject_keys: set[SubjectKey],
+    *,
+    request_id: str | None = None,
 ) -> dict[SubjectKey, str] | None:
     if not subject_keys:
         return {}
@@ -195,13 +207,40 @@ async def _rest_thread_ids_by_subject_key(
     for (owner, repo), repo_keys in keys_by_repo.items():
         url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/notifications"
         params = {"all": "true", "per_page": "100"}
+        pages_fetched = 0
 
         while True:
-            response = await client.get(
-                url,
-                headers=headers,
-                params=params,
+            if pages_fetched >= MAX_REST_THREAD_LOOKUP_PAGES:
+                return None
+            audit_url = _github_audit_url(url, params)
+            started = time.perf_counter()
+            try:
+                response = await client.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                )
+            except Exception as error:
+                emit_github_api_call_audit(
+                    request_id=request_id,
+                    source="archive.thread_lookup",
+                    method="GET",
+                    url=audit_url,
+                    status_code=None,
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    error=error.__class__.__name__,
+                )
+                raise
+            emit_github_api_call_audit(
+                request_id=request_id,
+                source="archive.thread_lookup",
+                method="GET",
+                url=audit_url,
+                status_code=response.status_code,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                response_headers=getattr(response, "headers", None),
             )
+            pages_fetched += 1
             if response.status_code >= 400:
                 return None
 
@@ -238,6 +277,8 @@ async def _rest_thread_ids_by_subject_key(
 async def _rest_thread_ids_from_notification_ids(
     token: str,
     notification_ids: list[str],
+    *,
+    request_id: str | None = None,
 ) -> list[str] | None:
     thread_ids_by_notification_id: dict[str, str] = {}
     unresolved: list[str] = []
@@ -259,6 +300,7 @@ async def _rest_thread_ids_from_notification_ids(
         thread_ids_by_subject_key = await _rest_thread_ids_by_subject_key(
             token,
             set(subject_keys_by_notification_id.values()),
+            request_id=request_id,
         )
         if thread_ids_by_subject_key is None:
             return None
@@ -277,6 +319,8 @@ async def _rest_thread_ids_from_notification_ids(
 
 async def _submit_archive_with_github_api(
     notification_ids: list[str],
+    *,
+    request_id: str | None = None,
 ) -> ActionResult | None:
     """Mark notifications done through the REST API when IDs and token permit it."""
     token = get_token()
@@ -289,7 +333,11 @@ async def _submit_archive_with_github_api(
             error="No notification IDs provided for action",
         )
 
-    thread_ids = await _rest_thread_ids_from_notification_ids(token, notification_ids)
+    thread_ids = await _rest_thread_ids_from_notification_ids(
+        token,
+        notification_ids,
+        request_id=request_id,
+    )
     if thread_ids is None:
         return None
 
@@ -297,10 +345,33 @@ async def _submit_archive_with_github_api(
     last_status_code: int | None = None
     headers = _github_api_headers(token)
     for thread_id in thread_ids:
-        response = await client.request(
-            "DELETE",
-            f"{GITHUB_API_BASE}/notifications/threads/{thread_id}",
-            headers=headers,
+        url = f"{GITHUB_API_BASE}/notifications/threads/{thread_id}"
+        started = time.perf_counter()
+        try:
+            response = await client.request(
+                "DELETE",
+                url,
+                headers=headers,
+            )
+        except Exception as error:
+            emit_github_api_call_audit(
+                request_id=request_id,
+                source="archive.thread_delete",
+                method="DELETE",
+                url=url,
+                status_code=None,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                error=error.__class__.__name__,
+            )
+            raise
+        emit_github_api_call_audit(
+            request_id=request_id,
+            source="archive.thread_delete",
+            method="DELETE",
+            url=url,
+            status_code=response.status_code,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            response_headers=getattr(response, "headers", None),
         )
         last_status_code = response.status_code
         if response.status_code >= 400:
@@ -645,11 +716,14 @@ async def submit_action(
     status = "error"
     error: str | None = None
     github_status_code: int | None = None
+    request_id_value = http_request.scope.get("ghinbox_request_id")
+    request_id = request_id_value if isinstance(request_id_value, str) else None
 
     try:
         if request.action == "archive":
             api_result = await _submit_archive_with_github_api(
                 request.notification_ids,
+                request_id=request_id,
             )
             if api_result is not None:
                 status = api_result.status
@@ -705,7 +779,7 @@ async def submit_action(
         )
     finally:
         emit_notification_action_audit(
-            request_id=http_request.scope.get("ghinbox_request_id"),
+            request_id=request_id,
             action=request.action,
             notification_ids=request.notification_ids,
             token_present=bool(request.authenticity_token),

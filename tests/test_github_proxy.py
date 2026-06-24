@@ -3,6 +3,7 @@
 import asyncio
 from typing import Any, cast
 
+from fastapi import Request
 import pytest
 
 from ghinbox.api import github_proxy
@@ -14,7 +15,14 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
 ) -> None:
     calls: list[tuple[str, dict[str, str] | None]] = []
 
-    async def fake_github_get_json(client, token: str, path: str, params=None):
+    async def fake_github_get_json(
+        client,
+        token: str,
+        path: str,
+        params=None,
+        **kwargs,
+    ):
+        assert kwargs["source"] == "comments_bulk.issue"
         assert client == "client"
         assert token == "token"
         calls.append((path, params))
@@ -31,10 +39,18 @@ def test_bulk_comment_item_includes_close_events_for_closed_notifications(
         raise AssertionError(f"unexpected GitHub path: {path}")
 
     async def fake_github_get_paginated_list(
-        client, token: str, path: str, params=None
+        client,
+        token: str,
+        path: str,
+        params=None,
+        **kwargs,
     ):
         assert client == "client"
         assert token == "token"
+        assert kwargs["source"] in {
+            "comments_bulk.issue_comments",
+            "comments_bulk.issue_events",
+        }
         calls.append((path, params))
         if path == "repos/test/repo/issues/10/comments":
             return 200, [
@@ -118,9 +134,11 @@ def test_paginated_github_list_adds_per_page_and_follows_next(
         token: str,
         path_or_url: str,
         params=None,
+        **kwargs,
     ):
         assert client == "client"
         assert token == "token"
+        assert kwargs["source"] == "github_proxy"
         calls.append((path_or_url, params))
         if len(calls) == 1:
             return 200, [{"id": 1}], {"link": f'<{next_url}>; rel="next"'}
@@ -182,9 +200,17 @@ def test_bulk_comment_item_can_be_built_from_notification_payload() -> None:
 def test_review_requests_endpoint_normalizes_search_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_github_get_json(client, token: str, path: str, params=None):
+    async def fake_github_get_json(
+        client,
+        token: str,
+        path: str,
+        params=None,
+        **kwargs,
+    ):
         assert client == "client"
         assert token == "token"
+        assert kwargs["source"] == "review_requests.search"
+        assert kwargs["request_id"] == "req-123"
         assert path == "search/issues"
         assert params == {
             "q": "repo:test/repo is:pr is:open user-review-requested:@me",
@@ -210,7 +236,18 @@ def test_review_requests_endpoint_normalizes_search_results(
     monkeypatch.setattr(github_proxy, "get_client", lambda: "client")
     monkeypatch.setattr(github_proxy, "_github_get_json", fake_github_get_json)
 
-    result = asyncio.run(github_proxy.review_requests(owner="test", repo="repo"))
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/github/rest/review-requests",
+            "headers": [],
+            "ghinbox_request_id": "req-123",
+        }
+    )
+    result = asyncio.run(
+        github_proxy.review_requests(request, owner="test", repo="repo")
+    )
 
     assert result["notifications"][0]["id"] == "review-request:test/repo#42"
     assert result["notifications"][0]["repository"]["full_name"] == "test/repo"

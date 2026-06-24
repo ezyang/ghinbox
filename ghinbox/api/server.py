@@ -378,9 +378,13 @@ def main() -> int:
 
     if args.test:
         print("Starting server in TEST MODE (no live fetching)")
-        # Don't set GHINBOX_ACCOUNT - app will run without fetcher
-        # Set test mode flag so /health/test endpoint works
+        # Force-disable inherited live GitHub state so test runs cannot proxy
+        # unmocked browser requests to the production API.
         os.environ["GHINBOX_TEST_MODE"] = "1"
+        os.environ.pop("GHINBOX_ACCOUNT", None)
+        os.environ.pop("GHINBOX_HEADLESS", None)
+        os.environ.pop("GHINBOX_NEEDS_AUTH", None)
+        os.environ["GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS"] = "0"
         if not args.snapshot_db_path and "GHINBOX_SNAPSHOT_DB_PATH" not in os.environ:
             # Fresh per-run DB so test runs are hermetic: no state leaks
             # between runs and concurrent runs don't share a database.

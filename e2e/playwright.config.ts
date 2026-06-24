@@ -95,7 +95,7 @@ export default defineConfig({
 
   // Run local dev server before starting the tests
   webServer: {
-    command: `cd .. && GHINBOX_WEBHOOK_SECRET=e2e-webhook-secret GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox GHINBOX_SNAPSHOT_DB_PATH=${process.env.GHINBOX_SNAPSHOT_DB_PATH} uv run python -m ghinbox.api.server --test --no-reload --no-debug-socket --port ${TEST_PORT}`,
+    command: `cd .. && GHINBOX_ACCOUNT= GHINBOX_HEADLESS= GHINBOX_NEEDS_AUTH= GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS=0 GHINBOX_WEBHOOK_SECRET=e2e-webhook-secret GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox GHINBOX_SNAPSHOT_DB_PATH=${process.env.GHINBOX_SNAPSHOT_DB_PATH} uv run python -m ghinbox.api.server --test --no-reload --no-debug-socket --port ${TEST_PORT}`,
     // CRITICAL: Use /health/test endpoint which returns 503 if server is not in test mode.
     // This prevents reusing a production server that might be running on this port.
     url: `http://localhost:${TEST_PORT}/health/test`,

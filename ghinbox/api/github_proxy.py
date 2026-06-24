@@ -6,6 +6,7 @@ Proxies requests to GitHub's REST and GraphQL APIs using the stored token.
 
 import asyncio
 import os
+import time
 from urllib.parse import urlencode
 
 import httpx
@@ -17,6 +18,7 @@ from ghinbox.api.notification_shapes import (
     notification_to_bulk_comment_item,
     search_item_to_review_request_notification,
 )
+from ghinbox.api.observability import emit_github_api_call_audit
 from ghinbox.token import load_token
 
 router = APIRouter(prefix="/github", tags=["github-proxy"])
@@ -59,15 +61,40 @@ async def _github_get_json_with_headers(
     token: str,
     path_or_url: str,
     params: dict[str, str] | None = None,
+    *,
+    source: str = "github_proxy",
+    request_id: str | None = None,
 ) -> tuple[int, object, httpx.Headers]:
     url = _github_url(path_or_url, params)
-    response = await client.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+    started = time.perf_counter()
+    try:
+        response = await client.get(
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+    except Exception as error:
+        emit_github_api_call_audit(
+            request_id=request_id,
+            source=source,
+            method="GET",
+            url=url,
+            status_code=None,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            error=error.__class__.__name__,
+        )
+        raise
+    emit_github_api_call_audit(
+        request_id=request_id,
+        source=source,
+        method="GET",
+        url=url,
+        status_code=response.status_code,
+        duration_ms=(time.perf_counter() - started) * 1000,
+        response_headers=response.headers,
     )
     if response.status_code >= 400:
         return response.status_code, response.text, response.headers
@@ -79,12 +106,17 @@ async def _github_get_json(
     token: str,
     path: str,
     params: dict[str, str] | None = None,
+    *,
+    source: str = "github_proxy",
+    request_id: str | None = None,
 ) -> tuple[int, object]:
     status, payload, _headers = await _github_get_json_with_headers(
         client,
         token,
         path,
         params,
+        source=source,
+        request_id=request_id,
     )
     return status, payload
 
@@ -110,6 +142,9 @@ async def _github_get_paginated_list(
     token: str,
     path: str,
     params: dict[str, str] | None = None,
+    *,
+    source: str = "github_proxy",
+    request_id: str | None = None,
 ) -> tuple[int, object]:
     items: list[object] = []
     path_or_url = path
@@ -122,6 +157,8 @@ async def _github_get_paginated_list(
             token,
             path_or_url,
             page_params,
+            source=source,
+            request_id=request_id,
         )
         if status >= 400:
             return status, payload
@@ -147,6 +184,7 @@ async def fetch_review_request_notifications(
     owner: str | None,
     repo: str | None,
     query: str | None = None,
+    request_id: str | None = None,
 ) -> list[dict]:
     """Search GitHub for active review requests and normalize to notifications."""
     token = get_token()
@@ -159,6 +197,8 @@ async def fetch_review_request_notifications(
         token,
         "search/issues",
         {"q": search_query, "per_page": str(REVIEW_REQUEST_SEARCH_PER_PAGE)},
+        source="review_requests.search",
+        request_id=request_id,
     )
     if status >= 400:
         raise ReviewRequestSearchError(status, payload)
@@ -184,6 +224,7 @@ async def fetch_bulk_comment_results(
     token: str,
     items: list[dict],
     on_progress=None,
+    request_id: str | None = None,
 ) -> list[tuple[str, dict]]:
     """Fetch comment threads for multiple notifications with bounded concurrency."""
     client = get_client()
@@ -191,7 +232,12 @@ async def fetch_bulk_comment_results(
 
     async def run_item(item: dict) -> tuple[str, dict]:
         async with limit:
-            result = await _fetch_bulk_comment_item(client, token, item)
+            result = await _fetch_bulk_comment_item(
+                client,
+                token,
+                item,
+                request_id=request_id,
+            )
         if on_progress is not None:
             on_progress(result)
         return result
@@ -216,6 +262,8 @@ async def _fetch_bulk_comment_item(
     client: httpx.AsyncClient,
     token: str,
     item: dict,
+    *,
+    request_id: str | None = None,
 ) -> tuple[str, dict]:
     key = str(item.get("key") or "")
     owner = str(item.get("owner") or "")
@@ -239,6 +287,8 @@ async def _fetch_bulk_comment_item(
             client,
             token,
             f"repos/{owner}/{repo}/issues/{number}",
+            source="comments_bulk.issue",
+            request_id=request_id,
         )
         if status < 400:
             issue_comment = _issue_to_comment(issue)
@@ -262,6 +312,8 @@ async def _fetch_bulk_comment_item(
         token,
         f"repos/{owner}/{repo}/issues/{number}/comments",
         params,
+        source="comments_bulk.issue_comments",
+        request_id=request_id,
     )
     if status >= 400:
         return key, {
@@ -276,6 +328,8 @@ async def _fetch_bulk_comment_item(
             token,
             f"repos/{owner}/{repo}/pulls/{number}/comments",
             params,
+            source="comments_bulk.pr_review_comments",
+            request_id=request_id,
         )
         if status < 400 and isinstance(review_comments, list):
             for comment in review_comments:
@@ -289,6 +343,8 @@ async def _fetch_bulk_comment_item(
             token,
             f"repos/{owner}/{repo}/issues/{number}/events",
             {},
+            source="comments_bulk.issue_events",
+            request_id=request_id,
         )
         if status < 400 and isinstance(issue_events, list):
             state_events.extend(
@@ -359,7 +415,12 @@ async def bulk_comments(request: Request) -> dict:
         )
 
     dict_items = [item for item in items if isinstance(item, dict)]
-    results = await fetch_bulk_comment_results(token_value, dict_items)
+    request_id = request.scope.get("ghinbox_request_id")
+    results = await fetch_bulk_comment_results(
+        token_value,
+        dict_items,
+        request_id=request_id if isinstance(request_id, str) else None,
+    )
     threads = {key: result for key, result in results if key}
     return {"threads": threads}
 
@@ -370,6 +431,7 @@ async def bulk_comments(request: Request) -> dict:
     description="Fetches and normalizes active PR review requests for the authenticated user.",
 )
 async def review_requests(
+    request: Request,
     owner: str | None = None,
     repo: str | None = None,
     query: str | None = None,
@@ -386,7 +448,13 @@ async def review_requests(
         )
 
     try:
-        notifications = await fetch_review_request_notifications(owner, repo, query)
+        request_id = request.scope.get("ghinbox_request_id")
+        notifications = await fetch_review_request_notifications(
+            owner,
+            repo,
+            query,
+            request_id=request_id if isinstance(request_id, str) else None,
+        )
     except ReviewRequestSearchError as error:
         raise HTTPException(status_code=error.status_code, detail=str(error))
     return {"notifications": notifications}
@@ -432,11 +500,35 @@ async def rest_proxy(path: str, request: Request) -> Response:
 
     # Make the proxied request
     client = get_client()
-    response = await client.request(
+    request_id = request.scope.get("ghinbox_request_id")
+    request_id = request_id if isinstance(request_id, str) else None
+    started = time.perf_counter()
+    try:
+        response = await client.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            content=body if body else None,
+        )
+    except Exception as error:
+        emit_github_api_call_audit(
+            request_id=request_id,
+            source="rest_proxy",
+            method=request.method,
+            url=url,
+            status_code=None,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            error=error.__class__.__name__,
+        )
+        raise
+    emit_github_api_call_audit(
+        request_id=request_id,
+        source="rest_proxy",
         method=request.method,
         url=url,
-        headers=headers,
-        content=body if body else None,
+        status_code=response.status_code,
+        duration_ms=(time.perf_counter() - started) * 1000,
+        response_headers=response.headers,
     )
 
     # Return the response with appropriate headers
@@ -478,10 +570,35 @@ async def graphql_proxy(request: Request) -> Response:
 
     # Make the proxied request
     client = get_client()
-    response = await client.post(
-        f"{GITHUB_API_BASE}/graphql",
-        headers=headers,
-        content=body,
+    request_id = request.scope.get("ghinbox_request_id")
+    request_id = request_id if isinstance(request_id, str) else None
+    url = f"{GITHUB_API_BASE}/graphql"
+    started = time.perf_counter()
+    try:
+        response = await client.post(
+            url,
+            headers=headers,
+            content=body,
+        )
+    except Exception as error:
+        emit_github_api_call_audit(
+            request_id=request_id,
+            source="graphql_proxy",
+            method="POST",
+            url=url,
+            status_code=None,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            error=error.__class__.__name__,
+        )
+        raise
+    emit_github_api_call_audit(
+        request_id=request_id,
+        source="graphql_proxy",
+        method="POST",
+        url=url,
+        status_code=response.status_code,
+        duration_ms=(time.perf_counter() - started) * 1000,
+        response_headers=response.headers,
     )
 
     return Response(

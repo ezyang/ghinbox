@@ -236,9 +236,16 @@ def test_snapshot_comment_cache_uses_bulk_comment_fetch(
     captured_items = []
     fake_client = object()
 
-    async def fake_fetch_bulk_comment_item(client, token: str, item: dict):
+    async def fake_fetch_bulk_comment_item(
+        client,
+        token: str,
+        item: dict,
+        *,
+        request_id: str | None = None,
+    ):
         assert client is fake_client
         assert token == "token"
+        assert request_id is None
         captured_items.append(item)
         return item["key"], {
             "comments": [{"id": item["number"], "body": f"comment {item['number']}"}],

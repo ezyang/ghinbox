@@ -1,8 +1,10 @@
 import os
+import sys
 from pathlib import Path
 
 import pytest
 
+from ghinbox.api import server
 from ghinbox.api.server import _iter_reload_files, _load_env_file
 
 
@@ -72,3 +74,47 @@ def test_load_env_file_rejects_permissions_readable_by_others(tmp_path: Path) ->
 
     with pytest.raises(RuntimeError, match="must not be accessible"):
         _load_env_file(env_file)
+
+
+def test_test_mode_clears_live_github_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test mode must not inherit account state from the caller shell."""
+    snapshot_db = tmp_path / "snapshots.db"
+    monkeypatch.setenv("GHINBOX_ACCOUNT", "default")
+    monkeypatch.setenv("GHINBOX_HEADLESS", "1")
+    monkeypatch.setenv("GHINBOX_NEEDS_AUTH", "1")
+    monkeypatch.setenv("GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS", "60")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ghinbox.api.server",
+            "--test",
+            "--no-reload",
+            "--no-debug-socket",
+            "--env-file",
+            str(tmp_path / "missing.env"),
+            "--snapshot-db-path",
+            str(snapshot_db),
+            "--port",
+            "0",
+        ],
+    )
+
+    run_kwargs: dict[str, object] = {}
+
+    def fake_run_uvicorn(**kwargs: object) -> None:
+        run_kwargs.update(kwargs)
+
+    monkeypatch.setattr(server, "_run_uvicorn", fake_run_uvicorn)
+
+    assert server.main() == 0
+
+    assert os.environ["GHINBOX_TEST_MODE"] == "1"
+    assert os.environ["GHINBOX_SNAPSHOT_DB_PATH"] == str(snapshot_db)
+    assert os.environ["GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS"] == "0"
+    assert "GHINBOX_ACCOUNT" not in os.environ
+    assert "GHINBOX_HEADLESS" not in os.environ
+    assert "GHINBOX_NEEDS_AUTH" not in os.environ
+    assert run_kwargs["debug_socket_path"] is None

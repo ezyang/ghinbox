@@ -185,7 +185,7 @@ def format_for_llm(
     reply_nature_ids: set[str],
 ) -> str:
     """Format feed notifications as compact text for the LLM."""
-    lines = []
+    lines: list[str] = []
     for n in feed_notifications:
         nid = n["id"]
         subj = n.get("subject", {})
@@ -202,7 +202,7 @@ def format_for_llm(
         n_comments = len(comments)
 
         # Last 2 comment snippets for context
-        comment_snippets = []
+        comment_snippets: list[str] = []
         for c in comments[-2:]:
             author = c.get("user", {}).get("login", "?")
             body = (c.get("body") or "")[:200].replace("\n", " ").strip()

@@ -15,11 +15,13 @@ import hashlib
 import time
 import uuid
 from collections import deque
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from urllib.parse import parse_qsl, urlparse
 
 from fastapi import APIRouter
 
@@ -60,6 +62,7 @@ class RecentRequestStore:
 
 recent_requests = RecentRequestStore()
 recent_notification_actions = RecentRequestStore()
+recent_github_api_calls = RecentRequestStore()
 recent_deployments = RecentRequestStore()
 
 request_logger = logging.getLogger("ghinbox.requests")
@@ -232,6 +235,82 @@ def emit_deployment_audit(
         request_logger.info(json.dumps(entry, separators=(",", ":")))
 
 
+def _mapping_header_value(headers: Mapping[str, str] | None, name: str) -> str | None:
+    if headers is None:
+        return None
+
+    value = headers.get(name) or headers.get(name.lower())
+    if value is not None:
+        return str(value)
+
+    normalized_name = name.lower()
+    for key, value in headers.items():
+        if key.lower() == normalized_name:
+            return str(value)
+    return None
+
+
+def _github_rate_limit_from_headers(
+    headers: Mapping[str, str] | None,
+) -> dict[str, str] | None:
+    rate_limit_headers = {
+        "limit": "x-ratelimit-limit",
+        "remaining": "x-ratelimit-remaining",
+        "used": "x-ratelimit-used",
+        "reset": "x-ratelimit-reset",
+        "resource": "x-ratelimit-resource",
+    }
+    values = {
+        key: value
+        for key, header in rate_limit_headers.items()
+        if (value := _mapping_header_value(headers, header)) is not None
+    }
+    return values or None
+
+
+def _github_endpoint_from_url(url: str) -> tuple[str, list[str]]:
+    parsed = urlparse(url)
+    endpoint = parsed.path or url
+    query_keys = sorted({key for key, _value in parse_qsl(parsed.query)})
+    return endpoint, query_keys
+
+
+def emit_github_api_call_audit(
+    *,
+    request_id: str | None,
+    source: str,
+    method: str,
+    url: str,
+    status_code: int | None,
+    duration_ms: float,
+    response_headers: Mapping[str, str] | None = None,
+    error: str | None = None,
+) -> None:
+    """Record a sanitized outbound GitHub API call audit event."""
+    endpoint, query_keys = _github_endpoint_from_url(url)
+    entry: dict[str, Any] = {
+        "timestamp": _utc_now_iso(),
+        "event": "github_api_call",
+        "request_id": request_id,
+        "source": source,
+        "method": method.upper(),
+        "endpoint": endpoint,
+        "status_code": status_code,
+        "duration_ms": round(duration_ms, 2),
+    }
+    if query_keys:
+        entry["query_keys"] = query_keys
+    if error is not None:
+        entry["error"] = error
+    rate_limit = _github_rate_limit_from_headers(response_headers)
+    if rate_limit is not None:
+        entry["rate_limit"] = rate_limit
+
+    recent_github_api_calls.add(entry)
+    if request_logger.handlers:
+        request_logger.info(json.dumps(entry, separators=(",", ":")))
+
+
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
@@ -259,6 +338,23 @@ async def debug_notification_actions(limit: int = 50) -> dict[str, Any]:
 async def clear_debug_notification_actions() -> dict[str, str]:
     """Clear the in-memory notification action audit buffer."""
     recent_notification_actions.clear()
+    return {"status": "ok"}
+
+
+@router.get("/github-api-calls")
+async def debug_github_api_calls(limit: int = 50) -> dict[str, Any]:
+    """Return recent sanitized outbound GitHub API audit events."""
+    bounded_limit = max(1, min(limit, recent_github_api_calls.maxlen))
+    return {
+        "max_recent_calls": recent_github_api_calls.maxlen,
+        "calls": recent_github_api_calls.snapshot(bounded_limit),
+    }
+
+
+@router.post("/github-api-calls/clear")
+async def clear_debug_github_api_calls() -> dict[str, str]:
+    """Clear the in-memory outbound GitHub API audit buffer."""
+    recent_github_api_calls.clear()
     return {"status": "ok"}
 
 
