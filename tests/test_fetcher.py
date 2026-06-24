@@ -103,9 +103,13 @@ class FakeContext:
         page_url: str = "https://github.com/login?return_to=%2Fnotifications",
     ) -> None:
         self.page = FakePage(url=page_url)
+        self.storage_state_paths: list[str] = []
 
     def new_page(self) -> FakePage:
         return self.page
+
+    def storage_state(self, *, path: str) -> None:
+        self.storage_state_paths.append(path)
 
 
 def test_fetch_returns_session_expired_for_login_redirect(
@@ -134,6 +138,7 @@ def test_fetch_returns_session_expired_for_login_redirect(
     metadata = json.loads(metadata_dumps[0].read_text())
     assert metadata["event"] == "github_notifications_session_expired"
     assert metadata["selector_counts"]["logged_out_body"] == 1
+    assert context.storage_state_paths == []
 
 
 def test_success_fetch_writes_metadata_without_html_dump_by_default(
@@ -159,6 +164,28 @@ def test_success_fetch_writes_metadata_without_html_dump_by_default(
     assert metadata["event"] == "github_notifications_fetch"
     assert metadata["html_path"] is None
     assert metadata["metadata_path"] == str(metadata_dumps[0])
+
+
+def test_success_fetch_persists_refreshed_auth_state(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setenv("GHINBOX_FETCH_DUMP_DIR", str(tmp_path / "fetch_logs"))
+    auth_state_path = tmp_path / "default.json"
+    monkeypatch.setattr(
+        "ghinbox.api.fetcher.get_auth_state_path",
+        lambda account: auth_state_path,
+    )
+    fetcher = NotificationsFetcher(account="default")
+    context = FakeContext(
+        page_url="https://github.com/notifications?query=repo%3Atestowner/testrepo"
+    )
+    cast(Any, fetcher)._context = context
+
+    result = fetcher.fetch_repo_notifications("testowner", "testrepo")
+
+    assert result.status == "ok"
+    assert context.storage_state_paths == [str(auth_state_path)]
 
 
 def test_fetch_logging_is_best_effort(monkeypatch: Any) -> None:

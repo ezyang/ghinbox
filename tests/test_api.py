@@ -284,6 +284,62 @@ class TestNotificationActions:
         assert detail["error"] == "session_expired"
         assert "browser session is expired" in detail["message"].lower()
 
+    def test_submit_action_archives_with_token_backed_rest_api(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test Mark Done can use the GitHub API token instead of an HTML form."""
+        calls: list[dict[str, object]] = []
+
+        class FakeResponse:
+            status_code = 205
+            text = ""
+
+        class FakeClient:
+            async def request(
+                self,
+                method: str,
+                url: str,
+                headers: dict[str, str],
+            ) -> FakeResponse:
+                calls.append({"method": method, "url": url, "headers": headers})
+                return FakeResponse()
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_token",
+            lambda: "api-token",
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_client",
+            lambda: FakeClient(),
+            raising=False,
+        )
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": ["NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMQ"],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [
+            {
+                "method": "DELETE",
+                "url": "https://api.github.com/notifications/threads/21507933921",
+                "headers": {
+                    "Authorization": "Bearer api-token",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            }
+        ]
+
     def test_submit_action_accepts_batched_notification_ids(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

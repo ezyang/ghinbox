@@ -2,6 +2,8 @@
 FastAPI route handlers for the HTML notifications API.
 """
 
+import base64
+import binascii
 import time
 import os
 import re
@@ -13,7 +15,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi import Request
 from pydantic import BaseModel
 
-from ghinbox.api.fetcher import get_fetcher, run_fetcher_call
+from ghinbox.api.fetcher import ActionResult, get_fetcher, run_fetcher_call
+from ghinbox.api.github_proxy import GITHUB_API_BASE, get_client, get_token
 from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.observability import emit_notification_action_audit
 from ghinbox.api.snapshot_store import (
@@ -68,6 +71,71 @@ def mark_github_session_expired() -> None:
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _rest_thread_id_from_notification_id(notification_id: str) -> str | None:
+    """Decode a GitHub HTML notification node ID to its REST thread ID."""
+    if notification_id.isdecimal():
+        return notification_id
+    if not notification_id.startswith("NT_"):
+        return None
+
+    encoded = notification_id[3:]
+    padded = encoded + "=" * (-len(encoded) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except (binascii.Error, UnicodeError, ValueError):
+        return None
+
+    match = re.search(rb"(\d+):\d+$", decoded)
+    if match is None:
+        return None
+    return match.group(1).decode("ascii")
+
+
+async def _submit_archive_with_github_api(
+    notification_ids: list[str],
+) -> ActionResult | None:
+    """Mark notifications done through the REST API when IDs and token permit it."""
+    token = get_token()
+    if not token:
+        return None
+
+    if not notification_ids:
+        return ActionResult(
+            status="error",
+            error="No notification IDs provided for action",
+        )
+
+    thread_ids: list[str] = []
+    for notification_id in notification_ids:
+        thread_id = _rest_thread_id_from_notification_id(notification_id)
+        if thread_id is None:
+            return None
+        thread_ids.append(thread_id)
+
+    client = get_client()
+    last_status_code: int | None = None
+    for thread_id in thread_ids:
+        response = await client.request(
+            "DELETE",
+            f"{GITHUB_API_BASE}/notifications/threads/{thread_id}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        last_status_code = response.status_code
+        if response.status_code >= 400:
+            return ActionResult(
+                status="error",
+                error=f"HTTP {response.status_code}",
+                response_html=response.text,
+                github_status_code=response.status_code,
+            )
+
+    return ActionResult(status="ok", github_status_code=last_status_code)
 
 
 def _apply_bookmarks(
@@ -376,8 +444,9 @@ async def parse_fixture(
     description="""
     Submit a notification action (archive, unarchive, subscribe, unsubscribe) to GitHub.
 
-    This uses Playwright to submit an HTML form to GitHub's notification
-    endpoints, which requires a valid authenticity_token from the page.
+    Archive uses the GitHub REST notifications API when a token-backed thread
+    ID is available. Other actions fall back to Playwright form submission,
+    which requires a valid authenticity_token from the page.
 
     Actions:
     - archive: Mark a notification as done ("Mark as Done")
@@ -393,7 +462,8 @@ async def submit_action(
     """
     Submit a notification action to GitHub.
 
-    Requires an active fetcher (server started with --account).
+    Requires either a token-backed archive request or an active fetcher
+    (server started with --account).
     """
     started = time.perf_counter()
     status = "error"
@@ -401,6 +471,19 @@ async def submit_action(
     github_status_code: int | None = None
 
     try:
+        if request.action == "archive":
+            api_result = await _submit_archive_with_github_api(
+                request.notification_ids,
+            )
+            if api_result is not None:
+                status = api_result.status
+                error = api_result.error
+                github_status_code = api_result.github_status_code
+                return NotificationActionResponse(
+                    status=status,
+                    error=error,
+                )
+
         fetcher = get_fetcher()
         if fetcher is None:
             if os.environ.get("GHINBOX_NEEDS_AUTH") == "1":

@@ -21,7 +21,7 @@ from typing import Any
 
 from playwright.sync_api import sync_playwright, BrowserContext
 
-from ghinbox.auth import create_authenticated_context
+from ghinbox.auth import create_authenticated_context, get_auth_state_path
 
 
 DEFAULT_FETCH_LOG_DIR = "responses/github-fetcher"
@@ -173,6 +173,16 @@ class NotificationsFetcher:
         self._context = None
         self._playwright = None
 
+    def _persist_auth_state(self) -> None:
+        """Save any refreshed GitHub cookies without failing the user action."""
+        if self._context is None:
+            return
+
+        try:
+            self._context.storage_state(path=str(get_auth_state_path(self.account)))
+        except Exception as e:
+            print(f"[fetcher] Failed to persist auth state: {type(e).__name__}: {e}")
+
     def fetch_repo_notifications(
         self,
         owner: str,
@@ -291,6 +301,7 @@ class NotificationsFetcher:
                 response_status=response_status,
                 event="github_notifications_fetch",
             )
+            self._persist_auth_state()
 
             t0 = time.perf_counter()
             page.close()
@@ -528,6 +539,8 @@ class NotificationsFetcher:
                     response_html=content,
                     github_status_code=status_code,
                 )
+
+            self._persist_auth_state()
 
             return ActionResult(
                 status="ok",
