@@ -205,6 +205,27 @@ test.describe('Mark Done @slow @mutation', () => {
       expect(apiCalls[0]).toBe('notif-1');
     });
 
+    test('expired browser session during inline mark done redirects to login refresh', async ({ page }) => {
+      await page.unroute('**/notifications/html/action');
+      await page.route('**/notifications/html/action', (route) => {
+        route.fulfill({
+          status: 401,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            detail: {
+              error: 'session_expired',
+              message: 'Stored browser session is expired. Log in again to enable notification actions.',
+            },
+          }),
+        });
+      });
+
+      await page.locator('[data-id="notif-1"] .notification-actions-inline .notification-done-btn').click();
+
+      await expect(page.locator('#status-bar')).toContainText(/browser session is expired/i);
+      await expect(page).toHaveURL(/\/app\/login\.html\?session_refresh=1/);
+    });
+
     test('skips archive when new comments are detected but removes from UI', async ({ page }) => {
       let archiveCalled = false;
 

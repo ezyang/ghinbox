@@ -263,6 +263,27 @@ class TestGetRepoNotifications:
 class TestNotificationActions:
     """Tests for POST /notifications/html/action."""
 
+    def test_submit_action_reports_session_expired_when_auth_refresh_is_needed(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test action failures point at login when the browser fetcher is absent due auth."""
+        monkeypatch.setenv("GHINBOX_NEEDS_AUTH", "1")
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": ["notif-1"],
+                "authenticity_token": "token-123",
+            },
+        )
+
+        assert response.status_code == 401
+        detail = response.json()["detail"]
+        assert detail["error"] == "session_expired"
+        assert "browser session is expired" in detail["message"].lower()
+
     def test_submit_action_accepts_batched_notification_ids(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

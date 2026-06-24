@@ -57,6 +57,48 @@
             }
         }
 
+        const LOGIN_REFRESH_URL = '/app/login.html?session_refresh=1';
+
+        async function readNotificationActionError(response) {
+            let message = `HTTP ${response.status} ${response.statusText}`;
+            let sessionExpired = false;
+            const responseText = await response.text();
+            if (responseText) {
+                try {
+                    const parsed = JSON.parse(responseText);
+                    const detail = parsed?.detail;
+                    if (typeof detail === 'string') {
+                        message = detail;
+                    } else if (detail && typeof detail === 'object') {
+                        if (detail.message) {
+                            message = String(detail.message);
+                        }
+                        sessionExpired =
+                            response.status === 401 && detail.error === 'session_expired';
+                    } else if (parsed?.message) {
+                        message = String(parsed.message);
+                    } else {
+                        message = JSON.stringify(parsed);
+                    }
+                } catch (error) {
+                    message = responseText;
+                }
+            }
+            return { message, sessionExpired };
+        }
+
+        function showActionSessionExpired(message) {
+            const statusMessage = `${message || 'Stored browser session is expired.'} Redirecting to login...`;
+            showStatus(statusMessage, 'error');
+            if (state.loginRedirectScheduled) {
+                return;
+            }
+            state.loginRedirectScheduled = true;
+            setTimeout(() => {
+                window.location.href = LOGIN_REFRESH_URL;
+            }, 1500);
+        }
+
         // Apply a selection state across a range of notifications (for shift-click)
         function applyRangeSelection(fromId, toId, notifications, shouldSelect) {
             const ids = notifications.map(n => n.id);
@@ -172,6 +214,7 @@
         }
 
         function enqueueDoneItems(ids, notificationLookup, options = {}) {
+            doneQueue.sessionExpired = false;
             const items = ids.map(id => {
                 const notification = notificationLookup.get(id);
                 return {
@@ -194,6 +237,11 @@
         }
 
         function showFinalQueueStatus() {
+            if (doneQueue.sessionExpired) {
+                const firstError = doneQueue.failedResults[0]?.error;
+                showActionSessionExpired(firstError);
+                return;
+            }
             const status = GhinboxDoneQueue.getFinalStatus(doneQueue);
             showStatus(status.message, status.type, { autoDismiss: status.autoDismiss });
             if (status.type === 'error') {
@@ -234,6 +282,10 @@
 
                 if (result.success) {
                     GhinboxDoneQueue.recordSuccess(doneQueue, notifId);
+                } else if (result.sessionExpired) {
+                    doneQueue.sessionExpired = true;
+                    const errorDetail = result.error || 'Stored browser session is expired.';
+                    GhinboxDoneQueue.recordFailure(doneQueue, notifId, errorDetail);
                 } else {
                     const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
                     console.error(`[MarkDone] Failed for ${notifId}:`, errorDetail);
@@ -289,12 +341,12 @@
                 }
 
                 if (!response.ok) {
-                    const responseText = await response.text();
+                    const actionError = await readNotificationActionError(response);
                     return {
                         success: false,
-                        error: `HTTP ${response.status} ${response.statusText}`,
+                        error: actionError.message,
                         status: response.status,
-                        responseBody: responseText,
+                        sessionExpired: actionError.sessionExpired,
                     };
                 }
 
@@ -357,6 +409,7 @@
         }
 
         async function processDoneBatch(selectedIds, notificationLookup) {
+            doneQueue.sessionExpired = false;
             GhinboxDoneQueue.resetForBatch(doneQueue, selectedIds.length);
             updateQueueProgress();
 
@@ -379,6 +432,10 @@
 
                     if (result.success) {
                         GhinboxDoneQueue.recordBatchSuccess(doneQueue, selectedIds);
+                    } else if (result.sessionExpired) {
+                        doneQueue.sessionExpired = true;
+                        const errorDetail = result.error || 'Stored browser session is expired.';
+                        GhinboxDoneQueue.recordBatchFailure(doneQueue, selectedIds, errorDetail);
                     } else {
                         const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
                         GhinboxDoneQueue.recordBatchFailure(doneQueue, selectedIds, errorDetail);
@@ -867,10 +924,14 @@
                 }
 
                 if (!response.ok) {
-                    const responseText = await response.text();
-                    const error = `HTTP ${response.status} ${response.statusText}`;
-                    console.error(`[MarkDone] ${error}`, responseText);
-                    return { success: false, error, status: response.status, responseBody: responseText };
+                    const actionError = await readNotificationActionError(response);
+                    console.error(`[MarkDone] ${actionError.message}`);
+                    return {
+                        success: false,
+                        error: actionError.message,
+                        status: response.status,
+                        sessionExpired: actionError.sessionExpired,
+                    };
                 }
 
                 const result = await response.json();
@@ -1049,6 +1110,17 @@
             const skipped = !failed && !doneQueue.successfulIds.includes(notifId);
 
             if (failed) {
+                if (doneQueue.sessionExpired) {
+                    if (notificationToRemove) {
+                        restoreNotificationsInOrder([notificationToRemove]);
+                        persistNotifications();
+                        render();
+                    }
+                    removeUndoEntry(undoEntry);
+                    button.disabled = false;
+                    showActionSessionExpired(failed.error);
+                    return;
+                }
                 showStatus(`Failed to mark notification: ${failed.error}`, 'error');
                 if (notificationToRemove) {
                     restoreNotificationsInOrder([notificationToRemove]);

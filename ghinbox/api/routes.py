@@ -403,6 +403,18 @@ async def submit_action(
     try:
         fetcher = get_fetcher()
         if fetcher is None:
+            if os.environ.get("GHINBOX_NEEDS_AUTH") == "1":
+                error = (
+                    "Stored browser session is expired. Log in again to enable "
+                    "notification actions."
+                )
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "session_expired",
+                        "message": error,
+                    },
+                )
             error = (
                 "No fetcher configured. Start server with --account to enable actions."
             )
