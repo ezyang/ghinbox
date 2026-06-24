@@ -8,6 +8,7 @@ import {
 } from './idb-utils';
 
 export const APP_STORAGE_KEYS = {
+  autoMarkTrash: 'ghnotif_auto_mark_trash_done',
   authCache: 'ghnotif_auth_cache',
   lastSyncedRepo: 'ghnotif_last_synced_repo',
   repo: 'ghnotif_repo',

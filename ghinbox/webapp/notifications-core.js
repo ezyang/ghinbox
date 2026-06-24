@@ -145,7 +145,7 @@
             commentExpandIssues: true,
             commentExpandPrs: true,
             commentHideUninteresting: true,
-            autoMarkTrashDone: false,
+            autoMarkTrashDone: true,
             commentAgeFilter: 'all', // 'all' | '1day' | '3days' | '1week' | '1month'
             commentQueue: [],
             commentQueueKeys: new Set(),
@@ -839,7 +839,9 @@
             elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
 
             const savedAutoMarkTrash = localStorage.getItem(AUTO_MARK_TRASH_KEY);
-            state.autoMarkTrashDone = savedAutoMarkTrash === 'true';
+            if (savedAutoMarkTrash === 'false') {
+                state.autoMarkTrashDone = false;
+            }
             elements.autoMarkTrashToggle.checked = state.autoMarkTrashDone;
 
             const savedCommentAgeFilter = localStorage.getItem(COMMENT_AGE_FILTER_KEY);
