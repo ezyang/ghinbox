@@ -287,7 +287,7 @@ class TestNotificationActions:
     def test_submit_action_archives_with_token_backed_rest_api(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test Mark Done can use the GitHub API token instead of an HTML form."""
+        """Test legacy Mark Done IDs can use the GitHub API token directly."""
         calls: list[dict[str, object]] = []
 
         class FakeResponse:
@@ -338,6 +338,119 @@ class TestNotificationActions:
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
             }
+        ]
+
+    def test_submit_action_maps_current_html_ids_to_rest_threads(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test current GitHub HTML IDs are mapped to REST notification threads."""
+        current_html_id = (
+            "NT_kwHNNPzaACRSZXBvc2l0b3J5OzY1NjAwOTc1O0lzc3VlOzQ3MjMzNjQ2Njc"
+        )
+        calls: list[dict[str, object]] = []
+
+        class FakeResponse:
+            def __init__(
+                self,
+                status_code: int,
+                payload: object | None = None,
+                headers: dict[str, str] | None = None,
+                text: str = "",
+            ) -> None:
+                self.status_code = status_code
+                self.payload = payload
+                self.headers = headers or {}
+                self.text = text
+
+            def json(self) -> object:
+                return self.payload
+
+        class FakeClient:
+            async def get(
+                self,
+                url: str,
+                headers: dict[str, str],
+                params: dict[str, str],
+            ) -> FakeResponse:
+                calls.append(
+                    {"method": "GET", "url": url, "headers": headers, "params": params}
+                )
+                return FakeResponse(
+                    200,
+                    [
+                        {
+                            "id": "24335693536",
+                            "subject": {
+                                "url": "https://api.github.com/repos/pytorch/pytorch/pulls/187924"
+                            },
+                        }
+                    ],
+                )
+
+            async def request(
+                self,
+                method: str,
+                url: str,
+                headers: dict[str, str],
+            ) -> FakeResponse:
+                calls.append({"method": method, "url": url, "headers": headers})
+                return FakeResponse(205)
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr(
+            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_snapshot",
+            lambda repo: {
+                "notifications": [
+                    {
+                        "id": current_html_id,
+                        "subject": {
+                            "url": (
+                                "https://github.com/pytorch/pytorch/pull/187924"
+                                f"?notification_referrer_id={current_html_id}"
+                            )
+                        },
+                    }
+                ]
+            },
+        )
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [current_html_id],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [
+            {
+                "method": "GET",
+                "url": "https://api.github.com/repos/pytorch/pytorch/notifications",
+                "headers": {
+                    "Authorization": "Bearer api-token",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                "params": {"all": "true", "per_page": "100"},
+            },
+            {
+                "method": "DELETE",
+                "url": "https://api.github.com/notifications/threads/24335693536",
+                "headers": {
+                    "Authorization": "Bearer api-token",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            },
         ]
 
     def test_submit_action_accepts_batched_notification_ids(

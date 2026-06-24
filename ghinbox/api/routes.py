@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Request
@@ -21,6 +22,8 @@ from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.observability import emit_notification_action_audit
 from ghinbox.api.snapshot_store import (
     apply_local_state,
+    get_snapshot,
+    list_snapshot_repos,
     set_notification_bookmark,
     set_notification_read_comment_watermark,
     set_notification_replies_muted,
@@ -29,6 +32,7 @@ from ghinbox.parser.notifications import SessionExpiredError, parse_notification
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
 MAX_GITHUB_NOTIFICATION_ACTION_IDS = 25
+SubjectKey = tuple[str, str, str, int]
 
 
 class NotificationActionRequest(BaseModel):
@@ -74,7 +78,7 @@ def _chunks(items: list[str], size: int) -> list[list[str]]:
 
 
 def _rest_thread_id_from_notification_id(notification_id: str) -> str | None:
-    """Decode a GitHub HTML notification node ID to its REST thread ID."""
+    """Decode legacy GitHub HTML notification node IDs to REST thread IDs."""
     if notification_id.isdecimal():
         return notification_id
     if not notification_id.startswith("NT_"):
@@ -93,6 +97,184 @@ def _rest_thread_id_from_notification_id(notification_id: str) -> str | None:
     return match.group(1).decode("ascii")
 
 
+def _github_api_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _subject_key_from_url(url: str) -> SubjectKey | None:
+    parsed = urlparse(url)
+    parts = [part for part in parsed.path.split("/") if part]
+    if parsed.netloc == "api.github.com":
+        if len(parts) < 5 or parts[0] != "repos":
+            return None
+        owner, repo, kind, number = parts[1], parts[2], parts[3], parts[4]
+    else:
+        if len(parts) < 4:
+            return None
+        owner, repo, kind, number = parts[0], parts[1], parts[2], parts[3]
+
+    canonical_kind = {
+        "issue": "issues",
+        "issues": "issues",
+        "pull": "pulls",
+        "pulls": "pulls",
+        "discussion": "discussions",
+        "discussions": "discussions",
+    }.get(kind)
+    if canonical_kind is None or not number.isdecimal():
+        return None
+    return owner, repo, canonical_kind, int(number)
+
+
+def _next_link_url(link_header: str | None) -> str | None:
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        section = part.strip()
+        if 'rel="next"' not in section or not section.startswith("<"):
+            continue
+        end_index = section.find(">")
+        if end_index > 1:
+            return section[1:end_index]
+    return None
+
+
+def _snapshot_subject_keys_by_notification_id(
+    notification_ids: list[str],
+) -> dict[str, SubjectKey]:
+    remaining = set(notification_ids)
+    subject_keys: dict[str, SubjectKey] = {}
+    if not remaining:
+        return subject_keys
+
+    for repo in list_snapshot_repos():
+        snapshot = get_snapshot(repo)
+        if snapshot is None:
+            continue
+        for notification in snapshot.get("notifications") or []:
+            if not isinstance(notification, dict):
+                continue
+            notification_id = str(notification.get("id") or "")
+            if notification_id not in remaining:
+                continue
+            subject = notification.get("subject")
+            if not isinstance(subject, dict):
+                continue
+            subject_url = str(subject.get("url") or "")
+            subject_key = _subject_key_from_url(subject_url)
+            if subject_key is None:
+                continue
+            subject_keys[notification_id] = subject_key
+            remaining.remove(notification_id)
+            if not remaining:
+                return subject_keys
+
+    return subject_keys
+
+
+async def _rest_thread_ids_by_subject_key(
+    token: str,
+    subject_keys: set[SubjectKey],
+) -> dict[SubjectKey, str] | None:
+    if not subject_keys:
+        return {}
+
+    keys_by_repo: dict[tuple[str, str], set[SubjectKey]] = {}
+    for key in subject_keys:
+        owner, repo, _kind, _number = key
+        keys_by_repo.setdefault((owner, repo), set()).add(key)
+
+    client = get_client()
+    headers = _github_api_headers(token)
+    thread_ids: dict[SubjectKey, str] = {}
+
+    for (owner, repo), repo_keys in keys_by_repo.items():
+        url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/notifications"
+        params = {"all": "true", "per_page": "100"}
+
+        while True:
+            response = await client.get(
+                url,
+                headers=headers,
+                params=params,
+            )
+            if response.status_code >= 400:
+                return None
+
+            payload = response.json()
+            if not isinstance(payload, list):
+                return None
+
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                subject = item.get("subject")
+                if not isinstance(subject, dict):
+                    continue
+                subject_url = subject.get("url")
+                thread_id = item.get("id")
+                if not isinstance(subject_url, str) or thread_id is None:
+                    continue
+                subject_key = _subject_key_from_url(subject_url)
+                if subject_key is not None and subject_key in repo_keys:
+                    thread_ids[subject_key] = str(thread_id)
+
+            if repo_keys.issubset(thread_ids.keys()):
+                break
+
+            next_url = _next_link_url(response.headers.get("link"))
+            if next_url is None:
+                break
+            url = next_url
+            params = {}
+
+    return thread_ids
+
+
+async def _rest_thread_ids_from_notification_ids(
+    token: str,
+    notification_ids: list[str],
+) -> list[str] | None:
+    thread_ids_by_notification_id: dict[str, str] = {}
+    unresolved: list[str] = []
+
+    for notification_id in notification_ids:
+        thread_id = _rest_thread_id_from_notification_id(notification_id)
+        if thread_id is None:
+            unresolved.append(notification_id)
+        else:
+            thread_ids_by_notification_id[notification_id] = thread_id
+
+    if unresolved:
+        subject_keys_by_notification_id = _snapshot_subject_keys_by_notification_id(
+            unresolved,
+        )
+        if set(unresolved) - subject_keys_by_notification_id.keys():
+            return None
+
+        thread_ids_by_subject_key = await _rest_thread_ids_by_subject_key(
+            token,
+            set(subject_keys_by_notification_id.values()),
+        )
+        if thread_ids_by_subject_key is None:
+            return None
+
+        for notification_id, subject_key in subject_keys_by_notification_id.items():
+            thread_id = thread_ids_by_subject_key.get(subject_key)
+            if thread_id is None:
+                return None
+            thread_ids_by_notification_id[notification_id] = thread_id
+
+    return [
+        thread_ids_by_notification_id[notification_id]
+        for notification_id in notification_ids
+    ]
+
+
 async def _submit_archive_with_github_api(
     notification_ids: list[str],
 ) -> ActionResult | None:
@@ -107,24 +289,18 @@ async def _submit_archive_with_github_api(
             error="No notification IDs provided for action",
         )
 
-    thread_ids: list[str] = []
-    for notification_id in notification_ids:
-        thread_id = _rest_thread_id_from_notification_id(notification_id)
-        if thread_id is None:
-            return None
-        thread_ids.append(thread_id)
+    thread_ids = await _rest_thread_ids_from_notification_ids(token, notification_ids)
+    if thread_ids is None:
+        return None
 
     client = get_client()
     last_status_code: int | None = None
+    headers = _github_api_headers(token)
     for thread_id in thread_ids:
         response = await client.request(
             "DELETE",
             f"{GITHUB_API_BASE}/notifications/threads/{thread_id}",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=headers,
         )
         last_status_code = response.status_code
         if response.status_code >= 400:
