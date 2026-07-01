@@ -57,63 +57,311 @@ def fetch_snapshot() -> dict:
 
 def classify_feed(notifications: list[dict], comment_threads: dict) -> list[dict]:
     """
-    Classify notifications into the Feed queue (server-side approximation).
+    Classify notifications into the Feed queue.
 
+    Matches the webapp's matchesView('issues') logic:
     Feed = NOT review-queue AND NOT directed-at-current-user.
     """
     feed = []
     for n in notifications:
-        reason = (n.get("reason") or "").lower()
-
-        # Skip review queue items
-        if reason in ("review_requested", "review requested"):
+        if _is_review_queue(n):
             continue
-        if n.get("responsibility_source") == "review-requested":
-            continue
-
-        # Skip items directed at current user
-        if reason == "author":
-            continue
-        if reason == "mention":
-            continue
-
-        # Check comment-level "directed at user" — direct replies to user's comments
         thread = comment_threads.get(n["id"], {})
         comments = thread.get("comments", [])
-        if _has_direct_reply_to_user(n, comments, CURRENT_USER):
+        state_events = thread.get("stateEvents", [])
+        if _is_directed_at_current_user(n, comments, state_events, CURRENT_USER):
             continue
-
         feed.append(n)
 
     return feed
 
 
-def _has_direct_reply_to_user(
-    notification: dict, comments: list[dict], current_user: str
+# ---------------------------------------------------------------------------
+# Review-queue classification
+# ---------------------------------------------------------------------------
+
+
+def _is_review_queue(n: dict) -> bool:
+    """A notification is in the review queue if it's a PR with review-requested reason."""
+    if (n.get("subject") or {}).get("type") != "PullRequest":
+        return False
+    reason = (n.get("reason") or "").lower()
+    if reason in ("review_requested", "review requested"):
+        return True
+    if n.get("responsibility_source") == "review-requested":
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# "Directed at current user" — port of the webapp's
+# isNotificationDirectedAtCurrentUser from notifications-comment-interest.js
+# ---------------------------------------------------------------------------
+
+_KNOWN_BOTS = frozenset(
+    [
+        "dr-ci",
+        "dr-ci-bot",
+        "bors",
+        "homu",
+        "mergify",
+        "pytorchbot",
+        "pytorchmergebot",
+        "pytorch-bot",
+        "htmlpurifierbot",
+        "github-actions",
+        "dependabot",
+        "dependabot-preview",
+    ]
+)
+
+_BOT_COMMAND_RE = None  # lazily compiled
+
+
+def _is_bot_author(login: str) -> bool:
+    normalized = (login or "").strip().lower()
+    if not normalized:
+        return False
+    if normalized.endswith("[bot]"):
+        return True
+    return normalized in _KNOWN_BOTS
+
+
+def _is_bot_interaction_comment(body: str) -> bool:
+    global _BOT_COMMAND_RE
+    import re
+
+    if _BOT_COMMAND_RE is None:
+        cmds = (
+            r"label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|"
+            r"backport|cherry-pick|assign|unassign|cc|triage|priority|"
+            r"kind|lgtm|r\+"
+        )
+        _BOT_COMMAND_RE = [
+            re.compile(rf"^/(?:{cmds})(?:\s|$)", re.I),
+            re.compile(rf"^@?[\w-]*bot\b\s+(?:{cmds})(?:\s|$)", re.I),
+            re.compile(r"^bors\b", re.I),
+            re.compile(r"^@?bors\b", re.I),
+            re.compile(r"^@?homu\b", re.I),
+            re.compile(r"^@?mergify\b", re.I),
+            re.compile(r"^@?dr[-.\s]?ci\b", re.I),
+            re.compile(r"^r\+$", re.I),
+        ]
+    lines = [ln.strip() for ln in (body or "").splitlines() if ln.strip()]
+    if not lines:
+        return False
+    return all(any(pat.search(ln) for pat in _BOT_COMMAND_RE) for ln in lines)
+
+
+def _is_uninteresting_comment(comment: dict) -> bool:
+    import re
+
+    body = comment.get("body") or ""
+    if re.search(r"\brevert(?:ed|ing)?\b", body, re.I) or re.search(
+        r"\brollback\b", body, re.I
+    ):
+        return False
+    author = (comment.get("user") or {}).get("login", "")
+    if _is_bot_author(author):
+        return True
+    return _is_bot_interaction_comment(body)
+
+
+def _parse_timestamp(ts: str | None) -> float | None:
+    from datetime import datetime
+
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt.timestamp() * 1000  # ms like JS Date.parse
+    except (ValueError, AttributeError):
+        return None
+
+
+def _comment_timestamp_ms(comment: dict) -> float:
+    ts = comment.get("created_at") or comment.get("updated_at")
+    return _parse_timestamp(ts) or 0.0
+
+
+def _is_closed_or_merged(n: dict) -> bool:
+    state = ((n.get("subject") or {}).get("state") or "").lower()
+    return state in ("closed", "merged")
+
+
+def _get_latest_close_event_ms(state_events: list[dict]) -> float | None:
+    latest = None
+    for ev in state_events:
+        event_name = (ev.get("event") or ev.get("type") or "").lower()
+        is_closing = event_name in ("closed", "merged")
+        if not is_closing and event_name in ("state_change", "state-change"):
+            to_state = (
+                ev.get("state") or ev.get("to_state") or ev.get("to") or ""
+            ).lower()
+            is_closing = to_state in ("closed", "merged")
+        if not is_closing:
+            continue
+        ts = _parse_timestamp(ev.get("created_at") or ev.get("updated_at"))
+        if ts is not None:
+            latest = max(latest, ts) if latest is not None else ts
+    return latest
+
+
+def _mentions_user(text: str, login: str) -> bool:
+    import re
+
+    if not text or not login:
+        return False
+    escaped = re.escape(login)
+    return bool(
+        re.search(rf"(?:^|[^A-Za-z0-9-])@{escaped}(?![A-Za-z0-9-])", text, re.I)
+    )
+
+
+def _is_cc_line(line: str, login: str) -> bool:
+    import re
+
+    text = line.strip()
+    if not re.match(r"^cc:?\s+", text, re.I):
+        return False
+    return _mentions_user(text, login)
+
+
+def _has_actionable_mention(comment: dict, login: str) -> bool:
+    body = comment.get("body") or ""
+    if not _mentions_user(body, login):
+        return False
+    # For issue comments, filter out CC-only lines
+    if not comment.get("isIssue"):
+        return True
+    mentioned_lines = [ln for ln in body.splitlines() if _mentions_user(ln, login)]
+    return any(not _is_cc_line(ln, login) for ln in mentioned_lines)
+
+
+def _get_review_thread_key(comment: dict) -> str | None:
+    if not comment.get("isReviewComment"):
+        return None
+    root_id = comment.get("in_reply_to_id") or comment.get("id")
+    return str(root_id) if root_id is not None else None
+
+
+def _get_direct_review_thread_replies(comments: list[dict], login: str) -> list[dict]:
+    login = login.lower()
+    by_thread: dict[str, list[tuple[dict, int]]] = {}
+    for idx, c in enumerate(comments):
+        key = _get_review_thread_key(c)
+        if key is None:
+            continue
+        by_thread.setdefault(key, []).append((c, idx))
+
+    replies = []
+    for thread in by_thread.values():
+        last_own_idx = -1
+        for i, (c, _) in enumerate(thread):
+            author = ((c.get("user") or {}).get("login") or "").lower()
+            if author == login:
+                last_own_idx = i
+        if last_own_idx == -1:
+            continue
+        for c, _ in thread[last_own_idx + 1 :]:
+            author = ((c.get("user") or {}).get("login") or "").lower()
+            if author and author != login:
+                replies.append(c)
+
+    replies.sort(key=lambda c: _comment_timestamp_ms(c))
+    return replies
+
+
+def _is_directed_at_current_user(
+    notification: dict,
+    comments: list[dict],
+    state_events: list[dict],
+    current_user: str,
 ) -> bool:
-    """Check if any unread comment is a direct reply to the current user."""
-    last_read_at = notification.get("last_read_at") or ""
-    user_lower = current_user.lower()
+    """
+    Port of the webapp's isNotificationDirectedAtCurrentUser.
 
-    user_comment_ids = set()
-    for c in comments:
-        author = (c.get("user", {}).get("login") or "").lower()
-        if author == user_lower:
-            user_comment_ids.add(c.get("id"))
-
-    if not user_comment_ids:
+    Returns True if the notification should go to Replies (not Feed).
+    """
+    login = current_user.lower()
+    if not login:
         return False
 
-    for c in comments:
-        author = (c.get("user", {}).get("login") or "").lower()
-        if author == user_lower:
-            continue
-        created = c.get("created_at") or c.get("createdAt") or ""
-        if last_read_at and created <= last_read_at:
-            continue
-        reply_to = c.get("in_reply_to_id")
-        if reply_to and reply_to in user_comment_ids:
+    # Sort comments by timestamp
+    sorted_comments = sorted(
+        comments, key=lambda c: (_comment_timestamp_ms(c), c.get("id") or 0)
+    )
+    if not sorted_comments:
+        return False
+
+    last_read_at_ms = _parse_timestamp(notification.get("last_read_at"))
+
+    def is_unread(c: dict) -> bool:
+        ts = _comment_timestamp_ms(c)
+        return last_read_at_ms is None or ts > last_read_at_ms
+
+    # For closed/merged notifications, only consider comments after close event
+    latest_close_ms = None
+    if _is_closed_or_merged(notification):
+        latest_close_ms = _get_latest_close_event_ms(state_events)
+        if latest_close_ms is None:
+            return False
+
+    def is_after_close(c: dict) -> bool:
+        if latest_close_ms is None:
             return True
+        return _comment_timestamp_ms(c) > latest_close_ms
+
+    def is_interesting_unread(c: dict) -> bool:
+        return is_unread(c) and not _is_uninteresting_comment(c) and is_after_close(c)
+
+    # Check 1: direct review thread replies to user's review comments
+    if any(
+        is_interesting_unread(c)
+        for c in _get_direct_review_thread_replies(sorted_comments, login)
+    ):
+        return True
+
+    # Check 2: author-type notifications with unread comments from others
+    has_unread_from_other = any(
+        is_interesting_unread(c)
+        and ((c.get("user") or {}).get("login") or "").lower() not in ("", login)
+        for c in sorted_comments
+    )
+
+    reason = (notification.get("reason") or "").lower()
+    subj_type = (notification.get("subject") or {}).get("type")
+    if (
+        subj_type in ("Issue", "PullRequest")
+        and reason == "author"
+        and has_unread_from_other
+    ):
+        return True
+
+    # Check 3: actionable @-mentions in comments, and issue main-thread replies
+    for i, c in enumerate(sorted_comments):
+        if not is_interesting_unread(c):
+            continue
+        if _has_actionable_mention(c, current_user):
+            return True
+        # Issue main-thread reply: user commented, next main-thread comment is from other
+        if subj_type != "Issue":
+            continue
+        if c.get("isReviewComment"):
+            continue
+        author = ((c.get("user") or {}).get("login") or "").lower()
+        if not author or author == login:
+            continue
+        # Find previous main-thread comment
+        prev_main = None
+        for j in range(i - 1, -1, -1):
+            if not sorted_comments[j].get("isReviewComment"):
+                prev_main = sorted_comments[j]
+                break
+        if prev_main:
+            prev_author = ((prev_main.get("user") or {}).get("login") or "").lower()
+            if prev_author == login:
+                return True
 
     return False
 
