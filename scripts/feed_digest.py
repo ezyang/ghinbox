@@ -190,7 +190,7 @@ def _is_closed_or_merged(n: dict) -> bool:
 
 
 def _get_latest_close_event_ms(state_events: list[dict]) -> float | None:
-    latest = None
+    latest: float | None = None
     for ev in state_events:
         event_name = (ev.get("event") or ev.get("type") or "").lower()
         is_closing = event_name in ("closed", "merged")

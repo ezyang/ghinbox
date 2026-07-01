@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -115,6 +115,19 @@ async def _fetch_snapshot_comment_cache(
     return {"version": 1, "threads": threads}
 
 
+async def _cancel_background_task(task: asyncio.Task[Any] | None) -> None:
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        pass
+
+
 async def _fetch_snapshot(owner: str, repo: str) -> None:
     repo_key = _repo_key(owner, repo)
     started_at = _now()
@@ -127,6 +140,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
     comments_total = 0
     comments_fetched = 0
     comments_failed = 0
+    review_requests_task: asyncio.Task[list[dict]] | None = None
 
     set_sync_state(
         repo_key,
@@ -145,6 +159,9 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
                 "No GitHub fetcher configured. Start server with --account."
             )
 
+        review_requests_task = asyncio.create_task(
+            fetch_review_request_notifications(owner, repo)
+        )
         after: str | None = None
         while True:
             result = await run_fetcher_call(
@@ -194,7 +211,18 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             if not after:
                 break
 
-        review_requests = await fetch_review_request_notifications(owner, repo)
+        phase = "reviews"
+        set_sync_state(
+            repo_key,
+            status="running",
+            mode="full",
+            phase=phase,
+            started_at=started_at,
+            pages_fetched=pages_fetched,
+            notifications_count=len(all_notifications),
+        )
+        review_requests = await review_requests_task
+        review_requests_task = None
         all_notifications = _merge_review_request_notifications(
             all_notifications,
             review_requests,
@@ -278,6 +306,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             comments_failed=comments_failed,
         )
     except SessionExpiredError as error:
+        await _cancel_background_task(review_requests_task)
         set_sync_state(
             repo_key,
             status="error",
@@ -294,6 +323,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
         )
         mark_github_session_expired()
     except Exception as error:
+        await _cancel_background_task(review_requests_task)
         set_sync_state(
             repo_key,
             status="error",

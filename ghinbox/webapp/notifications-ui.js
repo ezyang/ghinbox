@@ -569,6 +569,50 @@
             }
         }
 
+        async function fetchReviewRequestsForSources(sources) {
+            const perSourceResults = await Promise.all(sources.map(async (source) => {
+                try {
+                    if (source.kind === 'repo') {
+                        return {
+                            notifications: await fetchReviewRequestNotifications({
+                                owner: source.owner,
+                                repo: source.repo,
+                                fullName: source.fullName,
+                            }),
+                            error: null,
+                        };
+                    }
+                    return {
+                        notifications: await fetchReviewRequestNotificationsForSource(source),
+                        error: null,
+                    };
+                } catch (error) {
+                    console.error('Review request sync failed:', error);
+                    return {
+                        notifications: [],
+                        error,
+                    };
+                }
+            }));
+            return perSourceResults.reduce((acc, result) => {
+                acc.notifications.push(...result.notifications);
+                if (result.error) {
+                    acc.errors.push(result.error);
+                }
+                return acc;
+            }, { notifications: [], errors: [] });
+        }
+
+        function showReviewRequestSyncErrors(errors, syncLabel) {
+            errors.forEach((error) => {
+                showStatus(
+                    `${syncLabel}: review request check failed: ${error.message || error}`,
+                    'error',
+                    { flash: true }
+                );
+            });
+        }
+
         // Handle sync button click
         async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
             const entries = getCurrentProfileEntries();
@@ -642,6 +686,7 @@
             showStatus(`${syncLabel} in progress...`, 'info', { autoDismiss: true });
 
             try {
+                const reviewRequestsPromise = fetchReviewRequestsForSources(sources);
                 const allNotifications = [];
                 let overlapIndex = null;
 
@@ -702,26 +747,11 @@
                     );
                 }
 
-                let reviewRequests = [];
-                for (const source of sources) {
-                    try {
-                        const sourceReviewRequests = source.kind === 'repo'
-                            ? await fetchReviewRequestNotifications({
-                                owner: source.owner,
-                                repo: source.repo,
-                                fullName: source.fullName,
-                            })
-                            : await fetchReviewRequestNotificationsForSource(source);
-                        reviewRequests.push(...sourceReviewRequests);
-                    } catch (error) {
-                        console.error('Review request sync failed:', error);
-                        showStatus(
-                            `${syncLabel}: review request check failed: ${error.message || error}`,
-                            'error',
-                            { flash: true }
-                        );
-                    }
-                }
+                const {
+                    notifications: reviewRequests,
+                    errors: reviewRequestErrors,
+                } = await reviewRequestsPromise;
+                showReviewRequestSyncErrors(reviewRequestErrors, syncLabel);
                 for (const group of groupReviewRequestsByRepo(reviewRequests)) {
                     mergedNotifications = mergeReviewRequestNotifications(
                         mergedNotifications,

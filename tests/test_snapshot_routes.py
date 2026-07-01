@@ -208,6 +208,70 @@ def test_snapshot_sync_merges_review_request_search_results(
     assert sync_state["comments_failed"] == 0
 
 
+def test_snapshot_sync_starts_review_request_search_during_notification_fetch(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class FakeFetcher:
+        def fetch_repo_notifications(
+            self,
+            owner: str,
+            repo: str,
+            before: str | None = None,
+            after: str | None = None,
+        ) -> FetchResult:
+            raise AssertionError("run_fetcher_call should invoke this through the shim")
+
+    async def fake_run_fetcher_call(*args, **kwargs) -> FetchResult:
+        assert kwargs["owner"] == "test"
+        assert kwargs["repo"] == "repo"
+        events.append("notifications-start")
+        await asyncio.sleep(0)
+        events.append("notifications-finish")
+        return FetchResult(
+            html="<html></html>",
+            url="https://github.com/notifications?query=repo:test/repo",
+            status="ok",
+        )
+
+    async def fake_review_requests(owner: str, repo: str) -> list[dict]:
+        assert owner == "test"
+        assert repo == "repo"
+        events.append("reviews-start")
+        return []
+
+    async def fake_fetch_snapshot_comment_cache(
+        owner: str,
+        repo: str,
+        notifications: list[dict],
+        *,
+        on_progress=None,
+    ) -> dict:
+        assert owner == "test"
+        assert repo == "repo"
+        assert notifications == []
+        return {"version": 1, "threads": {}}
+
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
+    monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
+    monkeypatch.setattr(
+        snapshot_routes,
+        "fetch_review_request_notifications",
+        fake_review_requests,
+    )
+    monkeypatch.setattr(
+        snapshot_routes,
+        "_fetch_snapshot_comment_cache",
+        fake_fetch_snapshot_comment_cache,
+    )
+
+    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+
+    assert events.index("reviews-start") < events.index("notifications-finish")
+
+
 def test_snapshot_comment_cache_uses_bulk_comment_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
