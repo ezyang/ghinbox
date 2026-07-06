@@ -28,31 +28,60 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sqlite3
+import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 
 
-SOCKET_PATH = "auth_state/ghinbox-debug.sock"
+DEFAULT_SOCKET_PATH = "auth_state/ghinbox-debug.sock"
 ACTION_URL = "http://ghinbox/notifications/html/action"
-DB_PATH = "auth_state/ghinbox_snapshots.db"
-REPO = "pytorch/pytorch"
-CURRENT_USER = "ezyang"
+DEFAULT_DB_PATH = "auth_state/ghinbox_snapshots.db"
+DEFAULT_REPO = "pytorch/pytorch"
+DEFAULT_CURRENT_USER = "ezyang"
 DEFAULT_REPORT_PATH = "/tmp/feed-report.html"
+CLASSIFIER_SCRIPT = Path(__file__).with_name("feed_digest_classify.js")
 
 
-def fetch_snapshot() -> dict:
+class FeedDigestError(RuntimeError):
+    """Raised for expected feed digest failures that should be user-readable."""
+
+
+def _sqlite_readonly_uri(db_path: str) -> str:
+    if db_path.startswith("file:"):
+        return db_path
+    path = Path(db_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.resolve(strict=False).as_uri() + "?mode=ro"
+
+
+def fetch_snapshot(
+    db_path: str = DEFAULT_DB_PATH,
+    repo: str = DEFAULT_REPO,
+) -> dict:
     """Read snapshot directly from SQLite (faster than the HTTP API for large snapshots)."""
-    conn = sqlite3.connect(DB_PATH)
-    row = conn.execute(
-        "SELECT data, comment_cache, authenticity_token FROM notification_snapshots WHERE repo = ?",
-        (REPO,),
-    ).fetchone()
-    conn.close()
+    try:
+        conn = sqlite3.connect(_sqlite_readonly_uri(db_path), uri=True)
+    except sqlite3.Error as exc:
+        raise FeedDigestError(f"Unable to open snapshot DB {db_path!r}: {exc}") from exc
+
+    try:
+        row = conn.execute(
+            "SELECT data, comment_cache, authenticity_token "
+            "FROM notification_snapshots WHERE repo = ?",
+            (repo,),
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise FeedDigestError(f"Unable to read snapshot DB {db_path!r}: {exc}") from exc
+    finally:
+        conn.close()
+
     if not row:
-        print(f"No snapshot found for {REPO}", file=sys.stderr)
-        sys.exit(1)
+        raise FeedDigestError(f"No snapshot found for {repo} in {db_path}")
     data_json, cc_json, auth_token = row
     return {
         "snapshot": {
@@ -63,350 +92,73 @@ def fetch_snapshot() -> dict:
     }
 
 
-def classify_feed(notifications: list[dict], comment_threads: dict) -> list[dict]:
-    """
-    Classify notifications into the Feed queue.
-
-    Matches the webapp's matchesView('issues') logic:
-    Feed = NOT review-queue AND NOT directed-at-current-user.
-    """
-    feed = []
-    for n in notifications:
-        if _is_review_queue(n):
-            continue
-        thread = comment_threads.get(n["id"], {})
-        comments = thread.get("comments", [])
-        state_events = thread.get("stateEvents", [])
-        if _is_directed_at_current_user(n, comments, state_events, CURRENT_USER):
-            continue
-        feed.append(n)
-
-    return feed
-
-
-# ---------------------------------------------------------------------------
-# Review-queue classification
-# ---------------------------------------------------------------------------
-
-
-def _is_review_queue(n: dict) -> bool:
-    """A notification is in the review queue if it's a PR with review-requested reason."""
-    if (n.get("subject") or {}).get("type") != "PullRequest":
-        return False
-    reason = (n.get("reason") or "").lower()
-    if reason in ("review_requested", "review requested"):
-        return True
-    if n.get("responsibility_source") == "review-requested":
-        return True
-    return False
-
-
-# ---------------------------------------------------------------------------
-# "Directed at current user" — port of the webapp's
-# isNotificationDirectedAtCurrentUser from notifications-comment-interest.js
-# ---------------------------------------------------------------------------
-
-_KNOWN_BOTS = frozenset(
-    [
-        "dr-ci",
-        "dr-ci-bot",
-        "bors",
-        "homu",
-        "mergify",
-        "pytorchbot",
-        "pytorchmergebot",
-        "pytorch-bot",
-        "htmlpurifierbot",
-        "github-actions",
-        "dependabot",
-        "dependabot-preview",
-    ]
-)
-
-_BOT_COMMAND_RE = None  # lazily compiled
-
-
-def _is_bot_author(login: str) -> bool:
-    normalized = (login or "").strip().lower()
-    if not normalized:
-        return False
-    if normalized.endswith("[bot]"):
-        return True
-    return normalized in _KNOWN_BOTS
-
-
-def _is_bot_interaction_comment(body: str) -> bool:
-    global _BOT_COMMAND_RE
-    import re
-
-    if _BOT_COMMAND_RE is None:
-        cmds = (
-            r"label|unlabel|merge|close|reopen|rebase|retry|rerun|retest|"
-            r"backport|cherry-pick|assign|unassign|cc|triage|priority|"
-            r"kind|lgtm|r\+"
+def classify_notifications(
+    notifications: list[dict],
+    comment_threads: dict,
+    current_user: str = DEFAULT_CURRENT_USER,
+) -> dict:
+    """Classify notifications by shelling out to the webapp's JS classifier."""
+    node = shutil.which("node")
+    if not node:
+        raise FeedDigestError(
+            "Node.js is required for feed classification; put `node` on PATH."
         )
-        _BOT_COMMAND_RE = [
-            re.compile(rf"^/(?:{cmds})(?:\s|$)", re.I),
-            re.compile(rf"^@?[\w-]*bot\b\s+(?:{cmds})(?:\s|$)", re.I),
-            re.compile(r"^bors\b", re.I),
-            re.compile(r"^@?bors\b", re.I),
-            re.compile(r"^@?homu\b", re.I),
-            re.compile(r"^@?mergify\b", re.I),
-            re.compile(r"^@?dr[-.\s]?ci\b", re.I),
-            re.compile(r"^r\+$", re.I),
-        ]
-    lines = [ln.strip() for ln in (body or "").splitlines() if ln.strip()]
-    if not lines:
-        return False
-    return all(any(pat.search(ln) for pat in _BOT_COMMAND_RE) for ln in lines)
 
-
-def _is_uninteresting_comment(comment: dict) -> bool:
-    import re
-
-    body = comment.get("body") or ""
-    if re.search(r"\brevert(?:ed|ing)?\b", body, re.I) or re.search(
-        r"\brollback\b", body, re.I
-    ):
-        return False
-    author = (comment.get("user") or {}).get("login", "")
-    if _is_bot_author(author):
-        return True
-    return _is_bot_interaction_comment(body)
-
-
-def _parse_timestamp(ts: str | None) -> float | None:
-    from datetime import datetime
-
-    if not ts:
-        return None
+    payload = {
+        "notifications": notifications,
+        "commentThreads": comment_threads,
+        "currentUserLogin": current_user,
+    }
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return dt.timestamp() * 1000  # ms like JS Date.parse
-    except (ValueError, AttributeError):
-        return None
-
-
-def _comment_timestamp_ms(comment: dict) -> float:
-    ts = comment.get("created_at") or comment.get("updated_at")
-    return _parse_timestamp(ts) or 0.0
-
-
-def _is_closed_or_merged(n: dict) -> bool:
-    state = ((n.get("subject") or {}).get("state") or "").lower()
-    return state in ("closed", "merged")
-
-
-def _get_latest_close_event_ms(state_events: list[dict]) -> float | None:
-    latest: float | None = None
-    for ev in state_events:
-        event_name = (ev.get("event") or ev.get("type") or "").lower()
-        is_closing = event_name in ("closed", "merged")
-        if not is_closing and event_name in ("state_change", "state-change"):
-            to_state = (
-                ev.get("state") or ev.get("to_state") or ev.get("to") or ""
-            ).lower()
-            is_closing = to_state in ("closed", "merged")
-        if not is_closing:
-            continue
-        ts = _parse_timestamp(ev.get("created_at") or ev.get("updated_at"))
-        if ts is not None:
-            latest = max(latest, ts) if latest is not None else ts
-    return latest
-
-
-def _mentions_user(text: str, login: str) -> bool:
-    import re
-
-    if not text or not login:
-        return False
-    escaped = re.escape(login)
-    return bool(
-        re.search(rf"(?:^|[^A-Za-z0-9-])@{escaped}(?![A-Za-z0-9-])", text, re.I)
-    )
-
-
-def _is_cc_line(line: str, login: str) -> bool:
-    import re
-
-    text = line.strip()
-    if not re.match(r"^cc:?\s+", text, re.I):
-        return False
-    return _mentions_user(text, login)
-
-
-def _has_actionable_mention(comment: dict, login: str) -> bool:
-    body = comment.get("body") or ""
-    if not _mentions_user(body, login):
-        return False
-    # For issue comments, filter out CC-only lines
-    if not comment.get("isIssue"):
-        return True
-    mentioned_lines = [ln for ln in body.splitlines() if _mentions_user(ln, login)]
-    return any(not _is_cc_line(ln, login) for ln in mentioned_lines)
-
-
-def _get_review_thread_key(comment: dict) -> str | None:
-    if not comment.get("isReviewComment"):
-        return None
-    root_id = comment.get("in_reply_to_id") or comment.get("id")
-    return str(root_id) if root_id is not None else None
-
-
-def _get_direct_review_thread_replies(comments: list[dict], login: str) -> list[dict]:
-    login = login.lower()
-    by_thread: dict[str, list[tuple[dict, int]]] = {}
-    for idx, c in enumerate(comments):
-        key = _get_review_thread_key(c)
-        if key is None:
-            continue
-        by_thread.setdefault(key, []).append((c, idx))
-
-    replies = []
-    for thread in by_thread.values():
-        last_own_idx = -1
-        for i, (c, _) in enumerate(thread):
-            author = ((c.get("user") or {}).get("login") or "").lower()
-            if author == login:
-                last_own_idx = i
-        if last_own_idx == -1:
-            continue
-        for c, _ in thread[last_own_idx + 1 :]:
-            author = ((c.get("user") or {}).get("login") or "").lower()
-            if author and author != login:
-                replies.append(c)
-
-    replies.sort(key=lambda c: _comment_timestamp_ms(c))
-    return replies
-
-
-def _is_delegated_task_completion(comment: dict, login: str) -> bool:
-    """Claude runs delegated tasks as claude[bot] and @-mentions the user in the
-    result ("Claude finished @user's task ..."). That comment IS directed at the
-    user, so it must not be filtered as generic bot noise. Mirrors the webapp's
-    isDelegatedTaskCompletion. Restricted to claude[bot] + explicit mention so
-    ordinary bot pings stay filtered."""
-    author = ((comment.get("user") or {}).get("login") or "").strip().lower()
-    if author != "claude[bot]":
-        return False
-    return _mentions_user(comment.get("body") or "", login)
-
-
-def _is_directed_at_current_user(
-    notification: dict,
-    comments: list[dict],
-    state_events: list[dict],
-    current_user: str,
-) -> bool:
-    """
-    Port of the webapp's isNotificationDirectedAtCurrentUser.
-
-    Returns True if the notification should go to Replies (not Feed).
-    """
-    login = current_user.lower()
-    if not login:
-        return False
-
-    # Sort comments by timestamp
-    sorted_comments = sorted(
-        comments, key=lambda c: (_comment_timestamp_ms(c), c.get("id") or 0)
-    )
-    if not sorted_comments:
-        return False
-
-    last_read_at_ms = _parse_timestamp(notification.get("last_read_at"))
-
-    # A user's own comment implies they have read everything up to that point,
-    # so treat the timestamp of their latest comment as a read watermark even
-    # when GitHub's last_read_at is missing/stale. Mirrors the webapp.
-    own_latest_ms: float | None = None
-    for c in sorted_comments:
-        if ((c.get("user") or {}).get("login") or "").lower() != login:
-            continue
-        ts = _comment_timestamp_ms(c)
-        own_latest_ms = ts if own_latest_ms is None else max(own_latest_ms, ts)
-
-    def is_unread(c: dict) -> bool:
-        ts = _comment_timestamp_ms(c)
-        if own_latest_ms is not None and ts <= own_latest_ms:
-            return False
-        return last_read_at_ms is None or ts > last_read_at_ms
-
-    # For closed/merged notifications, only consider comments after close event
-    latest_close_ms = None
-    if _is_closed_or_merged(notification):
-        latest_close_ms = _get_latest_close_event_ms(state_events)
-        if latest_close_ms is None:
-            return False
-
-    def is_after_close(c: dict) -> bool:
-        if latest_close_ms is None:
-            return True
-        return _comment_timestamp_ms(c) > latest_close_ms
-
-    def is_interesting_unread(c: dict) -> bool:
-        return (
-            is_unread(c)
-            and (
-                _is_delegated_task_completion(c, login)
-                or not _is_uninteresting_comment(c)
-            )
-            and is_after_close(c)
+        result = subprocess.run(
+            [node, str(CLASSIFIER_SCRIPT)],
+            input=json.dumps(payload),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
         )
+    except (OSError, subprocess.SubprocessError) as exc:
+        message = str(exc)
+        if isinstance(exc, subprocess.CalledProcessError):
+            message = (exc.stderr or exc.stdout or message).strip()
+        raise FeedDigestError(f"Node feed classifier failed: {message}") from exc
 
-    # Check 1: direct review thread replies to user's review comments
-    if any(
-        is_interesting_unread(c)
-        for c in _get_direct_review_thread_replies(sorted_comments, login)
-    ):
-        return True
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise FeedDigestError(
+            f"Node feed classifier returned invalid JSON: {exc}"
+        ) from exc
 
-    # Check 2: author-type notifications with unread comments from others
-    has_unread_from_other = any(
-        is_interesting_unread(c)
-        and ((c.get("user") or {}).get("login") or "").lower() not in ("", login)
-        for c in sorted_comments
+
+def classify_feed(
+    notifications: list[dict],
+    comment_threads: dict,
+    current_user: str = DEFAULT_CURRENT_USER,
+) -> list[dict]:
+    """
+    Classify notifications into the Feed queue using the authoritative JS modules.
+
+    Matches the webapp's matchesView('issues') logic.
+    """
+    classifications = classify_notifications(
+        notifications,
+        comment_threads,
+        current_user,
     )
-
-    reason = (notification.get("reason") or "").lower()
-    subj_type = (notification.get("subject") or {}).get("type")
-    if (
-        subj_type in ("Issue", "PullRequest")
-        and reason == "author"
-        and has_unread_from_other
-    ):
-        return True
-
-    # Check 3: actionable @-mentions in comments, and issue main-thread replies
-    for i, c in enumerate(sorted_comments):
-        if not is_interesting_unread(c):
-            continue
-        if _has_actionable_mention(c, current_user):
-            return True
-        # Issue main-thread reply: user commented, next main-thread comment is from other
-        if subj_type != "Issue":
-            continue
-        if c.get("isReviewComment"):
-            continue
-        author = ((c.get("user") or {}).get("login") or "").lower()
-        if not author or author == login:
-            continue
-        # Find previous main-thread comment
-        prev_main = None
-        for j in range(i - 1, -1, -1):
-            if not sorted_comments[j].get("isReviewComment"):
-                prev_main = sorted_comments[j]
-                break
-        if prev_main:
-            prev_author = ((prev_main.get("user") or {}).get("login") or "").lower()
-            if prev_author == login:
-                return True
-
-    return False
+    feed_ids = {str(notification_id) for notification_id in classifications["feed_ids"]}
+    return [
+        notification
+        for notification in notifications
+        if str(notification.get("id", "")) in feed_ids
+    ]
 
 
 def find_reply_nature_in_feed(
-    feed_notifications: list[dict], comment_threads: dict
+    feed_notifications: list[dict],
+    comment_threads: dict,
+    current_user: str = DEFAULT_CURRENT_USER,
 ) -> list[dict]:
     """
     Find feed items that have "reply" nature — the user participated and
@@ -418,7 +170,7 @@ def find_reply_nature_in_feed(
     - The user commented and someone (non-bot) replied after their last comment
     """
     reply_nature = []
-    user_lower = CURRENT_USER.lower()
+    user_lower = current_user.lower()
 
     for n in feed_notifications:
         thread = comment_threads.get(n["id"], {})
@@ -479,7 +231,7 @@ def _subject_type_label(subject_type: str | None) -> str:
     return subject_type or "?"
 
 
-def _notification_url(notification: dict) -> str:
+def _notification_url(notification: dict, repo: str = DEFAULT_REPO) -> str:
     subject = notification.get("subject") or {}
     url = subject.get("url")
     if url:
@@ -488,9 +240,9 @@ def _notification_url(notification: dict) -> str:
     number = subject.get("number")
     if number:
         path = "pull" if subject.get("type") == "PullRequest" else "issues"
-        return f"https://github.com/{REPO}/{path}/{number}"
+        return f"https://github.com/{repo}/{path}/{number}"
 
-    return f"https://github.com/{REPO}"
+    return f"https://github.com/{repo}"
 
 
 def _actor_logins(notification: dict) -> list[str]:
@@ -513,6 +265,7 @@ def build_report_items(
     feed_notifications: list[dict],
     comment_threads: dict,
     reply_nature_ids: set[str],
+    repo: str = DEFAULT_REPO,
 ) -> list[dict]:
     """Build structured items for the LLM-generated HTML report."""
     items: list[dict] = []
@@ -539,7 +292,7 @@ def build_report_items(
                 "id": nid,
                 "number": subject.get("number"),
                 "title": subject.get("title", "???"),
-                "url": _notification_url(n),
+                "url": _notification_url(n, repo),
                 "type": _subject_type_label(subject.get("type")),
                 "state": subject.get("state", "?"),
                 "reason": n.get("reason", "?"),
@@ -596,6 +349,9 @@ def build_report_instructions(report_path: str = DEFAULT_REPORT_PATH) -> list[st
 def build_extract_output(
     snapshot_data: dict,
     report_path: str = DEFAULT_REPORT_PATH,
+    *,
+    current_user: str = DEFAULT_CURRENT_USER,
+    repo: str = DEFAULT_REPO,
 ) -> dict:
     """Build the JSON payload consumed by the LLM summarization step."""
     snap = snapshot_data.get("snapshot", {})
@@ -604,8 +360,8 @@ def build_extract_output(
     comment_threads = comment_cache.get("threads", {})
     authenticity_token = snap.get("authenticity_token", "")
 
-    feed = classify_feed(notifications, comment_threads)
-    reply_nature = find_reply_nature_in_feed(feed, comment_threads)
+    feed = classify_feed(notifications, comment_threads, current_user)
+    reply_nature = find_reply_nature_in_feed(feed, comment_threads, current_user)
     reply_nature_ids = {n["id"] for n in reply_nature}
     formatted = format_for_llm(feed, comment_threads, reply_nature_ids)
 
@@ -632,7 +388,12 @@ def build_extract_output(
         "formatted_text": formatted,
         "report_path": report_path,
         "report_instructions": build_report_instructions(report_path),
-        "report_items": build_report_items(feed, comment_threads, reply_nature_ids),
+        "report_items": build_report_items(
+            feed,
+            comment_threads,
+            reply_nature_ids,
+            repo,
+        ),
         "authenticity_token": authenticity_token,
     }
 
@@ -679,9 +440,17 @@ def format_for_llm(
     return "\n\n".join(lines)
 
 
-def do_extract() -> None:
+def do_extract(
+    db_path: str = DEFAULT_DB_PATH,
+    repo: str = DEFAULT_REPO,
+    current_user: str = DEFAULT_CURRENT_USER,
+) -> None:
     """Extract feed data and output JSON to stdout."""
-    output = build_extract_output(fetch_snapshot())
+    output = build_extract_output(
+        fetch_snapshot(db_path, repo),
+        current_user=current_user,
+        repo=repo,
+    )
 
     print(f"Total notifications: {output['total_count']}", file=sys.stderr)
     print(f"Feed notifications: {output['feed_count']}", file=sys.stderr)
@@ -693,16 +462,21 @@ def do_extract() -> None:
     json.dump(output, sys.stdout, indent=2)
 
 
-def do_mark_done(exclude_ids: list[str] | None = None) -> None:
+def do_mark_done(
+    exclude_ids: list[str] | None = None,
+    db_path: str = DEFAULT_DB_PATH,
+    repo: str = DEFAULT_REPO,
+    current_user: str = DEFAULT_CURRENT_USER,
+) -> None:
     """Mark feed notifications as done, excluding specified IDs."""
-    snapshot_data = fetch_snapshot()
+    snapshot_data = fetch_snapshot(db_path, repo)
     snap = snapshot_data.get("snapshot", {})
     notifications = snap.get("notifications", [])
     comment_cache = snap.get("comment_cache", {})
     comment_threads = comment_cache.get("threads", {})
     authenticity_token = snap.get("authenticity_token", "")
 
-    feed = classify_feed(notifications, comment_threads)
+    feed = classify_feed(notifications, comment_threads, current_user)
     exclude = set(exclude_ids or [])
     ids_to_mark = [n["id"] for n in feed if n["id"] not in exclude]
 
@@ -716,7 +490,7 @@ def do_mark_done(exclude_ids: list[str] | None = None) -> None:
         print("Nothing to mark.", file=sys.stderr)
         return
 
-    transport = httpx.HTTPTransport(uds=SOCKET_PATH)
+    transport = httpx.HTTPTransport(uds=DEFAULT_SOCKET_PATH)
     with httpx.Client(transport=transport, timeout=60) as client:
         chunk_size = 25
         for i in range(0, len(ids_to_mark), chunk_size):
@@ -762,14 +536,33 @@ def main():
         default="",
         help="Comma-separated notification IDs to exclude from mark-done",
     )
+    parser.add_argument(
+        "--db-path",
+        default=DEFAULT_DB_PATH,
+        help=f"SQLite snapshot DB path (default: {DEFAULT_DB_PATH})",
+    )
+    parser.add_argument(
+        "--repo",
+        default=DEFAULT_REPO,
+        help=f"Repository snapshot key (default: {DEFAULT_REPO})",
+    )
+    parser.add_argument(
+        "--current-user",
+        default=DEFAULT_CURRENT_USER,
+        help=f"GitHub login used for Feed/Replies classification (default: {DEFAULT_CURRENT_USER})",
+    )
 
     args = parser.parse_args()
 
-    if args.extract:
-        do_extract()
-    elif args.mark_done:
-        exclude = [x.strip() for x in args.exclude_ids.split(",") if x.strip()]
-        do_mark_done(exclude)
+    try:
+        if args.extract:
+            do_extract(args.db_path, args.repo, args.current_user)
+        elif args.mark_done:
+            exclude = [x.strip() for x in args.exclude_ids.split(",") if x.strip()]
+            do_mark_done(exclude, args.db_path, args.repo, args.current_user)
+    except FeedDigestError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -95,3 +95,82 @@ def test_extract_output_includes_html_report_contract() -> None:
     ]
     assert report_items[1]["url"] == "https://github.com/pytorch/pytorch/pull/124"
     assert report_items[1]["type"] == "PR"
+
+
+def test_extract_output_uses_js_review_queue_classification() -> None:
+    snapshot = {
+        "snapshot": {
+            "authenticity_token": "token-123",
+            "notifications": [
+                {
+                    "id": "display-review-requested",
+                    "reason": "review requested",
+                    "updated_at": "2026-07-01T12:00:00Z",
+                    "subject": {
+                        "title": "Display reason from GitHub HTML",
+                        "type": "PullRequest",
+                        "number": 200,
+                        "state": "open",
+                    },
+                    "actors": [{"login": "alice"}],
+                    "labels": [],
+                }
+            ],
+            "comment_cache": {"threads": {}},
+        }
+    }
+
+    output = feed_digest.build_extract_output(snapshot)
+
+    assert output["feed_count"] == 1
+    assert output["feed_ids"] == ["display-review-requested"]
+
+
+def test_extract_output_uses_cached_thread_last_read_at() -> None:
+    snapshot = {
+        "snapshot": {
+            "authenticity_token": "token-123",
+            "notifications": [
+                {
+                    "id": "read-directed-mention",
+                    "reason": "mention",
+                    "updated_at": "2026-07-01T12:00:00Z",
+                    "subject": {
+                        "title": "Already-read directed mention",
+                        "type": "PullRequest",
+                        "number": 201,
+                        "state": "open",
+                    },
+                    "actors": [{"login": "alice"}],
+                    "labels": [],
+                }
+            ],
+            "comment_cache": {
+                "threads": {
+                    "read-directed-mention": {
+                        "lastReadAt": "2026-07-01T12:03:00Z",
+                        "comments": [
+                            {
+                                "id": 1,
+                                "created_at": "2026-07-01T12:01:00Z",
+                                "body": "@claude summarize this",
+                                "user": {"login": "ezyang"},
+                            },
+                            {
+                                "id": 2,
+                                "created_at": "2026-07-01T12:02:00Z",
+                                "body": "Claude finished @ezyang's task.",
+                                "user": {"login": "claude[bot]"},
+                            },
+                        ],
+                        "stateEvents": [],
+                    }
+                }
+            },
+        }
+    }
+
+    output = feed_digest.build_extract_output(snapshot)
+
+    assert output["feed_count"] == 1
+    assert output["feed_ids"] == ["read-directed-mention"]
