@@ -1,35 +1,117 @@
 // Shared HTTP helpers for the notifications app.
-(function (root) {
-    const SESSION_REFRESH_URL = '/app/login.html?session_refresh=1';
+(function (root, factory) {
+    const api = factory(root);
+    if (typeof module === 'object' && module.exports) {
+        module.exports = api;
+    }
+    root.GhinboxHttp = api;
+    root.fetchGraphql = api.fetchGraphql;
+    root.fetchJson = api.fetchJson;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (root) {
+    const SESSION_REFRESH_URL = 'login.html?session_refresh=1';
+    const SESSION_EXPIRED_REDIRECT_DELAY_MS = 1500;
+    const EXPIRED_BROWSER_SESSION_MESSAGE_PARTS = [
+        'github redirected notifications request to login',
+        'stored browser session is expired',
+        'browser session is expired',
+    ];
+
+    function isExpiredBrowserSessionMessage(message) {
+        const normalized = String(message || '').toLowerCase();
+        return EXPIRED_BROWSER_SESSION_MESSAGE_PARTS.some(part => normalized.includes(part));
+    }
+
+    function isSessionExpiredResponse(response, parsed, message) {
+        if (response.status !== 401) {
+            return false;
+        }
+        const detail = parsed?.detail;
+        if (detail?.error === 'session_expired' || parsed?.error === 'session_expired') {
+            return true;
+        }
+        return isExpiredBrowserSessionMessage(message);
+    }
 
     async function readErrorDetail(response) {
         const text = await response.text();
+        const fallbackMessage = `HTTP ${response.status} ${response.statusText}`;
         if (!text) {
-            return { detail: '' };
+            return {
+                detail: '',
+                message: fallbackMessage,
+                responseText: '',
+                sessionExpired: false,
+            };
         }
         try {
             const parsed = JSON.parse(text);
+            const detail = parsed?.detail;
+            let message = fallbackMessage;
+            if (typeof detail === 'string') {
+                message = detail;
+            } else if (detail && typeof detail === 'object') {
+                if (detail.message) {
+                    message = String(detail.message);
+                }
+            } else if (parsed?.message) {
+                message = String(parsed.message);
+            } else {
+                message = JSON.stringify(parsed);
+            }
+            const detailText = typeof detail === 'string' ? detail : JSON.stringify(parsed);
             return {
-                detail:
-                    typeof parsed?.detail === 'string'
-                        ? parsed.detail
-                        : JSON.stringify(parsed),
-                sessionExpired:
-                    response.status === 401 &&
-                    parsed?.detail?.error === 'session_expired',
+                detail: detailText,
+                message,
+                responseText: text,
+                sessionExpired: isSessionExpiredResponse(response, parsed, message),
             };
         } catch (error) {
-            return { detail: text };
+            return {
+                detail: text,
+                message: text,
+                responseText: text,
+                sessionExpired:
+                    response.status === 401 && isExpiredBrowserSessionMessage(text),
+            };
         }
     }
 
-    async function handleSessionExpired() {
-        if (typeof root.showStatus === 'function') {
-            root.showStatus('Session expired. Redirecting to login...', 'error');
-        }
-        await new Promise((resolve) => root.setTimeout(resolve, 1500));
+    function redirectToSessionRefresh() {
         if (root.location) {
             root.location.href = SESSION_REFRESH_URL;
+        }
+    }
+
+    async function handleSessionExpired(options = {}) {
+        const config = typeof options === 'string' ? { message: options } : options;
+        const {
+            delayMs = SESSION_EXPIRED_REDIRECT_DELAY_MS,
+            message = 'Session expired.',
+            scheduleOnly = false,
+            state = null,
+            throwError = true,
+        } = config || {};
+        const showStatus = config?.showStatus || root.showStatus;
+        if (typeof showStatus === 'function') {
+            showStatus(`${message} Redirecting to login...`, 'error');
+        }
+        if (state?.loginRedirectScheduled) {
+            if (!throwError) {
+                return;
+            }
+        } else {
+            if (state) {
+                state.loginRedirectScheduled = true;
+            }
+            if (scheduleOnly) {
+                root.setTimeout(redirectToSessionRefresh, delayMs);
+            } else {
+                await new Promise((resolve) => root.setTimeout(resolve, delayMs));
+                redirectToSessionRefresh();
+            }
+        }
+        if (!throwError) {
+            return;
         }
         const error = new Error('Session expired');
         error.sessionExpired = true;
@@ -76,13 +158,13 @@
     }
 
     const api = {
+        SESSION_EXPIRED_REDIRECT_DELAY_MS,
+        SESSION_REFRESH_URL,
         fetchGraphql,
         fetchJson,
         handleSessionExpired,
+        isExpiredBrowserSessionMessage,
         readErrorDetail,
     };
-
-    root.GhinboxHttp = api;
-    root.fetchGraphql = fetchGraphql;
-    root.fetchJson = fetchJson;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+    return api;
+});

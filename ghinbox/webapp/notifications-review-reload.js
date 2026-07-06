@@ -67,25 +67,6 @@
         };
     }
 
-    function groupNotificationsByRepo(notifications) {
-        const groups = new Map();
-        notifications.forEach((notification) => {
-            const repo = getNotificationRepoInfo(notification);
-            if (!repo) {
-                return;
-            }
-            const key = repo.fullName;
-            if (!groups.has(key)) {
-                groups.set(key, {
-                    repoInfo: repo,
-                    notifications: [],
-                });
-            }
-            groups.get(key).notifications.push(notification);
-        });
-        return Array.from(groups.values());
-    }
-
     function getReviewQueueNotifications(notifications) {
         const classifier = typeof makeNotificationClassifier === 'function'
             ? makeNotificationClassifier()
@@ -249,7 +230,7 @@
                 .filter((notification) =>
                     !GhinboxReviewRequests.isSyntheticReviewRequest(notification)
                 );
-            for (const group of groupNotificationsByRepo(reviewRequests)) {
+            for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(reviewRequests)) {
                 notifications = mergeReviewRequestNotifications(
                     notifications,
                     group.notifications,
@@ -264,7 +245,7 @@
 
             const reviewQueueNotifications = getReviewQueueNotifications(notifications);
             const authorPermissionPromises = [];
-            for (const group of groupNotificationsByRepo(reviewQueueNotifications)) {
+            for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(reviewQueueNotifications)) {
                 const reviewQueueKeys = new Set(
                     group.notifications
                         .map((notification) =>
@@ -295,7 +276,7 @@
             }
 
             const refreshedReviewQueue = getReviewQueueNotifications(state.notifications);
-            for (const group of groupNotificationsByRepo(refreshedReviewQueue)) {
+            for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(refreshedReviewQueue)) {
                 await refreshReviewMetadataIncrementally(
                     target,
                     group.repoInfo,

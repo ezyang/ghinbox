@@ -303,21 +303,6 @@
             return Array.isArray(payload?.notifications) ? payload.notifications : [];
         }
 
-        function groupReviewRequestsByRepo(reviewRequests) {
-            const groups = new Map();
-            reviewRequests.forEach((notification) => {
-                const repoInfo = getNotificationRepoInfo(notification);
-                if (!repoInfo) {
-                    return;
-                }
-                if (!groups.has(repoInfo.fullName)) {
-                    groups.set(repoInfo.fullName, { repoInfo, notifications: [] });
-                }
-                groups.get(repoInfo.fullName).notifications.push(notification);
-            });
-            return Array.from(groups.values());
-        }
-
         async function getReviewRequestNeedsReviewNumbers(repo, reviewRequests, syncLabel) {
             const numbers = Array.from(new Set(
                 reviewRequests
