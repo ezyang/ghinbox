@@ -28,6 +28,9 @@ test.describe('Remove Reviewer @mutation', () => {
     // Sync to load notifications
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
+    // Wait for the background comment prefetch to settle: each progress
+    // update re-renders the list, which detaches elements mid-click.
+    await expect(page.locator('#comment-cache-status')).toHaveText('Comments cached: 5');
     // Switch to Reviews view to see review-requested PR notifications.
     await page.locator('#view-others-prs').click();
     await expect(page.locator('.notification-item')).toHaveCount(1);
