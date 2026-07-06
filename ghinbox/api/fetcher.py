@@ -21,7 +21,18 @@ from typing import Any
 
 from playwright.sync_api import sync_playwright, BrowserContext
 
-from ghinbox.auth import create_authenticated_context, get_auth_state_path
+from ghinbox.auth import create_authenticated_context
+from ghinbox.auth_common import (
+    AUTH_FORM_SELECTOR,
+    EMPTY_USER_LOGIN_META_SELECTOR,
+    GITHUB_PAGE_READY_SELECTOR,
+    LOGIN_ROUTE_META_SELECTOR,
+    LOGGED_OUT_BODY_SELECTOR,
+    NOTIFICATIONS_BLANKSLATE_SELECTOR,
+    NOTIFICATIONS_LIST_ITEM_SELECTOR,
+    SESSION_AUTHENTICATION_SELECTOR,
+    save_auth_state,
+)
 
 
 DEFAULT_FETCH_LOG_DIR = "responses/github-fetcher"
@@ -29,16 +40,6 @@ DEFAULT_FETCH_LOG_RETENTION_HOURS = 24
 FETCH_LOG_RETENTION_ENV = "GHINBOX_FETCH_LOG_RETENTION_HOURS"
 FETCH_DUMP_DIR_ENV = "GHINBOX_FETCH_DUMP_DIR"
 FETCH_DUMP_HTML_ENV = "GHINBOX_FETCH_DUMP_HTML"
-
-GITHUB_PAGE_READY_SELECTOR = (
-    ".notifications-list-item, "
-    ".blankslate, "
-    "body.logged-out, "
-    ".session-authentication, "
-    ".auth-form, "
-    'meta[name="route-pattern"][content*="/login"], '
-    'meta[name="user-login"][content=""]'
-)
 
 
 @dataclass
@@ -179,7 +180,7 @@ class NotificationsFetcher:
             return
 
         try:
-            self._context.storage_state(path=str(get_auth_state_path(self.account)))
+            save_auth_state(self._context, self.account)
         except Exception as e:
             print(f"[fetcher] Failed to persist auth state: {type(e).__name__}: {e}")
 
@@ -356,18 +357,18 @@ class NotificationsFetcher:
         final_url = _safe_page_value(lambda: page.url)
         title = _safe_page_value(page.title)
         selector_counts = {
-            "notifications": _safe_locator_count(page, ".notifications-list-item"),
-            "blankslate": _safe_locator_count(page, ".blankslate"),
-            "logged_out_body": _safe_locator_count(page, "body.logged-out"),
+            "notifications": _safe_locator_count(
+                page, NOTIFICATIONS_LIST_ITEM_SELECTOR
+            ),
+            "blankslate": _safe_locator_count(page, NOTIFICATIONS_BLANKSLATE_SELECTOR),
+            "logged_out_body": _safe_locator_count(page, LOGGED_OUT_BODY_SELECTOR),
             "session_authentication": _safe_locator_count(
-                page, ".session-authentication"
+                page, SESSION_AUTHENTICATION_SELECTOR
             ),
-            "auth_form": _safe_locator_count(page, ".auth-form"),
-            "login_route_meta": _safe_locator_count(
-                page, 'meta[name="route-pattern"][content*="/login"]'
-            ),
+            "auth_form": _safe_locator_count(page, AUTH_FORM_SELECTOR),
+            "login_route_meta": _safe_locator_count(page, LOGIN_ROUTE_META_SELECTOR),
             "empty_user_login_meta": _safe_locator_count(
-                page, 'meta[name="user-login"][content=""]'
+                page, EMPTY_USER_LOGIN_META_SELECTOR
             ),
         }
         metadata = {

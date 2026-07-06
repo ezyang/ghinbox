@@ -9,49 +9,20 @@ Supports multiple accounts with separate credential stores.
 
 import argparse
 import sys
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 
-
-AUTH_STATE_DIR = Path("auth_state")
-
-# Special account name for the default/primary user
-DEFAULT_ACCOUNT = "default"
-
-# Selectors shared with the async login fetcher (ghinbox/api/login_fetcher.py)
-# so logged-in detection and username extraction cannot drift between the
-# sync and async Playwright stacks.
-USER_MENU_SELECTOR = 'button[aria-label="Open user navigation menu"]'
-USER_LOGIN_META_SELECTOR = 'meta[name="user-login"]'
-PROFILE_LINK_SELECTOR = 'a[href^="/"]:has-text("Your profile")'
-PROFILE_SETTINGS_URL = "https://github.com/settings/profile"
-
-
-def get_auth_state_path(account: str) -> Path:
-    """Get the path to the auth state file for a given account."""
-    return AUTH_STATE_DIR / f"{account}.json"
-
-
-def get_username_path(account: str) -> Path:
-    """Get the path to the username file for a given account."""
-    return AUTH_STATE_DIR / f"{account}.username"
-
-
-def save_username(account: str, username: str) -> Path:
-    """Save the username for an account."""
-    AUTH_STATE_DIR.mkdir(parents=True, exist_ok=True)
-    username_path = get_username_path(account)
-    username_path.write_text(username)
-    return username_path
-
-
-def load_username(account: str) -> str | None:
-    """Load the username for an account if it exists."""
-    username_path = get_username_path(account)
-    if username_path.exists():
-        return username_path.read_text().strip()
-    return None
+from ghinbox.auth_common import (
+    AUTH_STATE_DIR,
+    DEFAULT_ACCOUNT as DEFAULT_ACCOUNT,
+    USER_MENU_SELECTOR,
+    extract_username,
+    get_auth_state_path,
+    get_username_path as get_username_path,
+    load_username,
+    save_auth_state,
+    save_username,
+)
 
 
 def is_logged_in(page: Page) -> bool:
@@ -83,65 +54,6 @@ def wait_for_login(page: Page) -> bool:
         state="visible",
     )
     return True
-
-
-def save_auth_state(context: BrowserContext, account: str) -> Path:
-    """
-    Save the browser authentication state to a file.
-
-    Args:
-        context: The Playwright browser context
-        account: The account identifier for this auth state
-
-    Returns:
-        Path to the saved auth state file
-    """
-    AUTH_STATE_DIR.mkdir(parents=True, exist_ok=True)
-    auth_path = get_auth_state_path(account)
-    context.storage_state(path=str(auth_path))
-    return auth_path
-
-
-def extract_username(page: Page) -> str | None:
-    """
-    Extract the GitHub username from an authenticated page.
-
-    Args:
-        page: A Playwright page that is logged into GitHub
-
-    Returns:
-        The username or None if it couldn't be extracted
-    """
-    # Method 1: Look for the username in the user menu button
-    user_button = page.locator(USER_MENU_SELECTOR)
-    if user_button.count() > 0:
-        # The username is often in the image alt or nearby elements
-        img = user_button.locator("img")
-        if img.count() > 0:
-            alt = img.get_attribute("alt")
-            if alt and alt.startswith("@"):
-                return alt[1:]  # Remove the @ prefix
-
-    # Method 2: Navigate to profile settings so the meta tag below is present
-    page.goto(PROFILE_SETTINGS_URL)
-    page.wait_for_load_state("domcontentloaded")
-
-    # Method 3: Get it from the meta tag or page content
-    # GitHub has a meta tag with the user login
-    meta = page.locator(USER_LOGIN_META_SELECTOR)
-    if meta.count() > 0:
-        content = meta.get_attribute("content")
-        if content:
-            return content
-
-    # Method 4: Parse from the profile URL link
-    profile_link = page.locator(PROFILE_LINK_SELECTOR)
-    if profile_link.count() > 0:
-        href = profile_link.get_attribute("href")
-        if href and href.startswith("/"):
-            return href[1:]  # Remove the leading /
-
-    return None
 
 
 def has_valid_auth(account: str) -> bool:

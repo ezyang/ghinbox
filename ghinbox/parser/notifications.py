@@ -20,6 +20,7 @@ from ghinbox.api.models import (
     Subject,
     UIState,
 )
+from ghinbox.auth_common import is_github_login_page
 
 
 class SessionExpiredError(Exception):
@@ -37,35 +38,7 @@ def is_login_page(soup: BeautifulSoup) -> bool:
     - Route pattern is '/login'
     - User-login meta tag is empty
     """
-    # Check for logged-out class on body
-    body = soup.find("body")
-    if body:
-        classes = body.get("class")
-        if classes is None:
-            classes = []
-        if isinstance(classes, list) and "logged-out" in classes:
-            return True
-        elif isinstance(classes, str) and "logged-out" in classes:
-            return True
-
-    # Check route pattern meta tag
-    route_meta = soup.find("meta", {"name": "route-pattern"})
-    if route_meta:
-        content = route_meta.get("content", "")
-        if isinstance(content, str) and "/login" in content:
-            return True
-
-    # Check for empty user-login
-    user_meta = soup.find("meta", {"name": "user-login"})
-    if user_meta:
-        content = user_meta.get("content", "")
-        if content == "":
-            # Also verify this looks like a logged-out page by checking for
-            # authentication-related classes
-            if soup.select_one(".session-authentication, .authentication-header"):
-                return True
-
-    return False
+    return is_github_login_page(soup)
 
 
 # Map octicon classes to (type, state, state_reason)

@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
+from ghinbox import auth_common
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
     run_fetcher_call,
@@ -171,11 +172,8 @@ def test_success_fetch_persists_refreshed_auth_state(
     monkeypatch: Any,
 ) -> None:
     monkeypatch.setenv("GHINBOX_FETCH_DUMP_DIR", str(tmp_path / "fetch_logs"))
+    monkeypatch.setattr(auth_common, "AUTH_STATE_DIR", tmp_path)
     auth_state_path = tmp_path / "default.json"
-    monkeypatch.setattr(
-        "ghinbox.api.fetcher.get_auth_state_path",
-        lambda account: auth_state_path,
-    )
     fetcher = NotificationsFetcher(account="default")
     context = FakeContext(
         page_url="https://github.com/notifications?query=repo%3Atestowner/testrepo"
