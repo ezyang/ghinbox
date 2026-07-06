@@ -128,6 +128,8 @@
             buildIncrementalRestLookupKeys,
             buildNotificationMatchKeySet,
             buildPreviousMatchMap,
+            canUseIncrementalOverlapMerge,
+            dedupAndSortNotifications,
             findIncrementalOverlapIndex,
             mergeIncrementalNotifications,
         } = GhinboxSyncMerge;

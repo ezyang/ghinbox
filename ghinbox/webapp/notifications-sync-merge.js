@@ -12,8 +12,12 @@
     }
     root.GhinboxSyncMerge = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (identity) {
-    const { getNotificationMatchKey, getNotificationMatchKeyForRepo, getNotificationDedupKey } =
-        identity;
+    const {
+        getNotificationDedupKey,
+        getNotificationKey,
+        getNotificationMatchKey,
+        getNotificationMatchKeyForRepo,
+    } = identity;
 
     function getUpdatedAtSignature(updatedAt) {
         const parsed = Date.parse(updatedAt);
@@ -78,6 +82,33 @@
         return null;
     }
 
+    function canUseIncrementalOverlapMerge({
+        syncMode,
+        sources,
+        previousNotifications,
+        lastSyncedRepo = null,
+        profileSignature = null,
+    } = {}) {
+        if (syncMode !== 'incremental') {
+            return false;
+        }
+        if (!Array.isArray(sources) || sources.length !== 1) {
+            return false;
+        }
+        if (!Array.isArray(previousNotifications) || previousNotifications.length === 0) {
+            return false;
+        }
+        if (!lastSyncedRepo) {
+            return false;
+        }
+        const source = sources[0] || {};
+        return (
+            lastSyncedRepo === profileSignature ||
+            lastSyncedRepo === source.fullName ||
+            lastSyncedRepo === source.value
+        );
+    }
+
     function mergeIncrementalNotifications(newNotifications, previousNotifications, startIndex) {
         const merged = newNotifications.slice();
         const seenKeys = new Set();
@@ -101,10 +132,30 @@
         return merged;
     }
 
+    function dedupAndSortNotifications(notifications) {
+        const deduped = [];
+        const seenNotificationIds = new Set();
+        notifications.forEach((notification) => {
+            // Keep HTML NT_ rows distinct from synthetic review-request rows
+            // for the same PR so notification-backed review requests stay clearable.
+            const key = getNotificationKey(notification);
+            if (seenNotificationIds.has(key)) {
+                return;
+            }
+            seenNotificationIds.add(key);
+            deduped.push(notification);
+        });
+        return deduped.sort((a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
+    }
+
     return {
         buildIncrementalRestLookupKeys,
         buildNotificationMatchKeySet,
         buildPreviousMatchMap,
+        canUseIncrementalOverlapMerge,
+        dedupAndSortNotifications,
         findIncrementalOverlapIndex,
         getUpdatedAtSignature,
         mergeIncrementalNotifications,

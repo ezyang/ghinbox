@@ -659,17 +659,15 @@
                     return;
                 }
             }
-            const previousMatchMap =
-                syncMode === 'incremental' &&
-                sources.length === 1 &&
-                previousNotifications.length > 0 &&
-                (
-                    state.lastSyncedRepo === profileSignature ||
-                    state.lastSyncedRepo === sources[0].fullName ||
-                    state.lastSyncedRepo === sources[0].value
-                )
-                    ? buildPreviousMatchMap(previousNotifications)
-                    : null;
+            const previousMatchMap = canUseIncrementalOverlapMerge({
+                syncMode,
+                sources,
+                previousNotifications,
+                lastSyncedRepo: state.lastSyncedRepo,
+                profileSignature,
+            })
+                ? buildPreviousMatchMap(previousNotifications)
+                : null;
             state.loading = true;
             state.error = null;
             state.notifications = [];
@@ -760,20 +758,7 @@
                     );
                 }
 
-                const dedupedNotifications = [];
-                const seenNotificationIds = new Set();
-                mergedNotifications.forEach((notification) => {
-                    const key = getNotificationKey(notification);
-                    if (seenNotificationIds.has(key)) {
-                        return;
-                    }
-                    seenNotificationIds.add(key);
-                    dedupedNotifications.push(notification);
-                });
-
-                const sortedNotifications = dedupedNotifications.sort((a, b) =>
-                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-                );
+                const sortedNotifications = dedupAndSortNotifications(mergedNotifications);
 
                 const restLookupKeys =
                     syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
