@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage } from './storage-utils';
+import { openNotificationsWithSync } from './app-fixture';
 
 const inlineCodeFixture = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -38,27 +38,10 @@ const inlineCodeFixture = {
 
 test.describe('Inline Code Titles', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await openNotificationsWithSync(page, {
+      expectedCount: 1,
+      notifications: inlineCodeFixture,
     });
-
-    await page.route('**/notifications/html/repo/test/repo**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(inlineCodeFixture),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
   });
 

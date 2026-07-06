@@ -1,16 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  addAuthCacheInitScript,
-  clearAppStorage,
-  seedAuthCache,
-  seedCommentCache,
-} from './storage-utils';
-
-const THREAD_SYNC_PAYLOAD = {
-  updated_at: '2000-01-01T00:00:00Z',
-  last_read_at: null,
-  unread: true,
-};
+import { mockHtmlAction, openNotificationsWithCommentCache } from './app-fixture';
 
 const notificationsResponse = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -58,36 +47,6 @@ const notificationsResponse = {
 
 test.describe('Comment visibility @layout', () => {
   test.beforeEach(async ({ page }) => {
-    await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    // Mock comments endpoint for syncNotificationBeforeDone
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
     const commentCache = {
       version: 1,
       threads: {
@@ -124,28 +83,16 @@ test.describe('Comment visibility @layout', () => {
       },
     };
 
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
       localStorage.setItem('ghnotif_comment_expand_prs', 'true');
       localStorage.setItem('ghnotif_comment_hide_uninteresting', 'false');
     });
-    await seedAuthCache(page);
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-    await seedAuthCache(page);
-    await page.evaluate(() => {
-      if (typeof checkAuth === 'function') {
-        checkAuth();
-      }
-      if (typeof render === 'function') {
-        render();
-      }
+    await openNotificationsWithCommentCache(page, {
+      commentCache,
+      expectedCount: 1,
+      notifications: notificationsResponse,
     });
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced');
   });
 
@@ -172,13 +119,7 @@ test.describe('Comment visibility @layout', () => {
   test('shows bottom mark done button when comments are expanded', async ({
     page,
   }) => {
-    await page.route('**/notifications/html/action', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    await mockHtmlAction(page);
 
     const bottomDoneButton = page.locator('.notification-done-btn-bottom');
     await expect(bottomDoneButton).toBeVisible();
