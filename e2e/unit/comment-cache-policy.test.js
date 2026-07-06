@@ -14,6 +14,8 @@ const {
   isCommentCacheFresh,
   isDiffstatFresh,
   isReviewDecisionFresh,
+  mergeServerSnapshotCommentCache,
+  pruneCommentCacheToNotifications,
   shouldPrefetchNotificationComments,
   shouldPrefetchReviewMetadata,
 } = require('../../ghinbox/webapp/notifications-comment-cache-policy.js');
@@ -44,6 +46,124 @@ function cached(extra = {}) {
     ...extra,
   };
 }
+
+test('pruneCommentCacheToNotifications drops orphaned threads without mutating input', () => {
+  const cache = {
+    version: 1,
+    threads: {
+      keep: { comments: [{ id: 1 }], allComments: true },
+      orphan: { comments: [{ id: 2 }], allComments: true },
+    },
+  };
+
+  const pruned = pruneCommentCacheToNotifications(cache, [
+    notification('keep', { subject: { number: 10 } }),
+  ]);
+
+  assert.deepEqual(Object.keys(pruned.threads), ['keep']);
+  assert.equal(pruned.version, 1);
+  assert.deepEqual(Object.keys(cache.threads).sort(), ['keep', 'orphan']);
+});
+
+test('pruneCommentCacheToNotifications tolerates empty or wrong-shaped caches', () => {
+  assert.deepEqual(pruneCommentCacheToNotifications(null, []), {
+    version: 1,
+    threads: {},
+  });
+  assert.deepEqual(
+    pruneCommentCacheToNotifications({ version: 1, threads: 'not-a-map' }, [
+      notification('keep'),
+    ]),
+    { version: 1, threads: {} }
+  );
+});
+
+[
+  {
+    name: 'fresher local entry kept',
+    localEntry: cached({
+      source: 'local',
+      fetchedAt: '2026-05-14T11:00:00Z',
+    }),
+    snapshotEntry: cached({
+      source: 'snapshot',
+      fetchedAt: '2026-05-14T10:00:00Z',
+    }),
+    expectedSource: 'local',
+  },
+  {
+    name: 'staler local entry overwritten',
+    localEntry: cached({
+      source: 'local',
+      fetchedAt: '2026-05-14T10:00:00Z',
+    }),
+    snapshotEntry: cached({
+      source: 'snapshot',
+      fetchedAt: '2026-05-14T11:00:00Z',
+    }),
+    expectedSource: 'snapshot',
+  },
+  {
+    name: 'local entry missing fetchedAt overwritten',
+    localEntry: cached({
+      source: 'local',
+      fetchedAt: undefined,
+    }),
+    snapshotEntry: cached({
+      source: 'snapshot',
+      fetchedAt: undefined,
+    }),
+    expectedSource: 'snapshot',
+  },
+  {
+    name: 'snapshot entry missing fetchedAt does not overwrite fresh local',
+    localEntry: cached({
+      source: 'local',
+      fetchedAt: '2026-05-14T11:00:00Z',
+    }),
+    snapshotEntry: cached({
+      source: 'snapshot',
+      fetchedAt: undefined,
+    }),
+    expectedSource: 'local',
+  },
+].forEach((entry) => {
+  test(`server snapshot comment-cache merge: ${entry.name}`, () => {
+    const localCache = {
+      version: 1,
+      threads: {
+        thread: entry.localEntry,
+      },
+    };
+
+    const merged = mergeServerSnapshotCommentCache(localCache, {
+      version: 1,
+      threads: {
+        thread: entry.snapshotEntry,
+      },
+    });
+
+    assert.equal(merged.threads.thread.source, entry.expectedSource);
+    assert.equal(localCache.threads.thread.source, 'local');
+  });
+});
+
+test('server snapshot comment-cache merge adds missing local entries', () => {
+  const merged = mergeServerSnapshotCommentCache(
+    { version: 1, threads: {} },
+    {
+      version: 1,
+      threads: {
+        thread: cached({
+          source: 'snapshot',
+          fetchedAt: undefined,
+        }),
+      },
+    }
+  );
+
+  assert.equal(merged.threads.thread.source, 'snapshot');
+});
 
 test('freshness helpers accept explicit null metadata and reject stale or absent fields', () => {
   const cache = cached({

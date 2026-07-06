@@ -226,14 +226,14 @@ async def _rest_thread_ids_from_notification_ids(
 def _prune_snapshot_for_action(action: str, notification_ids: list[str]) -> None:
     """Keep the stored snapshot coherent after a successful action.
 
-    Archiving removes a notification from the inbox, so drop those IDs from the
-    stored snapshot. This lets an already-open browser tab reflect the change via
-    a lightweight "Server Refresh" (GET /api/snapshots/...) instead of a full
-    GitHub sync, and reconciles out-of-band mark-done (e.g. scripts/feed_digest.py
-    --mark-done). Other actions (unarchive/subscribe/unsubscribe) don't remove
-    inbox items; a full sync reconciles those.
+    Archive and unsubscribe remove notifications from the inbox, so drop those
+    IDs from the stored snapshot. This lets an already-open browser tab reflect
+    the change via a lightweight "Server Refresh" (GET /api/snapshots/...)
+    instead of a full GitHub sync, and reconciles out-of-band mark-done
+    (e.g. scripts/feed_digest.py --mark-done). Undo actions (unarchive/subscribe)
+    do not remove inbox items; a full sync reconciles those.
     """
-    if action != "archive":
+    if action not in {"archive", "unsubscribe"}:
         return
     try:
         remove_notifications_from_snapshots(notification_ids)

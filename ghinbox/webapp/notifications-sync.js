@@ -124,29 +124,17 @@
             return GhinboxNotificationIdentity.getNotificationMatchKey(notification);
         }
 
-        function getNotificationDedupKey(notification) {
-            return GhinboxNotificationIdentity.getNotificationDedupKey(notification);
-        }
-
-        function formatCursorLabel(cursor) {
-            if (!cursor) {
-                return 'initial';
-            }
-            const raw = String(cursor);
-            if (raw.length <= 10) {
-                return `after ${raw}`;
-            }
-            return `after ${raw.slice(0, 4)}...${raw.slice(-4)}`;
-        }
-
         const {
             buildIncrementalRestLookupKeys,
             buildNotificationMatchKeySet,
             buildPreviousMatchMap,
             findIncrementalOverlapIndex,
             mergeIncrementalNotifications,
-            pruneCommentCacheToNotifications,
         } = GhinboxSyncMerge;
+        const {
+            mergeServerSnapshotCommentCache,
+            pruneCommentCacheToNotifications,
+        } = GhinboxCommentCachePolicy;
 
         function getRestNotificationMatchKey(notification) {
             return GhinboxNotificationIdentity.getRestNotificationMatchKey(notification);
@@ -541,21 +529,10 @@
             if (!snapshotThreads || typeof snapshotThreads !== 'object') {
                 return;
             }
-            state.commentCache = state.commentCache || { version: 1, threads: {} };
-            state.commentCache.version = state.commentCache.version || 1;
-            state.commentCache.threads = state.commentCache.threads || {};
-            Object.entries(snapshotThreads).forEach(([key, snapshotEntry]) => {
-                const existingEntry = state.commentCache.threads[key];
-                const existingFetchedAt = Date.parse(existingEntry?.fetchedAt || '');
-                const snapshotFetchedAt = Date.parse(snapshotEntry?.fetchedAt || '');
-                if (
-                    !existingEntry ||
-                    Number.isNaN(existingFetchedAt) ||
-                    (!Number.isNaN(snapshotFetchedAt) && snapshotFetchedAt >= existingFetchedAt)
-                ) {
-                    state.commentCache.threads[key] = snapshotEntry;
-                }
-            });
+            state.commentCache = mergeServerSnapshotCommentCache(
+                state.commentCache,
+                snapshot.comment_cache
+            );
             saveCommentCache();
         }
 

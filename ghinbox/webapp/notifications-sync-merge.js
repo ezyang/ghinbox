@@ -101,32 +101,6 @@
         return merged;
     }
 
-    function pruneCommentCacheToNotifications(commentCache, notifications) {
-        // A full sync rebuilds the notification list from upstream, so any
-        // cached comment thread whose notification is no longer present is an
-        // orphan. Drop those so local IndexedDB state can be fully reconstructed
-        // from upstream and stale entries never accumulate. Returns a new cache;
-        // does not mutate the input.
-        const threads = commentCache && typeof commentCache.threads === 'object' && commentCache.threads
-            ? commentCache.threads
-            : {};
-        const version = (commentCache && commentCache.version) || 1;
-        const liveIds = new Set();
-        (Array.isArray(notifications) ? notifications : []).forEach((notif) => {
-            const id = String(notif?.id || '');
-            if (id) {
-                liveIds.add(id);
-            }
-        });
-        const prunedThreads = {};
-        Object.keys(threads).forEach((key) => {
-            if (liveIds.has(key)) {
-                prunedThreads[key] = threads[key];
-            }
-        });
-        return { version, threads: prunedThreads };
-    }
-
     return {
         buildIncrementalRestLookupKeys,
         buildNotificationMatchKeySet,
@@ -134,6 +108,5 @@
         findIncrementalOverlapIndex,
         getUpdatedAtSignature,
         mergeIncrementalNotifications,
-        pruneCommentCacheToNotifications,
     };
 });
