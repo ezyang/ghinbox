@@ -16,6 +16,10 @@ Usage (two-step flow, run from repo root):
     # Step 3: Mark done (after reviewing the digest)
     uv run python scripts/feed_digest.py --mark-done [--exclude-ids id1,id2,...]
 
+    # After marking done, the server prunes those IDs from its stored snapshot,
+    # so an already-open browser tab can pick up the change by clicking
+    # "Server Refresh" (no full GitHub sync needed).
+
 The Feed queue contains notifications that are NOT directed at the current user
 (replies) and NOT review requests. These are the "ambient awareness" items.
 """

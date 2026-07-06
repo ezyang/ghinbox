@@ -4,6 +4,7 @@ FastAPI route handlers for the HTML notifications API.
 
 import base64
 import binascii
+import logging
 import time
 import os
 import re
@@ -27,6 +28,7 @@ from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_snapshot,
     list_snapshot_repos,
+    remove_notifications_from_snapshots,
     set_notification_bookmark,
     set_notification_read_comment_watermark,
     set_notification_replies_muted,
@@ -34,6 +36,7 @@ from ghinbox.api.snapshot_store import (
 from ghinbox.parser.notifications import SessionExpiredError, parse_notifications_html
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
+logger = logging.getLogger(__name__)
 MAX_GITHUB_NOTIFICATION_ACTION_IDS = 25
 MAX_REST_THREAD_LOOKUP_PAGES = 10
 SubjectKey = tuple[str, str, str, int]
@@ -315,6 +318,26 @@ async def _rest_thread_ids_from_notification_ids(
         thread_ids_by_notification_id[notification_id]
         for notification_id in notification_ids
     ]
+
+
+def _prune_snapshot_for_action(action: str, notification_ids: list[str]) -> None:
+    """Keep the stored snapshot coherent after a successful action.
+
+    Archiving removes a notification from the inbox, so drop those IDs from the
+    stored snapshot. This lets an already-open browser tab reflect the change via
+    a lightweight "Server Refresh" (GET /api/snapshots/...) instead of a full
+    GitHub sync, and reconciles out-of-band mark-done (e.g. scripts/feed_digest.py
+    --mark-done). Other actions (unarchive/subscribe/unsubscribe) don't remove
+    inbox items; a full sync reconciles those.
+    """
+    if action != "archive":
+        return
+    try:
+        remove_notifications_from_snapshots(notification_ids)
+    except Exception:
+        # Snapshot pruning is a cache-coherence convenience; never fail the
+        # action (which already succeeded against GitHub) because of it.
+        logger.exception("Failed to prune archived notifications from snapshot")
 
 
 async def _submit_archive_with_github_api(
@@ -729,6 +752,8 @@ async def submit_action(
                 status = api_result.status
                 error = api_result.error
                 github_status_code = api_result.github_status_code
+                if status == "ok":
+                    _prune_snapshot_for_action(request.action, request.notification_ids)
                 return NotificationActionResponse(
                     status=status,
                     error=error,
@@ -772,6 +797,9 @@ async def submit_action(
             github_status_code = result.github_status_code
             if result.status != "ok":
                 break
+
+        if status == "ok":
+            _prune_snapshot_for_action(request.action, request.notification_ids)
 
         return NotificationActionResponse(
             status=status,

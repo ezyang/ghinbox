@@ -13,6 +13,7 @@ from ghinbox.api.snapshot_store import (
     get_snapshot,
     get_sync_state,
     init_snapshot_db,
+    remove_notifications_from_snapshots,
     save_snapshot,
     set_notification_bookmark,
     set_notification_read_comment_watermark,
@@ -166,6 +167,45 @@ def test_bookmark_overlay_survives_replacement_sync(db_path) -> None:
         apply_local_state("owner/repo", replacement, db_path)[0]["ui"]["bookmarked"]
         is True
     )
+
+
+def test_remove_notifications_prunes_across_repos(db_path) -> None:
+    save_snapshot(
+        "owner/repo-a",
+        [
+            {"id": "a1", "subject": {"title": "A1"}},
+            {"id": "a2", "subject": {"title": "A2"}},
+        ],
+        db_path=db_path,
+    )
+    save_snapshot(
+        "owner/repo-b",
+        [{"id": "b1", "subject": {"title": "B1"}}],
+        db_path=db_path,
+    )
+
+    removed = remove_notifications_from_snapshots(["a1", "b1"], db_path=db_path)
+
+    assert removed == 2
+    snapshot_a = get_snapshot("owner/repo-a", db_path)
+    snapshot_b = get_snapshot("owner/repo-b", db_path)
+    assert snapshot_a is not None and snapshot_b is not None
+    assert [n["id"] for n in snapshot_a["notifications"]] == ["a2"]
+    assert snapshot_b["notifications"] == []
+
+
+def test_remove_notifications_ignores_unknown_ids(db_path) -> None:
+    save_snapshot(
+        "owner/repo",
+        [{"id": "keep", "subject": {"title": "Keep"}}],
+        db_path=db_path,
+    )
+
+    assert remove_notifications_from_snapshots([], db_path=db_path) == 0
+    assert remove_notifications_from_snapshots(["missing"], db_path=db_path) == 0
+    snapshot = get_snapshot("owner/repo", db_path)
+    assert snapshot is not None
+    assert [n["id"] for n in snapshot["notifications"]] == ["keep"]
 
 
 def test_local_notification_state_round_trip(db_path) -> None:

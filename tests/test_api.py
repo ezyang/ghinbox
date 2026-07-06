@@ -340,6 +340,60 @@ class TestNotificationActions:
             }
         ]
 
+    def test_submit_action_prunes_archived_ids_from_stored_snapshot(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A successful archive removes those IDs from the stored SQLite snapshot
+        so an open tab can pick up the change via Server Refresh (no GitHub sync).
+        """
+        from ghinbox.api import snapshot_store
+
+        archived_id = "NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMQ"
+        kept_id = "NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMg"
+        snapshot_store.save_snapshot(
+            "pytorch/pytorch",
+            [
+                {"id": archived_id, "subject": {"title": "Archived"}},
+                {"id": kept_id, "subject": {"title": "Kept"}},
+            ],
+        )
+
+        class FakeResponse:
+            status_code = 205
+            text = ""
+
+        class FakeClient:
+            async def request(
+                self, method: str, url: str, headers: dict[str, str]
+            ) -> FakeResponse:
+                return FakeResponse()
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_token", lambda: "api-token", raising=False
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_client", lambda: FakeClient(), raising=False
+        )
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [archived_id],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+
+        snapshot = snapshot_store.get_snapshot("pytorch/pytorch")
+        assert snapshot is not None
+        remaining_ids = [n["id"] for n in snapshot["notifications"]]
+        assert remaining_ids == [kept_id]
+
     def test_submit_action_maps_current_html_ids_to_rest_threads(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:

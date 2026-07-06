@@ -243,6 +243,43 @@ def save_snapshot(
         conn.close()
 
 
+def remove_notifications_from_snapshots(
+    notification_ids: list[str],
+    db_path: str | None = None,
+) -> int:
+    """Drop the given notification IDs from every stored snapshot's data.
+
+    Notification IDs are globally unique GitHub IDs, so an archive action can be
+    reconciled against the local cache without knowing which repo it came from.
+    This lets an already-open browser tab reflect an out-of-band mark-done via a
+    lightweight "Server Refresh" instead of a full GitHub sync. Returns the total
+    number of notifications removed across all repos.
+    """
+    ids = {str(i) for i in notification_ids if i}
+    if not ids:
+        return 0
+    removed = 0
+    conn = _connect(db_path)
+    try:
+        with conn:
+            rows = conn.execute(
+                "SELECT repo, data FROM notification_snapshots"
+            ).fetchall()
+            for row in rows:
+                notifications = json.loads(row["data"])
+                kept = [n for n in notifications if str(n.get("id")) not in ids]
+                if len(kept) == len(notifications):
+                    continue
+                removed += len(notifications) - len(kept)
+                conn.execute(
+                    "UPDATE notification_snapshots SET data = ? WHERE repo = ?",
+                    (json.dumps(kept), row["repo"]),
+                )
+    finally:
+        conn.close()
+    return removed
+
+
 def get_notification_bookmark(
     repo: str,
     notification_id: str,
