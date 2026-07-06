@@ -55,6 +55,10 @@
     sections, include direct GitHub links for every item it summarizes, and
     provide "Open all" controls for each section so the user can open those
     notifications as tabs.
+  - Keep the report lightweight enough to open quickly from `file://`: list
+    each notification once, avoid duplicating an all-items table if sections
+    already cover every item, avoid embedding the full JSON payload, and derive
+    "Open all" URLs from the links already present in the DOM.
   - Keep marking done as a separate explicit action. Never run
     `scripts/feed_digest.py --mark-done` unless the user asks to mark feed
     items done after reviewing the report.

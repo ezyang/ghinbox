@@ -529,7 +529,8 @@ def build_report_instructions(report_path: str = DEFAULT_REPORT_PATH) -> list[st
         "Use report_items as the canonical list of notifications and preserve direct GitHub links.",
         "Group items into useful review sections, such as direct attention, compiler correctness, backend/platform, testing/CI, docs/API, and low-signal closed/noise.",
         "For every section, include an Open all button that opens that section's URLs in new tabs from a click handler.",
-        "Include an All feed items section or table so every notification remains visible before any mark-done action.",
+        "Keep the report lightweight: list each notification once, avoid embedding the full JSON payload, and derive Open all URLs from links already present in the DOM rather than duplicating long URL arrays.",
+        "Make sure every feed item is visible in exactly one section before any mark-done action; a separate all-items table is unnecessary if the sections are exhaustive.",
         "Do not run --mark-done or imply anything was marked done; marking done is a separate explicit user action.",
         "After writing the report, tell the user the report path and the feed/reply-nature counts.",
     ]
