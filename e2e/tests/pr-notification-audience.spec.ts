@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockDefaultApiRoutes } from './app-fixture';
+import { mockDefaultApiRoutes, mockGraphqlReviewMetadata } from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const makePrNotification = (id: string, number: number, title: string) => ({
@@ -175,71 +175,55 @@ test.describe('Replies queue classification @classification', () => {
     await addAuthCacheInitScript(page);
     await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
 
-    await page.unroute('**/github/graphql').catch(() => undefined);
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: {
-              limit: 5000,
-              remaining: 4999,
-              resetAt: '2025-01-07T00:00:00Z',
-            },
-            repository: {
-              pr10: {
-                reviewDecision: null,
-                authorAssociation: 'OWNER',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'testuser' },
-              },
-              pr11: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr12: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr13: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr14: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr15: {
-                reviewDecision: null,
-                authorAssociation: 'OWNER',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'testuser' },
-              },
-            },
-          },
-        }),
-      });
+    await mockGraphqlReviewMetadata(page, {
+      pr10: {
+        reviewDecision: null,
+        authorAssociation: 'OWNER',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'testuser' },
+      },
+      pr11: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr12: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr13: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr14: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr15: {
+        reviewDecision: null,
+        authorAssociation: 'OWNER',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'testuser' },
+      },
     });
 
     await page.goto('notifications.html');

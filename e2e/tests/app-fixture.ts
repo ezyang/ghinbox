@@ -32,12 +32,19 @@ export const TEST_ACTION_TOKENS = {
 
 type NotificationOverrides = {
   id: string;
+  repo?: string;
   subject?: Record<string, unknown>;
   ui?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
-export function makeNotification({ id, subject = {}, ui = {}, ...rest }: NotificationOverrides) {
+export function makeNotification({
+  id,
+  repo = DEFAULT_REPO,
+  subject = {},
+  ui = {},
+  ...rest
+}: NotificationOverrides) {
   const number = (subject.number as number) ?? 1;
   const type = (subject.type as string) ?? 'PullRequest';
   const urlPath = type === 'Issue' ? 'issues' : 'pull';
@@ -50,7 +57,7 @@ export function makeNotification({ id, subject = {}, ui = {}, ...rest }: Notific
     ...rest,
     subject: {
       title: `${type} #${number}`,
-      url: `https://github.com/${DEFAULT_REPO}/${urlPath}/${number}`,
+      url: `https://github.com/${repo}/${urlPath}/${number}`,
       type,
       number,
       state: 'open',
@@ -63,13 +70,14 @@ export function makeNotification({ id, subject = {}, ui = {}, ...rest }: Notific
 
 export function makeNotificationsResponse(
   notifications: unknown[],
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
+  repo = DEFAULT_REPO
 ) {
-  const [owner, name] = DEFAULT_REPO.split('/');
+  const [owner, name] = repo.split('/');
   return {
-    source_url: `https://github.com/notifications?query=repo:${DEFAULT_REPO}`,
+    source_url: `https://github.com/notifications?query=repo:${repo}`,
     generated_at: '2025-01-02T00:00:00Z',
-    repository: { owner, name, full_name: DEFAULT_REPO },
+    repository: { owner, name, full_name: repo },
     notifications,
     pagination: {
       before_cursor: null,
@@ -228,6 +236,53 @@ function fulfillJson(route: Route, body: JsonBody, status = 200) {
   });
 }
 
+type RateLimitResource = {
+  limit: number;
+  remaining: number;
+  reset: number;
+};
+
+export async function mockRateLimit(
+  page: Page,
+  options: {
+    core?: Partial<RateLimitResource>;
+    graphql?: Partial<RateLimitResource>;
+    limit?: number;
+    remaining?: number;
+    reset?: number;
+  } = {}
+) {
+  const reset = options.reset ?? Math.floor(Date.now() / 1000) + 3600;
+  const defaultResource = {
+    limit: options.limit ?? 5000,
+    remaining: options.remaining ?? 4999,
+    reset,
+  };
+  await page.route('**/github/rest/rate_limit', (route) =>
+    fulfillJson(route, {
+      resources: {
+        core: { ...defaultResource, ...options.core },
+        graphql: { ...defaultResource, ...options.graphql },
+      },
+    })
+  );
+}
+
+export async function mockCollaboratorPermission(
+  page: Page,
+  permission: string,
+  options: { repo?: string; roleName?: string } = {}
+) {
+  const repo = options.repo ?? DEFAULT_REPO;
+  const [owner, name] = repo.split('/');
+  await page.route(`**/github/rest/repos/${owner}/${name}/collaborators/*/permission`, (route) =>
+    fulfillJson(route, {
+      permission,
+      role_name: options.roleName ?? permission,
+    })
+  );
+}
+
 function notificationsArray(payload: JsonBody) {
   if (Array.isArray(payload)) {
     return payload;
@@ -280,14 +335,7 @@ export async function mockDefaultApiRoutes(page: Page, options: {
   const [owner, name] = repo.split('/');
 
   await page.route('**/github/rest/user', (route) => fulfillJson(route, { login }));
-  await page.route('**/github/rest/rate_limit', (route) =>
-    fulfillJson(route, {
-      resources: {
-        core: { limit: 5000, remaining: 4999, reset: Math.floor(Date.now() / 1000) + 3600 },
-        graphql: { limit: 5000, remaining: 4999, reset: Math.floor(Date.now() / 1000) + 3600 },
-      },
-    })
-  );
+  await mockRateLimit(page);
   await page.route('**/notifications/html/repo/**', (route) => fulfillJson(route, notifications));
   await page.route('**/github/rest/review-requests**', (route) =>
     fulfillJson(route, { notifications: [] })

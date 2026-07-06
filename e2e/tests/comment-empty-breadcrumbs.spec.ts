@@ -1,23 +1,22 @@
 import { test, expect } from '@playwright/test';
-import { openNotificationsWithCachedData } from './app-fixture';
+import {
+  makeNotification,
+  makeNotificationsResponse,
+  openNotificationsWithCachedData,
+} from './app-fixture';
 
-const notification = {
+const notification = makeNotification({
   id: 'thread-own-latest',
-  unread: true,
   reason: 'comment',
   updated_at: '2025-01-02T00:00:00Z',
   last_read_at: null,
   subject: {
     title: 'Comment breadcrumb check',
-    url: 'https://github.com/test/repo/issues/1',
     type: 'Issue',
     number: 1,
-    state: 'open',
-    state_reason: null,
   },
   actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
-  ui: { saved: false, done: false },
-};
+});
 
 test.describe('Comment empty breadcrumbs @layout', () => {
   test('explains when cached comments are hidden after the latest own comment', async ({
@@ -25,18 +24,9 @@ test.describe('Comment empty breadcrumbs @layout', () => {
   }) => {
     await openNotificationsWithCachedData(page, {
       expectedCount: 1,
-      notifications: {
-        source_url: 'https://github.com/notifications?query=repo:test/repo',
+      notifications: makeNotificationsResponse([notification], {
         generated_at: '2025-01-02T00:00:00Z',
-        repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
-        notifications: [notification],
-        pagination: {
-          before_cursor: null,
-          after_cursor: null,
-          has_previous: false,
-          has_next: false,
-        },
-      },
+      }),
       commentCache: {
         version: 1,
         threads: {

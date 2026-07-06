@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { clearAppStorage, seedCommentCache } from './storage-utils';
+import { openNotificationsWithCommentCache } from './app-fixture';
 
 const notificationsResponse = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -40,33 +40,6 @@ test.describe('Mobile layout @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
 
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
     const commentCache = {
       version: 1,
       threads: {
@@ -89,17 +62,15 @@ test.describe('Mobile layout @layout', () => {
       },
     };
 
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
       localStorage.setItem('ghnotif_comment_hide_uninteresting', 'false');
     });
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
+    await openNotificationsWithCommentCache(page, {
+      commentCache,
+      expectedCount: 1,
+      notifications: notificationsResponse,
+    });
     await expect(page.locator('#status-bar')).toContainText('Synced');
   });
 

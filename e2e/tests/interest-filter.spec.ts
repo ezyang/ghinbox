@@ -1,10 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  addAuthCacheInitScript,
-  clearAppStorage,
-  seedAuthCache,
-  seedCommentCache,
-} from './storage-utils';
+import { openNotificationsWithCommentCache } from './app-fixture';
 
 const notificationsResponse = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -174,44 +169,11 @@ const commentCache = {
 
 test.describe('Interest Filter', () => {
   test.beforeEach(async ({ page }) => {
-    await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
+    await openNotificationsWithCommentCache(page, {
+      commentCache,
+      expectedCount: 4,
+      notifications: notificationsResponse,
     });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await seedAuthCache(page);
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-    await seedAuthCache(page);
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced');
   });
 

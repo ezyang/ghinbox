@@ -1,4 +1,10 @@
 import { test, expect } from '@playwright/test';
+import {
+  mockCollaboratorPermission,
+  mockDefaultApiRoutes,
+  mockGraphqlReviewMetadata,
+  mockReviewRequests,
+} from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const notificationsResponse = {
@@ -304,82 +310,25 @@ const reviewRequestSearch = {
 test.describe('Feed, Replies, and Reviews queues @classification', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/review-requests**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(reviewRequestSearch),
-      });
-    });
-
-    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: {
-              limit: 5000,
-              remaining: 4999,
-              resetAt: '2026-05-14T00:00:00Z',
-            },
-            repository: {
-              pr1: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr3: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'carol' },
-              },
-            },
-          },
-        }),
-      });
+    await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
+    await mockReviewRequests(page, reviewRequestSearch.notifications);
+    await mockGraphqlReviewMetadata(page, {
+      pr1: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr3: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'carol' },
+      },
     });
 
     await page.goto('notifications.html');
@@ -673,20 +622,8 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     let archivedIds: string[] = [];
 
     await addAuthCacheInitScript(page);
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ resources: {} }),
-      });
-    });
+    await mockDefaultApiRoutes(page, { notifications: response });
+    await mockReviewRequests(page, search.notifications);
     await page.route('**/notifications/html/repo/test/repo/read-comment-watermarks/**', (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
     });
@@ -697,55 +634,29 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
       }
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) });
     });
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(response) });
-    });
-    await page.route('**/github/rest/review-requests**', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(search) });
-    });
-    await page.route('**/github/rest/repos/test/repo/issues/*/comments*', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-    });
     await page.route('**/github/rest/repos/test/repo/pulls/*/comments*', (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
     });
-    await page.route('**/github/rest/repos/test/repo/collaborators/*/permission', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ permission: 'write', role_name: 'write' }),
-      });
-    });
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: { limit: 5000, remaining: 4999, resetAt: '2026-05-14T00:00:00Z' },
-            repository: {
-              pr1: {
-                reviewDecision: null,
-                authorAssociation: 'MEMBER',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-                labels: { nodes: [] },
-              },
-              pr2: {
-                reviewDecision: null,
-                authorAssociation: 'MEMBER',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'bob' },
-                labels: { nodes: [] },
-              },
-            },
-          },
-        }),
-      });
+    await mockCollaboratorPermission(page, 'write');
+    await mockGraphqlReviewMetadata(page, {
+      pr1: {
+        reviewDecision: null,
+        authorAssociation: 'MEMBER',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+        labels: { nodes: [] },
+      },
+      pr2: {
+        reviewDecision: null,
+        authorAssociation: 'MEMBER',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'bob' },
+        labels: { nodes: [] },
+      },
     });
 
     await page.goto('notifications.html');

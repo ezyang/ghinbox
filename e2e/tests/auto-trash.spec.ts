@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
+  mockDefaultApiRoutes,
+  mockGraphqlReviewMetadata,
+} from './app-fixture';
+import {
   addAuthCacheInitScript,
   APP_STORAGE_KEYS,
   clearAppStorage,
@@ -261,41 +265,8 @@ test.describe('Low-priority cleanup @mutation', () => {
     currentNotificationsResponse = notificationsResponse;
 
     await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/github/rest/review-requests**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ notifications: [] }),
-      });
-    });
-
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { rateLimit: { limit: 5000, remaining: 4998, resetAt: freshIso } } }),
-      });
-    });
+    await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
+    await mockGraphqlReviewMetadata(page, {});
 
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({

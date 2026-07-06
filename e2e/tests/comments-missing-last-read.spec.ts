@@ -1,30 +1,13 @@
 import { test, expect } from '@playwright/test';
+import {
+  makeNotification,
+  makeNotificationsResponse,
+  mockDefaultApiRoutes,
+} from './app-fixture';
 
 test.describe('Comments without last_read_at', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          resources: {
-            core: {
-              remaining: 42,
-              limit: 60,
-              reset: Math.floor(Date.now() / 1000) + 3600,
-            },
-          },
-        }),
-      });
-    });
+    await mockDefaultApiRoutes(page);
   });
 
   test('loads full thread when last_read_at is missing', async ({ page }) => {
@@ -36,47 +19,29 @@ test.describe('Comments without last_read_at', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          source_url: 'https://github.com/notifications?query=repo:test/repo',
-          generated_at: '2025-01-02T00:00:00Z',
-          repository: {
-            owner: 'test',
-            name: 'repo',
-            full_name: 'test/repo',
-          },
-          notifications: [
-            {
-              id: 'notif-1',
-              unread: true,
-              reason: 'comment',
-              updated_at: '2025-01-02T00:00:00Z',
-              subject: {
-                title: 'Missing last_read_at',
-                url: 'https://github.com/test/repo/issues/42',
-                type: 'Issue',
-                number: 42,
-                state: 'open',
-                state_reason: null,
-              },
-              actors: [
-                {
-                  login: 'alice',
-                  avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4',
+        body: JSON.stringify(
+          makeNotificationsResponse(
+            [
+              makeNotification({
+                id: 'notif-1',
+                reason: 'comment',
+                updated_at: '2025-01-02T00:00:00Z',
+                subject: {
+                  title: 'Missing last_read_at',
+                  type: 'Issue',
+                  number: 42,
                 },
-              ],
-              ui: {
-                saved: false,
-                done: false,
-              },
-            },
-          ],
-          pagination: {
-            before_cursor: null,
-            after_cursor: null,
-            has_previous: false,
-            has_next: false,
-          },
-        }),
+                actors: [
+                  {
+                    login: 'alice',
+                    avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4',
+                  },
+                ],
+              }),
+            ],
+            { generated_at: '2025-01-02T00:00:00Z' }
+          )
+        ),
       });
     });
 

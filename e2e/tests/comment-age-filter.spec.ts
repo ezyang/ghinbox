@@ -1,11 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { seedCommentCache } from './storage-utils';
 import {
-  addAuthCacheInitScript,
-  clearAppStorage,
-  seedAuthCache,
-  seedCommentCache,
-} from './storage-utils';
-import { openNotificationsWithCachedData } from './app-fixture';
+  openNotificationsWithCachedData,
+  openNotificationsWithCommentCache,
+} from './app-fixture';
 
 // Create comments with different ages
 const now = new Date();
@@ -102,47 +100,14 @@ const commentCache = {
 
 test.describe('Comment Age Filter', () => {
   test.beforeEach(async ({ page }) => {
-    await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(notificationsResponse),
-      });
-    });
-
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await page.evaluate(() => {
+    await page.addInitScript(() => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
     });
-    await seedAuthCache(page);
-    await seedCommentCache(page, commentCache);
-    await page.reload();
-    await seedAuthCache(page);
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
+    await openNotificationsWithCommentCache(page, {
+      commentCache,
+      expectedCount: 1,
+      notifications: notificationsResponse,
+    });
     await expect(page.locator('#status-bar')).toContainText('Synced');
   });
 

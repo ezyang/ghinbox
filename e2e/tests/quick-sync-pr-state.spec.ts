@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { mockDefaultApiRoutes } from './app-fixture';
 import { clearAppStorage, readNotificationsCache } from './storage-utils';
 
 const initialNotifications = {
@@ -60,24 +61,7 @@ const quickSyncNotifications = {
 
 test.describe('Quick Sync PR state refresh @slow @sync', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
+    await mockDefaultApiRoutes(page, { notifications: initialNotifications });
 
     let notificationsCallCount = 0;
     await page.route('**/notifications/html/repo/test/repo**', (route) => {

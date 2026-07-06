@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { addAuthCacheInitScript, clearAppStorage, seedAuthCache } from './storage-utils';
+import { mockDefaultApiRoutes } from './app-fixture';
+import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 
 const notifications = [
   {
@@ -41,17 +42,7 @@ const notifications = [
 test.describe('Comment prefetch status', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
+    await mockDefaultApiRoutes(page);
 
     await page.route(
       '**/github/rest/repos/test/repo/issues/*/comments',
@@ -86,12 +77,6 @@ test.describe('Comment prefetch status', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    await seedAuthCache(page);
-    await page.evaluate(() => {
-      if (typeof checkAuth === 'function') {
-        checkAuth();
-      }
-    });
   });
 
   test('shows comment prefetch progress in the status box during background work', async ({

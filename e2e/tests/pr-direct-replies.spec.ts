@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mockDefaultApiRoutes } from './app-fixture';
+import { mockDefaultApiRoutes, mockGraphqlReviewMetadata } from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, seedCommentCache } from './storage-utils';
 
 const notificationsResponse = {
@@ -149,39 +149,23 @@ test.describe('PR direct replies @classification', () => {
     await addAuthCacheInitScript(page);
     await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
 
-    await page.unroute('**/github/graphql').catch(() => undefined);
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: {
-              limit: 5000,
-              remaining: 4999,
-              resetAt: '2025-01-06T00:00:00Z',
-            },
-            repository: {
-              pr20: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 1,
-                deletions: 1,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-              pr21: {
-                reviewDecision: null,
-                authorAssociation: 'CONTRIBUTOR',
-                additions: 2,
-                deletions: 0,
-                changedFiles: 1,
-                author: { login: 'alice' },
-              },
-            },
-          },
-        }),
-      });
+    await mockGraphqlReviewMetadata(page, {
+      pr20: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 1,
+        deletions: 1,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
+      pr21: {
+        reviewDecision: null,
+        authorAssociation: 'CONTRIBUTOR',
+        additions: 2,
+        deletions: 0,
+        changedFiles: 1,
+        author: { login: 'alice' },
+      },
     });
 
     await page.goto('notifications.html');

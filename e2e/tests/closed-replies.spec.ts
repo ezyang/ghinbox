@@ -2,28 +2,26 @@ import { test, expect } from '@playwright/test';
 import {
   expectHiddenNotificationIds,
   expectVisibleNotificationIds,
+  makeNotification,
+  makeNotificationsResponse,
   openNotificationsWithCachedData,
   viewTab,
 } from './app-fixture';
 
-function notification(id: string, type: 'Issue' | 'PullRequest', number: number) {
-  return {
+function makeClosedNotification(id: string, type: 'Issue' | 'PullRequest', number: number) {
+  return makeNotification({
     id,
-    unread: true,
     reason: 'comment',
     updated_at: '2026-06-08T12:00:00Z',
     last_read_at: '2026-06-08T08:00:00Z',
     subject: {
       title: id,
-      url: `https://github.com/test/repo/${type === 'Issue' ? 'issues' : 'pull'}/${number}`,
       type,
       number,
       state: 'closed',
-      state_reason: null,
     },
     actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
-    ui: { saved: false, done: false },
-  };
+  });
 }
 
 function comment(id: number, login: string, createdAt: string, body: string, extra = {}) {
@@ -61,23 +59,15 @@ test.describe('Closed Replies queue @classification', () => {
   test('hides closed issue and PR replies unless the reply is after the close event', async ({
     page,
   }) => {
-    const notifications = {
-      source_url: 'https://github.com/notifications?query=repo:test/repo',
-      generated_at: '2026-06-08T00:00:00Z',
-      repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
-      notifications: [
-        notification('closed-pr-before-close-reply', 'PullRequest', 10),
-        notification('closed-pr-after-close-reply', 'PullRequest', 11),
-        notification('closed-issue-before-close-reply', 'Issue', 12),
-        notification('closed-issue-after-close-reply', 'Issue', 13),
+    const notifications = makeNotificationsResponse(
+      [
+        makeClosedNotification('closed-pr-before-close-reply', 'PullRequest', 10),
+        makeClosedNotification('closed-pr-after-close-reply', 'PullRequest', 11),
+        makeClosedNotification('closed-issue-before-close-reply', 'Issue', 12),
+        makeClosedNotification('closed-issue-after-close-reply', 'Issue', 13),
       ],
-      pagination: {
-        before_cursor: null,
-        after_cursor: null,
-        has_previous: false,
-        has_next: false,
-      },
-    };
+      { generated_at: '2026-06-08T00:00:00Z' }
+    );
     const commentCache = {
       version: 1,
       threads: {

@@ -2,12 +2,6 @@ import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage } from './storage-utils';
 
-const THREAD_SYNC_PAYLOAD = {
-  updated_at: '2000-01-01T00:00:00Z',
-  last_read_at: null,
-  unread: true,
-};
-
 /**
  * Phase 8: Polish Tests
  *

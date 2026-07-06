@@ -1,4 +1,8 @@
 import { test, expect } from '@playwright/test';
+import {
+  mockGraphqlReviewMetadata,
+  openNotificationsWithSync,
+} from './app-fixture';
 import { clearAppStorage } from './storage-utils';
 
 /**
@@ -149,28 +153,10 @@ const testNotifications = {
 
 test.describe('Notification Rendering @layout', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await openNotificationsWithSync(page, {
+      expectedCount: 3,
+      notifications: testNotifications,
     });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(testNotifications),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-
-    // Trigger sync
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('.notification-item')).toHaveCount(3);
   });
 
@@ -219,63 +205,31 @@ test.describe('Notification Rendering @layout', () => {
       });
     });
 
-    await page.route('**/github/graphql', async (route) => {
-      const payload = route.request().postDataJSON();
-      if (payload?.query?.includes('repository')) {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              rateLimit: {
-                limit: 5000,
-                remaining: 4999,
-                resetAt: '2025-01-02T00:00:00Z',
-              },
-              repository: {
-                pr10: {
-                  reviewDecision: null,
-                  authorAssociation: null,
-                  additions: null,
-                  deletions: null,
-                  changedFiles: null,
-                  author: { login: 'pr-author' },
-                },
-                pr11: {
-                  reviewDecision: null,
-                  authorAssociation: null,
-                  additions: null,
-                  deletions: null,
-                  changedFiles: null,
-                  author: { login: 'merger' },
-                },
-                pr12: {
-                  reviewDecision: null,
-                  authorAssociation: null,
-                  additions: null,
-                  deletions: null,
-                  changedFiles: null,
-                  author: { login: 'closer' },
-                },
-              },
-            },
-          }),
-        });
-        return;
-      }
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            rateLimit: {
-              limit: 5000,
-              remaining: 4999,
-              resetAt: '2025-01-02T00:00:00Z',
-            },
-          },
-        }),
-      });
+    await mockGraphqlReviewMetadata(page, {
+      pr10: {
+        reviewDecision: null,
+        authorAssociation: null,
+        additions: null,
+        deletions: null,
+        changedFiles: null,
+        author: { login: 'pr-author' },
+      },
+      pr11: {
+        reviewDecision: null,
+        authorAssociation: null,
+        additions: null,
+        deletions: null,
+        changedFiles: null,
+        author: { login: 'merger' },
+      },
+      pr12: {
+        reviewDecision: null,
+        authorAssociation: null,
+        additions: null,
+        deletions: null,
+        changedFiles: null,
+        author: { login: 'closer' },
+      },
     });
 
     const reviewMetadataResponse = page.waitForResponse((response) => {
@@ -322,41 +276,21 @@ test.describe('Notification Rendering @layout', () => {
         });
       });
 
-      await page.route('**/github/graphql', async (route) => {
-        const payload = route.request().postDataJSON();
-        if (payload?.query?.includes('repository')) {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              data: {
-                rateLimit: {
-                  limit: 5000,
-                  remaining: 4999,
-                  resetAt: '2025-01-02T00:00:00Z',
-                },
-                repository: {
-                  pr10: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 120,
-                    deletions: 45,
-                    changedFiles: 6,
-                  },
-                  pr11: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 4,
-                    deletions: 2,
-                    changedFiles: 1,
-                  },
-                },
-              },
-            }),
-          });
-          return;
-        }
-        route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+      await mockGraphqlReviewMetadata(page, {
+        pr10: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 120,
+          deletions: 45,
+          changedFiles: 6,
+        },
+        pr11: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 4,
+          deletions: 2,
+          changedFiles: 1,
+        },
       });
 
       await page.locator('#repo-input').fill('test/repo');
@@ -395,55 +329,35 @@ test.describe('Notification Rendering @layout', () => {
         });
       });
 
-      await page.route('**/github/graphql', async (route) => {
-        const payload = route.request().postDataJSON();
-        if (payload?.query?.includes('repository')) {
-          route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              data: {
-                rateLimit: {
-                  limit: 5000,
-                  remaining: 4999,
-                  resetAt: '2025-01-02T00:00:00Z',
-                },
-                repository: {
-                  pr10: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 8,
-                    deletions: 2,
-                    changedFiles: 1,
-                  },
-                  pr11: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 15,
-                    deletions: 5,
-                    changedFiles: 2,
-                  },
-                  pr12: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 3,
-                    deletions: 2,
-                    changedFiles: 1,
-                  },
-                  pr13: {
-                    reviewDecision: null,
-                    authorAssociation: null,
-                    additions: 30,
-                    deletions: 20,
-                    changedFiles: 6,
-                  },
-                },
-              },
-            }),
-          });
-          return;
-        }
-        route.fulfill({ status: 400, contentType: 'application/json', body: '{}' });
+      await mockGraphqlReviewMetadata(page, {
+        pr10: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 8,
+          deletions: 2,
+          changedFiles: 1,
+        },
+        pr11: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 15,
+          deletions: 5,
+          changedFiles: 2,
+        },
+        pr12: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 3,
+          deletions: 2,
+          changedFiles: 1,
+        },
+        pr13: {
+          reviewDecision: null,
+          authorAssociation: null,
+          additions: 30,
+          deletions: 20,
+          changedFiles: 6,
+        },
       });
 
       await page.locator('#repo-input').fill('test/repo');
@@ -552,26 +466,10 @@ test.describe('XSS Prevention', () => {
       ],
     };
 
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
+    await openNotificationsWithSync(page, {
+      expectedCount: 1,
+      notifications: maliciousResponse,
     });
-
-    await page.route('**/notifications/html/repo/test/repo', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(maliciousResponse),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced');
 
     // The script tag should be escaped and visible as text

@@ -1,43 +1,37 @@
 import { test, expect } from '@playwright/test';
-import { mockDefaultApiRoutes, viewTab } from './app-fixture';
+import {
+  makeNotification,
+  makeNotificationsResponse,
+  mockDefaultApiRoutes,
+  viewTab,
+} from './app-fixture';
 import { clearAppStorage } from './storage-utils';
 
-function notification(id: string, repo: string, title: string, number: number) {
+function makeProfileNotification(id: string, repo: string, title: string, number: number) {
   const [owner, name] = repo.split('/');
-  return {
+  return makeNotification({
     id,
-    unread: true,
     reason: 'mention',
     updated_at: `2025-01-0${number}T12:00:00Z`,
     repository: { owner, name, full_name: repo },
     subject: {
       title,
-      url: `https://github.com/${repo}/issues/${number}`,
       type: 'Issue',
       number,
-      state: 'open',
-      state_reason: null,
     },
-    actors: [],
-    ui: { saved: false, done: false },
-  };
+    repo,
+  });
 }
 
 function response(repo: string, notifications: unknown[]) {
-  const [owner, name] = repo.split('/');
-  return {
-    source_url: `https://github.com/notifications?query=repo:${repo}`,
-    generated_at: '2025-01-01T00:00:00Z',
-    repository: { owner, name, full_name: repo },
+  return makeNotificationsResponse(
     notifications,
-    pagination: {
-      before_cursor: null,
-      after_cursor: null,
-      has_previous: false,
-      has_next: false,
+    {
+      generated_at: '2025-01-01T00:00:00Z',
+      authenticity_token: 'token',
     },
-    authenticity_token: 'token',
-  };
+    repo
+  );
 }
 
 test.describe('Notification Profiles @smoke', () => {
@@ -66,7 +60,11 @@ test.describe('Notification Profiles @smoke', () => {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(response(repo, [notification(`notif-${seenQueries.length}`, repo, title, seenQueries.length)])),
+        body: JSON.stringify(
+          response(repo, [
+            makeProfileNotification(`notif-${seenQueries.length}`, repo, title, seenQueries.length),
+          ])
+        ),
       });
     });
 
@@ -89,7 +87,7 @@ test.describe('Notification Profiles @smoke', () => {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(response(repo, [
-          notification(`notif-full-${seenQueries.length}`, repo, title, seenQueries.length),
+          makeProfileNotification(`notif-full-${seenQueries.length}`, repo, title, seenQueries.length),
         ])),
       });
     });
