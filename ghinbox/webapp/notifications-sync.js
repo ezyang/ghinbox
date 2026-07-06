@@ -145,6 +145,7 @@
             buildPreviousMatchMap,
             findIncrementalOverlapIndex,
             mergeIncrementalNotifications,
+            pruneCommentCacheToNotifications,
         } = GhinboxSyncMerge;
 
         function getRestNotificationMatchKey(notification) {
@@ -576,6 +577,18 @@
             }
             persistNotifications();
             applyServerSnapshotCommentCache(snapshot);
+            // The server snapshot is an authoritative upstream rebuild of the
+            // notification list, so drop any orphaned comment-cache threads whose
+            // notifications are no longer present. Without this, stale local
+            // threads survive forever because applyServerSnapshotCommentCache
+            // only merges in the snapshot's threads and never removes.
+            if (state.commentCache) {
+                state.commentCache = pruneCommentCacheToNotifications(
+                    state.commentCache,
+                    state.notifications
+                );
+                saveCommentCache();
+            }
             if (schedulePrefetch) {
                 scheduleCommentPrefetch(state.notifications);
             }

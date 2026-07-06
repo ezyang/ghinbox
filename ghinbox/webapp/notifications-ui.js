@@ -819,6 +819,18 @@
                 state.lastSyncedRepo = profileSignature;
                 localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
 
+                // A full sync rebuilds the list from upstream, so drop any
+                // orphaned comment-cache threads whose notifications no longer
+                // exist. This keeps local IndexedDB state fully reconstructable
+                // from upstream and prevents stale entries from accumulating.
+                if (syncMode === 'full' && state.commentCache) {
+                    state.commentCache = pruneCommentCacheToNotifications(
+                        state.commentCache,
+                        notifications
+                    );
+                    saveCommentCache();
+                }
+
                 // Save to localStorage
                 persistNotifications();
 

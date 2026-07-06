@@ -7,6 +7,7 @@ const {
   findIncrementalOverlapIndex,
   getUpdatedAtSignature,
   mergeIncrementalNotifications,
+  pruneCommentCacheToNotifications,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
 
 function notif(id, number, updatedAt, extra = {}) {
@@ -41,6 +42,55 @@ test('getUpdatedAtSignature normalizes equivalent timestamps', () => {
 test('getUpdatedAtSignature falls back to string for unparseable input', () => {
   assert.equal(getUpdatedAtSignature('not-a-date'), 'not-a-date');
   assert.equal(getUpdatedAtSignature(null), '');
+});
+
+test('pruneCommentCacheToNotifications drops threads for absent notifications', () => {
+  const cache = {
+    version: 1,
+    threads: {
+      keep: { comments: [{ id: 1 }], allComments: true },
+      orphan: { comments: [{ id: 2 }], allComments: true },
+    },
+  };
+  const notifications = [notif('keep', 1, '2025-01-03T00:00:00Z')];
+
+  const pruned = pruneCommentCacheToNotifications(cache, notifications);
+
+  assert.deepEqual(Object.keys(pruned.threads), ['keep']);
+  assert.equal(pruned.version, 1);
+  // Must not mutate the input cache.
+  assert.deepEqual(Object.keys(cache.threads).sort(), ['keep', 'orphan']);
+});
+
+test('pruneCommentCacheToNotifications tolerates empty or missing cache', () => {
+  assert.deepEqual(pruneCommentCacheToNotifications(null, []), {
+    version: 1,
+    threads: {},
+  });
+  assert.deepEqual(
+    pruneCommentCacheToNotifications({ version: 1, threads: {} }, [
+      notif('a', 1, '2025-01-03T00:00:00Z'),
+    ]),
+    { version: 1, threads: {} }
+  );
+});
+
+test('pruneCommentCacheToNotifications keeps all threads when all match', () => {
+  const cache = {
+    version: 1,
+    threads: {
+      a: { comments: [] },
+      b: { comments: [] },
+    },
+  };
+  const notifications = [
+    notif('a', 1, '2025-01-03T00:00:00Z'),
+    notif('b', 2, '2025-01-02T00:00:00Z'),
+  ];
+
+  const pruned = pruneCommentCacheToNotifications(cache, notifications);
+
+  assert.deepEqual(Object.keys(pruned.threads).sort(), ['a', 'b']);
 });
 
 test('buildPreviousMatchMap keeps first index for duplicate match keys', () => {

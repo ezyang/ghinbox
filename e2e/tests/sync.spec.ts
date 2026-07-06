@@ -1562,9 +1562,21 @@ test.describe('Sync Functionality @slow @sync', () => {
     });
 
     await seedNotificationsCache(page, [staleNotification]);
+    await seedCommentCache(page, {
+      version: 1,
+      threads: {
+        'server-refresh-stale-1': {
+          notificationUpdatedAt: '2024-12-26T12:00:00Z',
+          comments: [{ id: 501, body: 'Orphan comment for stale notification' }],
+          allComments: true,
+          fetchedAt: '2024-12-26T12:00:05Z',
+        },
+      },
+    });
     await seedRepoSelection(page, 'test/repo', { lastSynced: true });
     await page.reload();
     await expect(page.locator('[data-id="server-refresh-stale-1"]')).toBeVisible();
+    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
 
     snapshotFetched = false;
     serveSnapshot = true;
@@ -1573,6 +1585,13 @@ test.describe('Sync Functionality @slow @sync', () => {
     await expect(page.locator('[data-id="server-refresh-current-1"]')).toBeVisible();
     await expect(page.locator('[data-id="server-refresh-stale-1"]')).toHaveCount(0);
     await expect(page.locator('#status-bar')).toContainText('Loaded 1 notifications from server snapshot');
+    // The orphaned comment-cache thread for the dropped notification must be
+    // pruned so local state is fully rebuilt from the upstream snapshot and
+    // stale threads never accumulate.
+    const prunedCache = (await readCommentCache(page)) as {
+      threads?: Record<string, unknown>;
+    } | null;
+    expect(prunedCache?.threads?.['server-refresh-stale-1']).toBeUndefined();
     expect(snapshotFetched).toBe(true);
     expect(syncPosted).toBe(false);
     expect(htmlFetched).toBe(false);
