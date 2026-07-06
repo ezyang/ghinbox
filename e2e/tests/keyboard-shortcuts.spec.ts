@@ -56,7 +56,7 @@ async function waitForScrollSettled(page: Page, settleMs = 150, timeoutMs = 1000
   );
 }
 
-test.describe('Keyboard Shortcuts', () => {
+test.describe('Keyboard Shortcuts @mutation', () => {
   test.beforeEach(async ({ page }) => {
     const commentCache = {
       version: 1,
@@ -238,8 +238,9 @@ test.describe('Keyboard Shortcuts', () => {
     // Press G (shift+g) to scroll to bottom
     await page.keyboard.press('Shift+G');
 
-    // Wait for scroll to actually happen
-    await page.waitForFunction(() => window.scrollY > 0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(0);
   });
 
   test('gg (two g presses) scrolls to the top of the page', async ({ page }) => {
@@ -248,14 +249,15 @@ test.describe('Keyboard Shortcuts', () => {
 
     // First scroll down using G
     await page.keyboard.press('Shift+G');
-    await page.waitForFunction(() => window.scrollY > 0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(0);
 
     // Press gg to scroll to top
     await page.keyboard.press('g');
     await page.keyboard.press('g');
 
-    // Wait for scroll back to top
-    await page.waitForFunction(() => window.scrollY === 0);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   });
 
   test('gg does not change keyboard selection', async ({ page }) => {
@@ -278,7 +280,9 @@ test.describe('Keyboard Shortcuts', () => {
 
     // First scroll down
     await page.keyboard.press('Shift+G');
-    await page.waitForFunction(() => window.scrollY > 0);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThan(0);
     const scrollTopBefore = await waitForScrollSettled(page);
     expect(scrollTopBefore).toBeGreaterThan(0);
 
@@ -320,6 +324,46 @@ test.describe('Keyboard Shortcuts', () => {
 
     // No notifications should have checkboxes checked
     await expect(page.locator('.notification-checkbox:checked')).toHaveCount(0);
+  });
+
+  test('Escape clears selected notifications', async ({ page }) => {
+    await page.locator('[data-id="notif-1"] .notification-checkbox').click();
+    await page.locator('[data-id="notif-3"] .notification-checkbox').click();
+    await expect(page.locator('#selection-count')).toHaveText('2 selected');
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#selection-count')).toHaveText('');
+    await expect(page.locator('[data-id="notif-1"]')).not.toHaveClass(/selected/);
+    await expect(page.locator('[data-id="notif-3"]')).not.toHaveClass(/selected/);
+  });
+
+  test('Escape leaves the list unchanged when nothing is selected', async ({ page }) => {
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('.notification-item')).toHaveCount(4);
+    await expect(page.locator('.notification-checkbox:checked')).toHaveCount(0);
+  });
+
+  test('Control and Meta+A select all notifications', async ({ page }) => {
+    for (const shortcut of ['Control+a', 'Meta+a']) {
+      await page.keyboard.press(shortcut);
+      await expect(page.locator('#selection-count')).toHaveText('4 selected');
+      await expect(page.locator('#select-all-checkbox')).toBeChecked();
+
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#selection-count')).toHaveText('');
+    }
+  });
+
+  test('keyboard shortcuts are ignored while typing in the repo input', async ({ page }) => {
+    await page.locator('[data-id="notif-1"] .notification-checkbox').click();
+    await expect(page.locator('#selection-count')).toHaveText('1 selected');
+
+    await page.locator('#repo-input').focus();
+    await page.keyboard.press('Escape');
+
+    await expect(page.locator('#selection-count')).toHaveText('1 selected');
   });
 
   test('? opens the keyboard shortcuts help overlay', async ({ page }) => {

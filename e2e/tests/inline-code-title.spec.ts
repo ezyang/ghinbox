@@ -36,7 +36,7 @@ const inlineCodeFixture = {
   },
 };
 
-test.describe('Inline Code Titles', () => {
+test.describe('Inline Code Titles @layout', () => {
   test.beforeEach(async ({ page }) => {
     await openNotificationsWithSync(page, {
       expectedCount: 1,

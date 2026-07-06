@@ -98,7 +98,7 @@ const commentCache = {
   },
 };
 
-test.describe('Comment Age Filter', () => {
+test.describe('Comment Age Filter @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
@@ -121,58 +121,26 @@ test.describe('Comment Age Filter', () => {
     await expect(ageFilter).toHaveValue('all');
   });
 
-  test('shows all comments when set to All time', async ({ page }) => {
+  test('changing age filter updates rendered comment count', async ({ page }) => {
     const comments = page.locator('.comment-item');
     await expect(comments).toHaveCount(5);
-  });
 
-  test('selecting Last 1 day hides older comments', async ({ page }) => {
-    const ageFilter = page.locator('#comment-age-filter-select');
-    await ageFilter.selectOption('1day');
-
-    // Only the 1 hour ago comment should be visible
-    const comments = page.locator('.comment-item');
-    await expect(comments).toHaveCount(1);
-    await expect(comments.first()).toContainText('Comment from 1 hour ago');
-  });
-
-  test('selecting Last 3 days shows comments from last 3 days', async ({ page }) => {
-    const ageFilter = page.locator('#comment-age-filter-select');
-    await ageFilter.selectOption('3days');
-
-    // 1 hour ago and 2 days ago should be visible
-    const comments = page.locator('.comment-item');
-    await expect(comments).toHaveCount(2);
-    await expect(comments.nth(0)).toContainText('Comment from 1 hour ago');
-    await expect(comments.nth(1)).toContainText('Comment from 2 days ago');
-  });
-
-  test('selecting Last 1 week shows comments from last week', async ({ page }) => {
     const ageFilter = page.locator('#comment-age-filter-select');
     await ageFilter.selectOption('1week');
 
-    // 1 hour ago, 2 days ago, and 5 days ago should be visible
-    const comments = page.locator('.comment-item');
     await expect(comments).toHaveCount(3);
-  });
-
-  test('selecting Last 1 month shows comments from last month', async ({ page }) => {
-    const ageFilter = page.locator('#comment-age-filter-select');
-    await ageFilter.selectOption('1month');
-
-    // 1 hour ago, 2 days ago, 5 days ago, and 2 weeks ago should be visible
-    const comments = page.locator('.comment-item');
-    await expect(comments).toHaveCount(4);
+    await expect(comments.nth(0)).toContainText('Comment from 1 hour ago');
+    await expect(comments.nth(1)).toContainText('Comment from 2 days ago');
+    await expect(comments.nth(2)).toContainText('Comment from 5 days ago');
   });
 
   test('age filter persists in localStorage', async ({ page }) => {
     const ageFilter = page.locator('#comment-age-filter-select');
     await ageFilter.selectOption('1week');
 
-    const savedFilter = await page.evaluate(() =>
-      localStorage.getItem('ghnotif_comment_age_filter')
-    );
-    expect(savedFilter).toBe('1week');
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('ghnotif_comment_age_filter')))
+      .toBe('1week');
   });
 
   test('age filter is restored from localStorage on reload', async ({ page }) => {
@@ -187,7 +155,7 @@ test.describe('Comment Age Filter', () => {
   });
 });
 
-test.describe('Comment Age Filter all-comments cache regression', () => {
+test.describe('Comment Age Filter all-comments cache regression @classification', () => {
   test('does not render already-read all-comments cache entries as age-filtered unread comments', async ({
     page,
   }) => {

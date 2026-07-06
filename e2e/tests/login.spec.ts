@@ -9,7 +9,7 @@ import { addAuthCacheInitScript } from './storage-utils';
  * would require real credentials.
  */
 
-test.describe('Login Page', () => {
+test.describe('Login Page @smoke', () => {
   test.beforeEach(async ({ page }) => {
     // Mock needs-login to return true so the login page stays visible
     await page.route('**/auth/needs-login', (route) => {
@@ -53,7 +53,7 @@ test.describe('Login Page', () => {
   });
 });
 
-test.describe('Login API Endpoints', () => {
+test.describe('Login API Endpoints @smoke', () => {
   test('GET /auth/needs-login returns needs_login status', async ({ request }) => {
     const response = await request.get('/auth/needs-login');
     expect(response.ok()).toBe(true);
@@ -124,7 +124,7 @@ test.describe('Login API Endpoints', () => {
   });
 });
 
-test.describe('Login Page Navigation', () => {
+test.describe('Login Page Navigation @smoke', () => {
   test('stays on login page when already authenticated', async ({ page }) => {
     // Mock the needs-login endpoint to return false (already authenticated)
     await page.route('**/auth/needs-login', (route) => {

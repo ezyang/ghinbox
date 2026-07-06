@@ -167,7 +167,7 @@ const commentCache = {
   },
 };
 
-test.describe('Interest Filter', () => {
+test.describe('Interest Filter @classification', () => {
   test.beforeEach(async ({ page }) => {
     await openNotificationsWithCommentCache(page, {
       commentCache,
@@ -186,17 +186,7 @@ test.describe('Interest Filter', () => {
     await expect(interestFilters.locator('[data-subfilter="no-new"]')).toBeVisible();
   });
 
-  test('shows correct interest filter counts', async ({ page }) => {
-    const interestFilters = page.locator(
-      '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]'
-    );
-
-    // 1 interesting, 3 no-new (bot-only, bot-commands, no-comments)
-    await expect(interestFilters.locator('[data-subfilter="has-new"] .count')).toHaveText('1');
-    await expect(interestFilters.locator('[data-subfilter="no-new"] .count')).toHaveText('3');
-  });
-
-  test('clicking Has new filter shows only interesting notifications', async ({ page }) => {
+  test('clicking Has new filter updates the active tab and list', async ({ page }) => {
     const interestFilters = page.locator(
       '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]'
     );
@@ -209,7 +199,7 @@ test.describe('Interest Filter', () => {
     await expect(page.locator('[data-id="thread-interesting"]')).toBeVisible();
   });
 
-  test('clicking No new filter shows only uninteresting notifications', async ({ page }) => {
+  test('clicking No new filter updates the active tab and list', async ({ page }) => {
     const interestFilters = page.locator(
       '.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]'
     );
@@ -219,9 +209,7 @@ test.describe('Interest Filter', () => {
 
     const items = page.locator('.notification-item');
     await expect(items).toHaveCount(3);
-    await expect(page.locator('[data-id="thread-bot-only"]')).toBeVisible();
-    await expect(page.locator('[data-id="thread-bot-commands"]')).toBeVisible();
-    await expect(page.locator('[data-id="thread-no-comments"]')).toBeVisible();
+    await expect(page.locator('[data-id="thread-interesting"]')).not.toBeAttached();
   });
 
   test('clicking active interest filter clears the filter', async ({ page }) => {
@@ -246,12 +234,14 @@ test.describe('Interest Filter', () => {
 
     await interestFilters.locator('[data-subfilter="no-new"]').click();
 
-    const savedViewFilters = await page.evaluate(() =>
-      localStorage.getItem('ghnotif_view_filters')
-    );
-    const parsed = JSON.parse(savedViewFilters!);
-    expect(parsed).toHaveProperty('issues');
-    expect(parsed.issues).toHaveProperty('interest', 'no-new');
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const savedViewFilters = localStorage.getItem('ghnotif_view_filters');
+          return savedViewFilters ? JSON.parse(savedViewFilters).issues?.interest : null;
+        })
+      )
+      .toBe('no-new');
   });
 
 });

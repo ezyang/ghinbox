@@ -203,21 +203,55 @@ test('renderable state reports hide-uninteresting and age empty labels', () => {
 });
 
 test('age filtering is deterministic with an injected clock', () => {
-  assert.equal(
-    isCommentTooOld(
-      comment(1, 'alice', 'Old'),
-      '1day',
-      '2025-01-02T00:00:01Z'
-    ),
-    true
-  );
-  assert.equal(
-    isCommentTooOld(
-      comment(1, 'alice', 'Fresh'),
-      '1day',
-      '2025-01-01T23:59:59Z'
-    ),
-    false
-  );
-  assert.equal(isCommentTooOld(comment(1, 'alice', 'Any'), 'all'), false);
+  const now = '2025-03-01T00:00:00Z';
+  const cases = [
+    {
+      filter: 'all',
+      comments: [
+        comment(1, 'alice', 'Current', { created_at: '2025-03-01T00:00:00Z' }),
+        comment(2, 'bob', 'Two months old', { created_at: '2025-01-01T00:00:00Z' }),
+      ],
+      expectedTooOld: [false, false],
+    },
+    {
+      filter: '1day',
+      comments: [
+        comment(1, 'alice', 'One hour old', { created_at: '2025-02-28T23:00:00Z' }),
+        comment(2, 'bob', 'Two days old', { created_at: '2025-02-27T00:00:00Z' }),
+      ],
+      expectedTooOld: [false, true],
+    },
+    {
+      filter: '3days',
+      comments: [
+        comment(1, 'alice', 'Two days old', { created_at: '2025-02-27T00:00:00Z' }),
+        comment(2, 'bob', 'Five days old', { created_at: '2025-02-24T00:00:00Z' }),
+      ],
+      expectedTooOld: [false, true],
+    },
+    {
+      filter: '1week',
+      comments: [
+        comment(1, 'alice', 'Five days old', { created_at: '2025-02-24T00:00:00Z' }),
+        comment(2, 'bob', 'Two weeks old', { created_at: '2025-02-15T00:00:00Z' }),
+      ],
+      expectedTooOld: [false, true],
+    },
+    {
+      filter: '1month',
+      comments: [
+        comment(1, 'alice', 'Two weeks old', { created_at: '2025-02-15T00:00:00Z' }),
+        comment(2, 'bob', 'Two months old', { created_at: '2025-01-01T00:00:00Z' }),
+      ],
+      expectedTooOld: [false, true],
+    },
+  ];
+
+  cases.forEach(({ filter, comments, expectedTooOld }) => {
+    assert.deepEqual(
+      comments.map((item) => isCommentTooOld(item, filter, now)),
+      expectedTooOld,
+      filter
+    );
+  });
 });

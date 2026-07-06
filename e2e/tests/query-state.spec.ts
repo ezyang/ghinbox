@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage } from './storage-utils';
 
-test.describe('Query State', () => {
+test.describe('Query State @classification', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

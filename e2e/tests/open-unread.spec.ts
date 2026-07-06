@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import { clearAppStorage } from './storage-utils';
 
-test.describe('Open all button', () => {
+test.describe('Open all button @smoke', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       type OpenedWindow = { url: string; name: string };

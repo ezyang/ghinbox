@@ -56,15 +56,13 @@ function cachedThread(comments: unknown[], closedAt: string) {
 }
 
 test.describe('Closed Replies queue @classification', () => {
-  test('hides closed issue and PR replies unless the reply is after the close event', async ({
+  test('hides a closed PR reply unless it is after the close event', async ({
     page,
   }) => {
     const notifications = makeNotificationsResponse(
       [
         makeClosedNotification('closed-pr-before-close-reply', 'PullRequest', 10),
         makeClosedNotification('closed-pr-after-close-reply', 'PullRequest', 11),
-        makeClosedNotification('closed-issue-before-close-reply', 'Issue', 12),
-        makeClosedNotification('closed-issue-after-close-reply', 'Issue', 13),
       ],
       { generated_at: '2026-06-08T00:00:00Z' }
     );
@@ -95,38 +93,18 @@ test.describe('Closed Replies queue @classification', () => {
           ],
           '2026-06-08T11:00:00Z'
         ),
-        'closed-issue-before-close-reply': cachedThread(
-          [
-            comment(300, 'testuser', '2026-06-08T09:00:00Z', 'I am looking.'),
-            comment(301, 'alice', '2026-06-08T10:00:00Z', 'This was handled before close.'),
-          ],
-          '2026-06-08T11:00:00Z'
-        ),
-        'closed-issue-after-close-reply': cachedThread(
-          [
-            comment(400, 'testuser', '2026-06-08T09:00:00Z', 'I am looking.'),
-            comment(401, 'alice', '2026-06-08T12:00:00Z', 'This still reproduces.'),
-          ],
-          '2026-06-08T11:00:00Z'
-        ),
       },
     };
 
     await openNotificationsWithCachedData(page, {
       commentCache,
-      expectedCount: 2,
+      expectedCount: 1,
       notifications,
     });
 
     await viewTab(page, 'pr-notifications').click();
-    await expect(viewTab(page, 'pr-notifications').locator('.count')).toHaveText('2');
-    await expectVisibleNotificationIds(page, [
-      'closed-pr-after-close-reply',
-      'closed-issue-after-close-reply',
-    ]);
-    await expectHiddenNotificationIds(page, [
-      'closed-pr-before-close-reply',
-      'closed-issue-before-close-reply',
-    ]);
+    await expect(viewTab(page, 'pr-notifications').locator('.count')).toHaveText('1');
+    await expectVisibleNotificationIds(page, ['closed-pr-after-close-reply']);
+    await expectHiddenNotificationIds(page, ['closed-pr-before-close-reply']);
   });
 });

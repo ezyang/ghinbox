@@ -488,10 +488,9 @@ test.describe('Filtering @classification', () => {
     test('saves view preference to localStorage', async ({ page }) => {
       await page.locator('#view-others-prs').click();
 
-      const savedView = await page.evaluate(() =>
-        localStorage.getItem('ghnotif_view')
-      );
-      expect(savedView).toBe('others-prs');
+      await expect
+        .poll(() => page.evaluate(() => localStorage.getItem('ghnotif_view')))
+        .toBe('others-prs');
     });
 
     test('restores view preference on page load', async ({ page }) => {
@@ -509,24 +508,28 @@ test.describe('Filtering @classification', () => {
       const issuesSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"]');
       await issuesSubfilters.locator('[data-subfilter="closed"]').click();
 
-      const savedViewFilters = await page.evaluate(() =>
-        localStorage.getItem('ghnotif_view_filters')
-      );
-      const parsed = JSON.parse(savedViewFilters!);
-      expect(parsed).toHaveProperty('issues');
-      expect(parsed.issues).toHaveProperty('state', 'closed');
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const savedViewFilters = localStorage.getItem('ghnotif_view_filters');
+            return savedViewFilters ? JSON.parse(savedViewFilters).issues?.state : null;
+          })
+        )
+        .toBe('closed');
     });
 
     test('saves Feed type subfilter preference to localStorage', async ({ page }) => {
       const typeSubfilters = page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="type"]');
       await typeSubfilters.locator('[data-subfilter="prs"]').click();
 
-      const savedViewFilters = await page.evaluate(() =>
-        localStorage.getItem('ghnotif_view_filters')
-      );
-      const parsed = JSON.parse(savedViewFilters!);
-      expect(parsed).toHaveProperty('issues');
-      expect(parsed.issues).toHaveProperty('type', 'prs');
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const savedViewFilters = localStorage.getItem('ghnotif_view_filters');
+            return savedViewFilters ? JSON.parse(savedViewFilters).issues?.type : null;
+          })
+        )
+        .toBe('prs');
     });
 
     test('restores subfilter and applies to loaded notifications', async ({ page }) => {

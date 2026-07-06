@@ -153,16 +153,10 @@ test.describe('Comment visibility @layout', () => {
     const commentBody = page.locator('.comment-body').first();
     await expect(commentBody).toBeVisible();
 
-    const fontSize = await commentBody.evaluate((element) => {
-      return window.getComputedStyle(element).fontSize;
-    });
-    expect(fontSize).toBe('14px');
+    await expect(commentBody).toHaveCSS('font-size', '14px');
 
     const container = page.locator('.container');
-    const maxWidth = await container.evaluate((element) => {
-      return window.getComputedStyle(element).maxWidth;
-    });
-    expect(maxWidth).toBe('1200px');
+    await expect(container).toHaveCSS('max-width', '1200px');
   });
 
   test('scales markdown images to fit the comment width', async ({ page }) => {
@@ -202,15 +196,8 @@ test.describe('Comment visibility @layout', () => {
     const notificationHeader = page.locator('.notification-header').first();
     await expect(notificationHeader).toBeVisible();
 
-    const position = await notificationHeader.evaluate((element) => {
-      return window.getComputedStyle(element).position;
-    });
-    expect(position).toBe('sticky');
-
-    const top = await notificationHeader.evaluate((element) => {
-      return window.getComputedStyle(element).top;
-    });
-    expect(top).toBe('0px');
+    await expect(notificationHeader).toHaveCSS('position', 'sticky');
+    await expect(notificationHeader).toHaveCSS('top', '0px');
   });
 
   test('inline actions align with the sticky title row', async ({ page }) => {

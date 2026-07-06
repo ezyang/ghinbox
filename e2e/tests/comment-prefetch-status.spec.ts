@@ -39,7 +39,7 @@ const notifications = [
   },
 ];
 
-test.describe('Comment prefetch status', () => {
+test.describe('Comment prefetch status @sync', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
     await mockDefaultApiRoutes(page);
