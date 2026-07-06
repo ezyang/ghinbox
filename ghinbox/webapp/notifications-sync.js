@@ -347,28 +347,29 @@
                         return;
                     }
                     const entry = repoData[`pr${number}`] || {};
-                    const labels = Array.isArray(entry?.labels?.nodes)
-                        ? entry.labels.nodes.map((label) => String(label?.name || '').toLowerCase())
-                        : [];
+                    let labels = [];
+                    if (typeof setReviewMetadataCacheEntry === 'function') {
+                        const cached = setReviewMetadataCacheEntry(
+                            notification,
+                            entry,
+                            {
+                                includeAuthorAssociation: true,
+                                lowercaseLabelNames: true,
+                            }
+                        );
+                        labels = Array.isArray(cached?.labelNames) ? cached.labelNames : [];
+                    } else if (globalThis.GhinboxCommentCachePolicy?.buildReviewMetadataCacheEntry) {
+                        const cached = globalThis.GhinboxCommentCachePolicy
+                            .buildReviewMetadataCacheEntry(
+                                notification,
+                                {},
+                                entry,
+                                { lowercaseLabelNames: true }
+                            );
+                        labels = Array.isArray(cached?.labelNames) ? cached.labelNames : [];
+                    }
                     if (labels.length) {
                         notification.labels = labels.map((name) => ({ name }));
-                    }
-                    if (typeof setReviewDecisionCache === 'function') {
-                        setReviewDecisionCache(
-                            notification,
-                            entry?.reviewDecision ?? null,
-                            entry?.authorAssociation ?? null,
-                            entry?.author?.login ?? null,
-                            labels,
-                            { includeAuthorAssociation: true }
-                        );
-                        const threadId = getNotificationKey(notification);
-                        state.commentCache.threads[threadId] = {
-                            ...state.commentCache.threads[threadId],
-                            additions: entry?.additions ?? null,
-                            deletions: entry?.deletions ?? null,
-                            changedFiles: entry?.changedFiles ?? null,
-                        };
                     }
                     if (labels.includes('mergedog')) {
                         return;
@@ -433,6 +434,14 @@
             {
                 syncLabel = 'Quick Sync',
                 matchKeys = null,
+                queryRepo = repo,
+                matchRepo = repo,
+                statusMode = 'summary',
+                commitEachBatch = false,
+                onNotificationsUpdated = null,
+                clearGraphqlRateLimitErrorOnSuccess = true,
+                catchErrors = true,
+                requirePullRequestOnRewrite = true,
             } = {}
         ) {
             if (!repo || !notifications.length) {
@@ -445,7 +454,7 @@
                 if (typeof notif.subject?.number !== 'number') {
                     return false;
                 }
-                if (matchKeys && !matchKeys.has(getNotificationMatchKeyForRepo(notif, repo))) {
+                if (matchKeys && !matchKeys.has(getNotificationMatchKeyForRepo(notif, matchRepo))) {
                     return false;
                 }
                 return true;
@@ -460,21 +469,32 @@
                 return notifications;
             }
             const updates = new Map();
-            try {
-                showStatus(
-                    `${syncLabel}: checking PR state for ${uniqueNumbers.length} notifications`,
-                    'info',
-                    { flash: true }
-                );
+            const run = async () => {
+                if (statusMode !== 'batch') {
+                    showStatus(
+                        `${syncLabel}: checking PR state for ${uniqueNumbers.length} notifications`,
+                        'info',
+                        { flash: true }
+                    );
+                }
                 const batchSize = 25;
+                let currentNotifications = notifications;
                 for (let i = 0; i < uniqueNumbers.length; i += batchSize) {
                     const batch = uniqueNumbers.slice(i, i + batchSize);
+                    if (statusMode === 'batch') {
+                        showStatus(
+                            `${syncLabel}: checking PR state ${Math.min(i + batch.length, uniqueNumbers.length)}/${uniqueNumbers.length}`,
+                            'info',
+                            { flash: true }
+                        );
+                    }
                     const query = buildPullRequestStateQuery(batch);
                     const data = await fetchGraphqlForSync(query, {
-                        owner: repo.owner,
-                        name: repo.repo,
+                        owner: queryRepo.owner,
+                        name: queryRepo.repo,
                     });
                     const repoData = data?.repository || {};
+                    const batchUpdates = new Map();
                     batch.forEach((issueNumber) => {
                         const entry = repoData[`pr${issueNumber}`];
                         if (!entry) {
@@ -483,10 +503,44 @@
                         const nextState = normalizePullRequestState(entry.state, entry.isDraft);
                         if (nextState) {
                             updates.set(issueNumber, nextState);
+                            batchUpdates.set(issueNumber, nextState);
                         }
                     });
+                    if (commitEachBatch && batchUpdates.size) {
+                        currentNotifications = applyPullRequestStateUpdates(
+                            currentNotifications,
+                            batchUpdates,
+                            {
+                                matchKeys,
+                                repo: matchRepo,
+                                requirePullRequest: requirePullRequestOnRewrite,
+                            }
+                        );
+                        if (typeof onNotificationsUpdated === 'function') {
+                            onNotificationsUpdated(currentNotifications);
+                        }
+                    }
                 }
-                setGraphqlRateLimitError(null);
+                if (clearGraphqlRateLimitErrorOnSuccess) {
+                    setGraphqlRateLimitError(null);
+                }
+                if (commitEachBatch) {
+                    return currentNotifications;
+                }
+                if (!updates.size) {
+                    return notifications;
+                }
+                return applyPullRequestStateUpdates(notifications, updates, {
+                    matchKeys,
+                    repo: matchRepo,
+                    requirePullRequest: requirePullRequestOnRewrite,
+                });
+            };
+            if (!catchErrors) {
+                return run();
+            }
+            try {
+                return await run();
             } catch (error) {
                 setGraphqlRateLimitError(error.message || String(error));
                 showStatus(
@@ -495,19 +549,30 @@
                 );
                 return notifications;
             }
-            if (!updates.size) {
-                return notifications;
-            }
+        }
+
+        function applyPullRequestStateUpdates(
+            notifications,
+            updates,
+            {
+                matchKeys = null,
+                repo = null,
+                requirePullRequest = true,
+            } = {}
+        ) {
             return notifications.map((notif) => {
                 const number = getIssueNumber(notif);
-                if (!number || notif.subject?.type !== 'PullRequest') {
+                if (!number) {
+                    return notif;
+                }
+                if (requirePullRequest && notif.subject?.type !== 'PullRequest') {
                     return notif;
                 }
                 if (matchKeys && !matchKeys.has(getNotificationMatchKeyForRepo(notif, repo))) {
                     return notif;
                 }
                 const nextState = updates.get(number);
-                if (!nextState || notif.subject.state === nextState) {
+                if (!nextState || notif.subject?.state === nextState) {
                     return notif;
                 }
                 return {
