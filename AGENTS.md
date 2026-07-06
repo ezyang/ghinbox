@@ -51,14 +51,24 @@
     local snapshot with `python3 scripts/feed_digest.py --extract >
     /tmp/feed_data.json`.
   - Generate an HTML report by default at `/tmp/feed-report.html`; do not stop
-    at a chat-only summary. The report should group the feed into useful
-    sections, include direct GitHub links for every item it summarizes, and
-    provide "Open all" controls for each section so the user can open those
-    notifications as tabs.
-  - Keep the report lightweight enough to open quickly from `file://`: list
-    each notification once, avoid duplicating an all-items table if sections
-    already cover every item, avoid embedding the full JSON payload, and derive
-    "Open all" URLs from the links already present in the DOM.
+    at a chat-only summary. The report is a CURATED digest, NOT an exhaustive
+    listing — the user already has ghinbox to page through every notification.
+    Its job is to surface the small set of items worth attention plus a few
+    LLM-generated prose "vibe" summaries of the rest.
+  - Structure the report in two parts: (1) "Look at these" — a short hand-picked
+    list (~5-15 items, hard cap ~20) of notifications that genuinely warrant
+    attention (reply-nature items, reverts/rollbacks, direct @-mentions,
+    high-stakes/unusual things), each with a one-line "why it matters" and a
+    GitHub link, plus a single "Open all" button; (2) "Overall vibe" — a few
+    short prose paragraphs characterizing the rest thematically, WITHOUT listing
+    the individual PRs/issues behind each theme (at most a couple representative
+    links per theme).
+  - Do NOT enumerate every feed item or create one section per theme with full
+    item lists. If more than ~20 items qualify for "Look at these", keep the most
+    important and say how many were omitted.
+  - Keep the report lightweight enough to open quickly from `file://`: no full
+    JSON payload, no giant all-items tables, no per-theme exhaustive lists, and
+    derive "Open all" URLs from links already present in the DOM.
   - Keep marking done as a separate explicit action. Never run
     `scripts/feed_digest.py --mark-done` unless the user asks to mark feed
     items done after reviewing the report.
