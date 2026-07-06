@@ -46,6 +46,18 @@
   - If the socket is missing, fall back to the site-auth cookie flow documented
     in `docs/PROD_QUERY_RECIPES.md`, or check whether the server was started
     with `--no-debug-socket`.
+- Feed summaries:
+  - When asked to generate a feed summary/digest, extract from the existing
+    local snapshot with `python3 scripts/feed_digest.py --extract >
+    /tmp/feed_data.json`.
+  - Generate an HTML report by default at `/tmp/feed-report.html`; do not stop
+    at a chat-only summary. The report should group the feed into useful
+    sections, include direct GitHub links for every item it summarizes, and
+    provide "Open all" controls for each section so the user can open those
+    notifications as tabs.
+  - Keep marking done as a separate explicit action. Never run
+    `scripts/feed_digest.py --mark-done` unless the user asks to mark feed
+    items done after reviewing the report.
 - E2E test authoring rules:
   - Prefer helpers in `e2e/tests/app-fixture.ts` for auth/repo setup, API route
     mocks, cached app state, queue/subfilter clicks, and action endpoint mocks.

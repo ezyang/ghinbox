@@ -4,11 +4,14 @@ Feed Digest — extract and format Feed notifications for LLM summarization.
 
 Usage (two-step flow, run from repo root):
 
-    # Step 1: Extract feed data to JSON
+    # Step 1: Extract feed data to JSON. By default the JSON instructs the
+    #         caller to write an HTML report to /tmp/feed-report.html with
+    #         "Open all" controls for each summarized section.
     uv run python scripts/feed_digest.py --extract > /tmp/feed_data.json
 
-    # Step 2: Feed the JSON to a Claude Code subagent for summarization
-    #         (done by the caller — see scripts/feed_digest_skill below)
+    # Step 2: Feed the JSON to a Claude Code subagent for summarization and
+    #         HTML report generation. The LLM generates the grouped report;
+    #         this script supplies the data and durable instructions.
 
     # Step 3: Mark done (after reviewing the digest)
     uv run python scripts/feed_digest.py --mark-done [--exclude-ids id1,id2,...]
@@ -32,6 +35,7 @@ ACTION_URL = "http://ghinbox/notifications/html/action"
 DB_PATH = "auth_state/ghinbox_snapshots.db"
 REPO = "pytorch/pytorch"
 CURRENT_USER = "ezyang"
+DEFAULT_REPORT_PATH = "/tmp/feed-report.html"
 
 
 def fetch_snapshot() -> dict:
@@ -427,6 +431,154 @@ def find_reply_nature_in_feed(
     return reply_nature
 
 
+def _compact_text(text: str, max_chars: int = 240) -> str:
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= max_chars:
+        return collapsed
+    return collapsed[: max_chars - 3].rstrip() + "..."
+
+
+def _subject_type_label(subject_type: str | None) -> str:
+    if subject_type == "PullRequest":
+        return "PR"
+    return subject_type or "?"
+
+
+def _notification_url(notification: dict) -> str:
+    subject = notification.get("subject") or {}
+    url = subject.get("url")
+    if url:
+        return str(url)
+
+    number = subject.get("number")
+    if number:
+        path = "pull" if subject.get("type") == "PullRequest" else "issues"
+        return f"https://github.com/{REPO}/{path}/{number}"
+
+    return f"https://github.com/{REPO}"
+
+
+def _actor_logins(notification: dict) -> list[str]:
+    return [
+        actor.get("login", "?")
+        for actor in notification.get("actors", [])
+        if actor.get("login")
+    ]
+
+
+def _label_names(notification: dict) -> list[str]:
+    return [
+        label.get("name", "?")
+        for label in notification.get("labels", [])
+        if label.get("name")
+    ]
+
+
+def build_report_items(
+    feed_notifications: list[dict],
+    comment_threads: dict,
+    reply_nature_ids: set[str],
+) -> list[dict]:
+    """Build structured items for the LLM-generated HTML report."""
+    items: list[dict] = []
+    for n in feed_notifications:
+        nid = str(n.get("id", ""))
+        subject = n.get("subject") or {}
+        thread = comment_threads.get(nid, {})
+        comments = thread.get("comments", [])
+
+        snippets = []
+        for comment in comments[-2:]:
+            body = _compact_text(comment.get("body") or "")
+            if not body:
+                continue
+            snippets.append(
+                {
+                    "author": (comment.get("user") or {}).get("login", "?"),
+                    "body": body,
+                }
+            )
+
+        items.append(
+            {
+                "id": nid,
+                "number": subject.get("number"),
+                "title": subject.get("title", "???"),
+                "url": _notification_url(n),
+                "type": _subject_type_label(subject.get("type")),
+                "state": subject.get("state", "?"),
+                "reason": n.get("reason", "?"),
+                "updated_at": n.get("updated_at", "?"),
+                "actors": _actor_logins(n),
+                "labels": _label_names(n),
+                "comment_count": len(comments),
+                "reply_nature": nid in reply_nature_ids,
+                "reply_signals": n.get("_reply_signals", []),
+                "snippets": snippets,
+            }
+        )
+
+    return items
+
+
+def build_report_instructions(report_path: str = DEFAULT_REPORT_PATH) -> list[str]:
+    """Instructions for the LLM step that turns feed data into an HTML report."""
+    return [
+        f"Write an HTML feed report to {report_path} by default before replying.",
+        "Do not stop at a chat-only summary unless the user explicitly asks for that.",
+        "Use report_items as the canonical list of notifications and preserve direct GitHub links.",
+        "Group items into useful review sections, such as direct attention, compiler correctness, backend/platform, testing/CI, docs/API, and low-signal closed/noise.",
+        "For every section, include an Open all button that opens that section's URLs in new tabs from a click handler.",
+        "Include an All feed items section or table so every notification remains visible before any mark-done action.",
+        "Do not run --mark-done or imply anything was marked done; marking done is a separate explicit user action.",
+        "After writing the report, tell the user the report path and the feed/reply-nature counts.",
+    ]
+
+
+def build_extract_output(
+    snapshot_data: dict,
+    report_path: str = DEFAULT_REPORT_PATH,
+) -> dict:
+    """Build the JSON payload consumed by the LLM summarization step."""
+    snap = snapshot_data.get("snapshot", {})
+    notifications = snap.get("notifications", [])
+    comment_cache = snap.get("comment_cache", {})
+    comment_threads = comment_cache.get("threads", {})
+    authenticity_token = snap.get("authenticity_token", "")
+
+    feed = classify_feed(notifications, comment_threads)
+    reply_nature = find_reply_nature_in_feed(feed, comment_threads)
+    reply_nature_ids = {n["id"] for n in reply_nature}
+    formatted = format_for_llm(feed, comment_threads, reply_nature_ids)
+
+    # Build reply-nature summary for the LLM
+    reply_nature_summary = []
+    for n in reply_nature:
+        subj = n.get("subject", {})
+        signals = n.get("_reply_signals", [])
+        reply_nature_summary.append(
+            {
+                "number": subj.get("number"),
+                "title": subj.get("title"),
+                "signals": signals,
+            }
+        )
+
+    return {
+        "total_count": len(notifications),
+        "feed_count": len(feed),
+        "reply_nature_count": len(reply_nature),
+        "feed_ids": [n["id"] for n in feed],
+        "reply_nature_ids": sorted(reply_nature_ids),
+        "reply_nature_summary": reply_nature_summary,
+        "formatted_text": formatted,
+        "report_path": report_path,
+        "report_instructions": build_report_instructions(report_path),
+        "report_items": build_report_items(feed, comment_threads, reply_nature_ids),
+        "authenticity_token": authenticity_token,
+    }
+
+
 def format_for_llm(
     feed_notifications: list[dict],
     comment_threads: dict,
@@ -471,46 +623,15 @@ def format_for_llm(
 
 def do_extract() -> None:
     """Extract feed data and output JSON to stdout."""
-    snapshot_data = fetch_snapshot()
-    snap = snapshot_data.get("snapshot", {})
-    notifications = snap.get("notifications", [])
-    comment_cache = snap.get("comment_cache", {})
-    comment_threads = comment_cache.get("threads", {})
-    authenticity_token = snap.get("authenticity_token", "")
+    output = build_extract_output(fetch_snapshot())
 
-    print(f"Total notifications: {len(notifications)}", file=sys.stderr)
-
-    feed = classify_feed(notifications, comment_threads)
-    print(f"Feed notifications: {len(feed)}", file=sys.stderr)
-
-    reply_nature = find_reply_nature_in_feed(feed, comment_threads)
-    reply_nature_ids = {n["id"] for n in reply_nature}
-    print(f"Reply-nature items in feed: {len(reply_nature)}", file=sys.stderr)
-
-    formatted = format_for_llm(feed, comment_threads, reply_nature_ids)
-
-    # Build reply-nature summary for the LLM
-    reply_nature_summary = []
-    for n in reply_nature:
-        subj = n.get("subject", {})
-        signals = n.get("_reply_signals", [])
-        reply_nature_summary.append(
-            {
-                "number": subj.get("number"),
-                "title": subj.get("title"),
-                "signals": signals,
-            }
-        )
-
-    output = {
-        "feed_count": len(feed),
-        "reply_nature_count": len(reply_nature),
-        "feed_ids": [n["id"] for n in feed],
-        "reply_nature_ids": list(reply_nature_ids),
-        "reply_nature_summary": reply_nature_summary,
-        "formatted_text": formatted,
-        "authenticity_token": authenticity_token,
-    }
+    print(f"Total notifications: {output['total_count']}", file=sys.stderr)
+    print(f"Feed notifications: {output['feed_count']}", file=sys.stderr)
+    print(
+        f"Reply-nature items in feed: {output['reply_nature_count']}",
+        file=sys.stderr,
+    )
+    print(f"HTML report target: {output['report_path']}", file=sys.stderr)
     json.dump(output, sys.stdout, indent=2)
 
 
