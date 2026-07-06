@@ -420,34 +420,47 @@ function setReviewDecisionCache(
     const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
     const threadId = getNotificationKey(notification);
     const existing = state.commentCache.threads[threadId] || {};
-    const nowIso = new Date().toISOString();
-    const next = {
-        ...existing,
-        notificationUpdatedAt: notification.updated_at || existing.notificationUpdatedAt,
-        reviewDecision,
-        reviewDecisionFetchedAt: nowIso,
-        authorLogin,
-        authorLoginFetchedAt: nowIso,
-        labelNames: Array.isArray(labelNames) ? labelNames : existing.labelNames,
-        labelNamesFetchedAt: nowIso,
-        diffstatFetchedAt: nowIso,
-    };
-    if (includeAuthorAssociation && authorAssociation !== null && authorAssociation !== undefined) {
-        next.authorAssociation = authorAssociation;
-        next.authorAssociationFetchedAt = nowIso;
-    }
-    state.commentCache.threads[threadId] = next;
+    state.commentCache.threads[threadId] =
+        COMMENT_CACHE_POLICY.buildReviewMetadataCacheEntry(
+            notification,
+            existing,
+            {
+                reviewDecision,
+                authorAssociation,
+                authorLogin,
+                labelNames,
+            },
+            {
+                includeAuthorAssociation,
+                includeDiffstatFields: false,
+                preserveUndefinedReviewDecision: true,
+                preserveLabelNamesWhenMissing: true,
+            }
+        );
 }
 
 function setAuthorPermissionCache(notification, authorPermission) {
     const threadId = getNotificationKey(notification);
     const existing = state.commentCache.threads[threadId] || {};
-    state.commentCache.threads[threadId] = {
-        ...existing,
-        notificationUpdatedAt: notification.updated_at || existing.notificationUpdatedAt,
-        authorPermission,
-        authorPermissionFetchedAt: new Date().toISOString(),
-    };
+    state.commentCache.threads[threadId] =
+        COMMENT_CACHE_POLICY.buildAuthorPermissionCacheEntry(
+            notification,
+            existing,
+            authorPermission
+        );
+}
+
+function setReviewMetadataCacheEntry(notification, entry, options = {}) {
+    const threadId = getNotificationKey(notification);
+    const existing = state.commentCache.threads[threadId] || {};
+    const next = COMMENT_CACHE_POLICY.buildReviewMetadataCacheEntry(
+        notification,
+        existing,
+        entry || {},
+        options
+    );
+    state.commentCache.threads[threadId] = next;
+    return next;
 }
 
 async function fetchAuthorPermission(repo, login) {
@@ -511,20 +524,7 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
             const repoData = data?.repository || {};
             const decisions = new Map();
             batch.forEach((issueNumber) => {
-                const entry = repoData[`pr${issueNumber}`];
-                decisions.set(issueNumber, {
-                    reviewDecision: entry?.reviewDecision ?? null,
-                    authorAssociation: entry?.authorAssociation ?? null,
-                    additions: entry?.additions ?? null,
-                    deletions: entry?.deletions ?? null,
-                    changedFiles: entry?.changedFiles ?? null,
-                    authorLogin: entry?.author?.login ?? null,
-                    labelNames: Array.isArray(entry?.labels?.nodes)
-                        ? entry.labels.nodes
-                            .map((label) => label?.name)
-                            .filter((name) => typeof name === 'string')
-                        : [],
-                });
+                decisions.set(issueNumber, repoData[`pr${issueNumber}`] || {});
             });
             notifications.forEach((notif) => {
                 const issueNumber = getIssueNumber(notif);
@@ -532,21 +532,7 @@ async function prefetchReviewDecisions(repo, notifications, options = {}) {
                     return;
                 }
                 const entry = decisions.get(issueNumber);
-                setReviewDecisionCache(
-                    notif,
-                    entry.reviewDecision,
-                    entry.authorAssociation,
-                    entry.authorLogin,
-                    entry.labelNames,
-                    { includeAuthorAssociation }
-                );
-                const threadId = getNotificationKey(notif);
-                state.commentCache.threads[threadId] = {
-                    ...state.commentCache.threads[threadId],
-                    additions: entry.additions,
-                    deletions: entry.deletions,
-                    changedFiles: entry.changedFiles,
-                };
+                setReviewMetadataCacheEntry(notif, entry, { includeAuthorAssociation });
             });
             if (includeAuthorPermission) {
                 await prefetchAuthorPermissions(repo, notifications);

@@ -200,6 +200,119 @@
         );
     }
 
+    function hasOwnProperty(object, propertyName) {
+        return Object.prototype.hasOwnProperty.call(object || {}, propertyName);
+    }
+
+    function getReviewMetadataAuthorLogin(entry) {
+        if (hasOwnProperty(entry, 'authorLogin')) {
+            return entry.authorLogin;
+        }
+        return entry?.author?.login ?? null;
+    }
+
+    function getReviewMetadataReviewDecision(entry, options = {}) {
+        if (options.preserveUndefinedReviewDecision && hasOwnProperty(entry, 'reviewDecision')) {
+            return entry.reviewDecision;
+        }
+        return entry?.reviewDecision ?? null;
+    }
+
+    function getReviewMetadataLabelNames(entry, options = {}) {
+        if (Array.isArray(entry?.labelNames)) {
+            return entry.labelNames;
+        }
+        if (!Array.isArray(entry?.labels?.nodes)) {
+            return options.preserveLabelNamesWhenMissing ? undefined : [];
+        }
+        if (options.lowercaseLabelNames) {
+            return entry.labels.nodes.map((label) =>
+                String(label?.name || '').toLowerCase()
+            );
+        }
+        return entry.labels.nodes
+            .map((label) => label?.name)
+            .filter((name) => typeof name === 'string');
+    }
+
+    function buildReviewMetadataCacheEntry(notification, cached, entry, options = {}) {
+        const fetchedAt = options.fetchedAt || new Date().toISOString();
+        const labelNames = getReviewMetadataLabelNames(entry, options);
+        const next = {
+            ...cached,
+            notificationUpdatedAt:
+                notification?.updated_at || cached?.notificationUpdatedAt,
+            reviewDecision: getReviewMetadataReviewDecision(entry, options),
+            reviewDecisionFetchedAt: fetchedAt,
+            authorLogin: getReviewMetadataAuthorLogin(entry),
+            authorLoginFetchedAt: fetchedAt,
+            labelNames: Array.isArray(labelNames) ? labelNames : cached?.labelNames,
+            labelNamesFetchedAt: fetchedAt,
+            diffstatFetchedAt: fetchedAt,
+        };
+        if (options.includeDiffstatFields !== false) {
+            next.additions = entry?.additions ?? null;
+            next.deletions = entry?.deletions ?? null;
+            next.changedFiles = entry?.changedFiles ?? null;
+        }
+        if (
+            options.includeAuthorAssociation &&
+            entry?.authorAssociation !== null &&
+            entry?.authorAssociation !== undefined
+        ) {
+            next.authorAssociation = entry.authorAssociation;
+            next.authorAssociationFetchedAt = fetchedAt;
+        }
+        return next;
+    }
+
+    function buildAuthorPermissionCacheEntry(
+        notification,
+        cached,
+        authorPermission,
+        options = {}
+    ) {
+        return {
+            ...cached,
+            notificationUpdatedAt:
+                notification?.updated_at || cached?.notificationUpdatedAt,
+            authorPermission,
+            authorPermissionFetchedAt: options.fetchedAt || new Date().toISOString(),
+        };
+    }
+
+    function buildSearchMetadataCacheEntry(notification, cached, options = {}) {
+        const fetchedAt = options.fetchedAt || new Date().toISOString();
+        const authorLogin = notification?.actors?.[0]?.login;
+        const hasLabels = Array.isArray(notification?.labels);
+        const labelNames = hasLabels
+            ? notification.labels
+                .map((label) => label?.name)
+                .filter((name) => typeof name === 'string' && name.trim())
+            : [];
+        const next = {
+            ...cached,
+            notificationUpdatedAt:
+                notification?.updated_at || cached?.notificationUpdatedAt,
+        };
+        if (authorLogin) {
+            next.authorLogin = authorLogin;
+            next.authorLoginFetchedAt = fetchedAt;
+        }
+        if (
+            notification?.author_association !== undefined &&
+            notification?.author_association !== null
+        ) {
+            next.authorAssociation = notification.author_association;
+            next.authorAssociationFetchedAt = fetchedAt;
+        }
+        if (hasLabels) {
+            next.labelNames = labelNames;
+            next.labelNamesFetchedAt = fetchedAt;
+        }
+        return next;
+    }
+
     function getCommentCacheThreads(commentCache) {
         return commentCache && typeof commentCache.threads === 'object' && commentCache.threads
             ? commentCache.threads
@@ -253,9 +366,12 @@
 
     return {
         DEFAULT_COMMENT_CACHE_TTL_MS,
+        buildAuthorPermissionCacheEntry,
         buildCommentErrorCacheEntry,
         buildCommentSuccessCacheEntry,
         buildMissingIssueCommentCacheEntry,
+        buildReviewMetadataCacheEntry,
+        buildSearchMetadataCacheEntry,
         getCommentFetchWindow,
         getCommentCacheThreads,
         getPendingReviewMetadataNotifications,
