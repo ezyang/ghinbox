@@ -518,11 +518,8 @@ class TestNotificationActions:
                 self,
                 url: str,
                 headers: dict[str, str],
-                params: dict[str, str],
             ) -> FakeResponse:
-                calls.append(
-                    {"method": "GET", "url": url, "headers": headers, "params": params}
-                )
+                calls.append({"method": "GET", "url": url, "headers": headers})
                 return FakeResponse(
                     200,
                     [
@@ -583,13 +580,12 @@ class TestNotificationActions:
         assert calls == [
             {
                 "method": "GET",
-                "url": "https://api.github.com/repos/pytorch/pytorch/notifications",
+                "url": "https://api.github.com/repos/pytorch/pytorch/notifications?all=true&per_page=100",
                 "headers": {
                     "Authorization": "Bearer api-token",
                     "Accept": "application/vnd.github+json",
                     "X-GitHub-Api-Version": "2022-11-28",
                 },
-                "params": {"all": "true", "per_page": "100"},
             },
             {
                 "method": "DELETE",
@@ -631,7 +627,6 @@ class TestNotificationActions:
                 self,
                 url: str,
                 headers: dict[str, str],
-                params: dict[str, str],
             ) -> FakeResponse:
                 return FakeResponse(
                     200,
@@ -786,9 +781,8 @@ class TestNotificationActions:
                 self,
                 url: str,
                 headers: dict[str, str],
-                params: dict[str, str],
             ) -> FakeResponse:
-                lookup_calls.append({"url": url, "params": params})
+                lookup_calls.append({"url": url})
                 return FakeResponse(len(lookup_calls))
 
         class FakeFetcher:

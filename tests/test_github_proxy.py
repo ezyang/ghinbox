@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, cast
 
 from fastapi import Request
+import httpx
 import pytest
 
 from ghinbox.api import github_proxy
@@ -166,8 +167,84 @@ def test_paginated_github_list_adds_per_page_and_follows_next(
             "repos/test/repo/issues/10/comments",
             {"since": "2026-06-08T09:00:00Z", "per_page": "100"},
         ),
-        (next_url, {}),
+        (next_url, None),
     ]
+
+
+def test_paginated_github_list_caps_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A rel="next" chain that never terminates must not loop forever: an
+    # unbounded walk once consumed the entire core rate limit.
+    calls = []
+
+    async def fake_github_get_json_with_headers(
+        client,
+        token: str,
+        path_or_url: str,
+        params=None,
+        **kwargs,
+    ):
+        calls.append(path_or_url)
+        page = len(calls) + 1
+        next_url = (
+            f"https://api.github.com/repos/test/repo/issues/10/events?page={page}"
+        )
+        return 200, [{"id": len(calls)}], {"link": f'<{next_url}>; rel="next"'}
+
+    monkeypatch.setattr(
+        github_proxy,
+        "_github_get_json_with_headers",
+        fake_github_get_json_with_headers,
+    )
+
+    status, payload = asyncio.run(
+        github_proxy._github_get_paginated_list(
+            cast(Any, "client"),
+            "token",
+            "repos/test/repo/issues/10/events",
+        )
+    )
+
+    assert status == 200
+    assert len(calls) == 20
+    assert isinstance(payload, list) and len(payload) == 20
+
+
+def test_github_get_preserves_next_link_query_string() -> None:
+    # Regression: passing params={} to httpx replaces the URL's own query
+    # string, so following a Link rel="next" URL re-fetched page 1 forever
+    # (2026-07-06 rate-limit burn). The request URL must keep the query.
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers = httpx.Headers({})
+        text = "[]"
+
+        @staticmethod
+        def json():
+            return []
+
+    class FakeClient:
+        async def get(self, url, headers=None, **kwargs):
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+            return FakeResponse()
+
+    next_url = (
+        "https://api.github.com/repos/test/repo/issues/10/events?page=2&per_page=100"
+    )
+    status, payload, _headers = asyncio.run(
+        github_proxy._github_get_json_with_headers(
+            cast(Any, FakeClient()),
+            "token",
+            next_url,
+            None,
+        )
+    )
+
+    assert status == 200
+    assert captured["url"] == next_url
+    assert "params" not in captured["kwargs"]
 
 
 def test_bulk_comment_item_can_be_built_from_notification_payload() -> None:
