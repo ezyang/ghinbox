@@ -57,12 +57,15 @@
     LLM-generated prose "vibe" summaries of the rest.
   - Structure the report in two parts: (1) "Look at these" — a short hand-picked
     list (~5-15 items, hard cap ~20) of notifications that genuinely warrant
-    attention (reply-nature items, reverts/rollbacks, direct @-mentions,
-    high-stakes/unusual things), each with a one-line "why it matters" and a
-    GitHub link, plus a single "Open all" button; (2) "Overall vibe" — a few
-    short prose paragraphs characterizing the rest thematically, WITHOUT listing
-    the individual PRs/issues behind each theme (at most a couple representative
-    links per theme).
+    attention. STRONGLY prefer OPEN items; a closed/merged item is resolved by
+    default, so only surface it with a concrete live reason (reverted, reopened,
+    or a human explicitly waiting). Prioritize the user's own delegated @claude
+    tasks whose answers are now waiting, reply-nature items, reverts/rollbacks,
+    and direct @-mentions from real humans (not bots). Each gets a one-line "why
+    it matters" and a GitHub link, plus a single "Open all" button; (2) "Overall
+    vibe" — a few short prose paragraphs characterizing the rest thematically,
+    WITHOUT listing the individual PRs/issues behind each theme (at most a couple
+    representative links per theme).
   - Do NOT enumerate every feed item or create one section per theme with full
     item lists. If more than ~20 items qualify for "Look at these", keep the most
     important and say how many were omitted.

@@ -536,10 +536,14 @@ def build_report_instructions(report_path: str = DEFAULT_REPORT_PATH) -> list[st
         "notification in ghinbox; do NOT reproduce that. Ruthlessly omit low-signal items.",
         "Structure the report in two parts:",
         "  1) 'Look at these' — a short, hand-picked list (aim for ~5-15 items, hard cap ~20) "
-        "of notifications that genuinely warrant the user's attention. Prioritize reply-nature "
-        "items (report_items[].reply_nature / reply_signals), reverts/rollbacks, direct @-mentions, "
-        "and anything unusual or high-stakes. Each gets a one-line 'why it matters' plus a GitHub link. "
-        "If more than ~20 qualify, keep only the most important and say how many were omitted.",
+        "of notifications that genuinely warrant the user's attention. STRONGLY prefer OPEN items "
+        "(report_items[].state == 'open'); a closed/merged item is resolved by default, so only "
+        "surface one when there is a concrete live reason (e.g. it was reverted, reopened, or a "
+        "human is explicitly waiting on the user). Prioritize the user's own delegated @claude tasks "
+        "whose answers are now waiting, reply-nature items (report_items[].reply_nature / reply_signals), "
+        "reverts/rollbacks, direct @-mentions from real humans (not bots), and anything unusual or "
+        "high-stakes. Each gets a one-line 'why it matters' plus a GitHub link. If more than ~20 "
+        "qualify, keep only the most important and say how many were omitted.",
         "  2) 'Overall vibe' — a few short prose paragraphs (LLM-generated) that characterize the "
         "rest of the feed thematically (e.g. 'lots of Dynamo/compiler churn', 'steady CI/testing "
         "activity', 'ROCm backend work'). Summaries ARE the value here; do NOT list the individual "
