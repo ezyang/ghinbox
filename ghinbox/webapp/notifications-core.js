@@ -162,7 +162,6 @@
             commentPrefetchStatusTimer: null,
             commentPrefetchStatusLastUpdate: 0,
             commentPrefetchIdleTimer: null,
-            commentPrefetchStatusActive: false,
             commentCache: { version: 1, threads: {} },
             rateLimit: null,
             rateLimitError: null,
@@ -1049,8 +1048,6 @@
             if (elements.orderSelect) {
                 elements.orderSelect.value = state.orderBy;
             }
-
-            const viewFilters = state.viewFilters[view] || DEFAULT_VIEW_FILTERS[view];
             render();
         }
 
@@ -1229,27 +1226,10 @@
             };
         }
 
-        function isMyPr(notification) {
-            return makeNotificationClassifier().isMyPr(notification);
-        }
-
-        // Check if notification matches the current view
-        function matchesView(notification) {
-            return makeNotificationClassifier().matchesView(notification, state.view);
-        }
-
         function safeIsNotificationDirectedAtCurrentUser(notification) {
             return typeof isNotificationDirectedAtCurrentUser === 'function'
                 ? isNotificationDirectedAtCurrentUser(notification)
                 : false;
-        }
-
-        function isNotificationReviewQueue(notification) {
-            return makeNotificationClassifier().isNotificationReviewQueue(notification);
-        }
-
-        function isCommitNotification(notification) {
-            return makeNotificationClassifier().isCommitNotification(notification);
         }
 
         function isTrashNotification(notification) {
@@ -1429,34 +1409,8 @@
             }
         }
 
-        function safeIsNotificationNeedsReview(notification) {
-            return makeNotificationClassifier().isNotificationNeedsReview(notification);
-        }
-
-        function safeIsNotificationApproved(notification) {
-            return typeof isNotificationApproved === 'function'
-                ? isNotificationApproved(notification)
-                : false;
-        }
-
-        function safeIsNotificationChangesRequested(notification) {
-            return typeof isNotificationChangesRequested === 'function'
-                ? isNotificationChangesRequested(notification)
-                : false;
-        }
-
-        function safeIsNotificationReviewResponsibility(notification) {
-            return typeof isNotificationReviewResponsibility === 'function'
-                ? isNotificationReviewResponsibility(notification)
-                : String(notification.reason || '').toLowerCase() === 'review_requested';
-        }
-
         function isSyntheticResponsibilityNotification(notification) {
             return makeNotificationClassifier().isSyntheticResponsibilityNotification(notification);
-        }
-
-        function isNotificationOriginPullRequest(notification) {
-            return makeNotificationClassifier().isNotificationOriginPullRequest(notification);
         }
 
         function hasNotificationHtmlAction(notification, action) {
@@ -1464,28 +1418,6 @@
                 return false;
             }
             return Boolean(notification?.ui?.action_tokens?.[action] || state.authenticity_token);
-        }
-
-        function safeIsNotificationFromCommitter(notification) {
-            return typeof isNotificationFromCommitter === 'function'
-                ? isNotificationFromCommitter(notification)
-                : false;
-        }
-
-        function safeHasNotificationAuthorPermission(notification) {
-            return typeof hasNotificationAuthorPermission === 'function'
-                ? hasNotificationAuthorPermission(notification)
-                : false;
-        }
-
-        function safeIsNotificationFromExternal(notification) {
-            if (notification.subject?.type !== 'PullRequest') {
-                return false;
-            }
-            if (!safeHasNotificationAuthorPermission(notification)) {
-                return false;
-            }
-            return !safeIsNotificationFromCommitter(notification);
         }
 
         function maybePrefetchReviewMetadata(options = {}) {
@@ -1540,10 +1472,3 @@
             }
             render();
         }
-
-        // Comment prefetching, classification, and display functions are in notifications-comments.js:
-        // scheduleCommentPrefetch, runCommentQueue, toIssueComment, fetchAllIssueComments,
-        // fetchPullRequestReviews, prefetchNotificationComments, getCommentStatus, getCommentItems,
-        // filterCommentsAfterOwnComment, isNotificationUninteresting, isNotificationNeedsReview,
-        // isNotificationApproved, isUninterestingComment, isRevertRelated,
-        // isBotAuthor, isBotInteractionComment
