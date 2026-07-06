@@ -17,7 +17,7 @@
     "test:selection": "playwright test tests/selection.spec.ts",
     "test:slow": "playwright test --grep @slow",
     "test:smoke": "playwright test --grep @smoke",
-    "test:sync": "playwright test tests/sync.spec.ts",
+    "test:sync": "playwright test tests/sync-*.spec.ts",
     "test:timings": "playwright test --reporter=json",
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui"
