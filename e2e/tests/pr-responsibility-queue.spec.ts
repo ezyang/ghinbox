@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 import {
   captureHtmlActions,
+  disableAutoClean,
   makeNotification,
   makeNotificationsResponse,
   mockDefaultApiRoutes,
@@ -112,10 +113,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
 
     // Auto-clean defaults on and would archive the closed/merged fixture
     // notifications immediately after sync; disable it so counts are stable.
-    const autoCleanToggle = page.locator('#auto-clean-low-priority-toggle');
-    if (await autoCleanToggle.isChecked()) {
-      await autoCleanToggle.uncheck();
-    }
+    await disableAutoClean(page);
   });
 
   test('keeps notification-backed review requests clearable in Reviews', async ({

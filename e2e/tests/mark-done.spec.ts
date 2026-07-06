@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
-import { mockDefaultApiRoutes, mockHtmlAction } from './app-fixture';
+import {
+  disableAutoClean,
+  mockDefaultApiRoutes,
+  mockHtmlAction,
+  mockServerSnapshotSyncUnavailable,
+} from './app-fixture';
 import { addAuthCacheInitScript, clearAppStorage, readNotificationsCache } from './storage-utils';
 
 // Note: syncNotificationBeforeDone now uses HTML pull + ID-based comment comparison
@@ -21,6 +26,7 @@ test.describe('Mark Done @slow @mutation', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+    await disableAutoClean(page);
 
     // Sync to load notifications
     await page.locator('#repo-input').fill('test/repo');
@@ -868,9 +874,11 @@ test.describe('Mark Done with Node IDs @slow @mutation', () => {
         body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
       });
     });
+    await mockServerSnapshotSyncUnavailable(page);
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+    await disableAutoClean(page);
 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
