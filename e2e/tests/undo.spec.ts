@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
+import { mockServerSnapshotSyncUnavailable } from './app-fixture';
 import { clearAppStorage, readNotificationsCache } from './storage-utils';
 
 const THREAD_SYNC_PAYLOAD = {
@@ -51,6 +52,7 @@ test.describe('Undo @mutation', () => {
         body: JSON.stringify(fixtureWithToken),
       });
     });
+    await mockServerSnapshotSyncUnavailable(page);
 
     // Mock comments endpoint for syncNotificationBeforeDone
     await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
