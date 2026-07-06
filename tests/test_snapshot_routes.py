@@ -12,6 +12,7 @@ from ghinbox.api.snapshot_store import (
     get_snapshot,
     get_sync_state,
     init_snapshot_db,
+    save_snapshot,
     set_notification_read_comment_watermark,
 )
 
@@ -206,6 +207,120 @@ def test_snapshot_sync_merges_review_request_search_results(
     assert sync_state["comments_total"] == 1
     assert sync_state["comments_fetched"] == 1
     assert sync_state["comments_failed"] == 0
+
+
+def test_full_snapshot_sync_replaces_stale_stored_notifications(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale_notification = {
+        "id": "stale-id",
+        "updated_at": "2025-01-04T12:00:00Z",
+        "subject": {"title": "Stale", "type": "Issue", "number": 1},
+    }
+    fresh_notification = {
+        "id": "fresh-id",
+        "unread": True,
+        "reason": "review_requested",
+        "updated_at": "2025-01-05T12:00:00Z",
+        "last_read_at": None,
+        "responsibility_source": "review-requested",
+        "subject": {
+            "title": "Fresh upstream review request",
+            "url": "https://github.com/test/repo/pull/2",
+            "type": "PullRequest",
+            "number": 2,
+            "state": "open",
+            "state_reason": None,
+        },
+        "actors": [],
+        "ui": {"saved": False, "done": False, "action_tokens": {}},
+    }
+    save_snapshot(
+        "test/repo",
+        [stale_notification],
+        comment_cache={
+            "version": 1,
+            "threads": {
+                "stale-id": {
+                    "comments": [{"id": 1, "body": "stale"}],
+                    "allComments": True,
+                    "fetchedAt": "2025-01-04T12:00:01Z",
+                }
+            },
+        },
+        db_path=db_path,
+    )
+
+    class FakeFetcher:
+        def fetch_repo_notifications(
+            self,
+            owner: str,
+            repo: str,
+            before: str | None = None,
+            after: str | None = None,
+        ) -> FetchResult:
+            raise AssertionError("run_fetcher_call should invoke this through the shim")
+
+    async def fake_run_fetcher_call(*args, **kwargs) -> FetchResult:
+        assert kwargs["owner"] == "test"
+        assert kwargs["repo"] == "repo"
+        assert kwargs["after"] is None
+        return FetchResult(
+            html="<html></html>",
+            url="https://github.com/notifications?query=repo:test/repo",
+            status="ok",
+        )
+
+    async def fake_review_requests(owner: str, repo: str) -> list[dict]:
+        assert owner == "test"
+        assert repo == "repo"
+        return [fresh_notification]
+
+    async def fake_fetch_snapshot_comment_cache(
+        owner: str,
+        repo: str,
+        notifications: list[dict],
+        *,
+        on_progress=None,
+    ) -> dict:
+        assert owner == "test"
+        assert repo == "repo"
+        assert [notification["id"] for notification in notifications] == ["fresh-id"]
+        if on_progress is not None:
+            on_progress(("fresh-id", {"comments": []}))
+        return {
+            "version": 1,
+            "threads": {
+                "fresh-id": {
+                    "comments": [],
+                    "allComments": True,
+                    "fetchedAt": "2025-01-05T12:00:01Z",
+                }
+            },
+        }
+
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
+    monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
+    monkeypatch.setattr(
+        snapshot_routes,
+        "fetch_review_request_notifications",
+        fake_review_requests,
+    )
+    monkeypatch.setattr(
+        snapshot_routes,
+        "_fetch_snapshot_comment_cache",
+        fake_fetch_snapshot_comment_cache,
+    )
+
+    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+
+    snapshot = get_snapshot("test/repo", db_path)
+    assert snapshot is not None
+    assert [notification["id"] for notification in snapshot["notifications"]] == [
+        "fresh-id"
+    ]
+    assert snapshot["comment_cache"]["threads"].keys() == {"fresh-id"}
 
 
 def test_snapshot_sync_starts_review_request_search_during_notification_fetch(

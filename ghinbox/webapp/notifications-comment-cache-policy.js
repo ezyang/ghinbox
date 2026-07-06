@@ -200,12 +200,64 @@
         );
     }
 
+    function getCommentCacheThreads(commentCache) {
+        return commentCache && typeof commentCache.threads === 'object' && commentCache.threads
+            ? commentCache.threads
+            : {};
+    }
+
+    function shouldUseServerSnapshotCommentEntry(existingEntry, snapshotEntry) {
+        const existingFetchedAt = Date.parse(existingEntry?.fetchedAt || '');
+        const snapshotFetchedAt = Date.parse(snapshotEntry?.fetchedAt || '');
+        return (
+            !existingEntry ||
+            Number.isNaN(existingFetchedAt) ||
+            (!Number.isNaN(snapshotFetchedAt) && snapshotFetchedAt >= existingFetchedAt)
+        );
+    }
+
+    function mergeServerSnapshotCommentCache(commentCache, snapshotCommentCache) {
+        const snapshotThreads = getCommentCacheThreads(snapshotCommentCache);
+        const mergedThreads = { ...getCommentCacheThreads(commentCache) };
+        Object.entries(snapshotThreads).forEach(([key, snapshotEntry]) => {
+            if (shouldUseServerSnapshotCommentEntry(mergedThreads[key], snapshotEntry)) {
+                mergedThreads[key] = snapshotEntry;
+            }
+        });
+        return {
+            version: (commentCache && commentCache.version) || 1,
+            threads: mergedThreads,
+        };
+    }
+
+    function pruneCommentCacheToNotifications(commentCache, notifications) {
+        const liveIds = new Set();
+        (Array.isArray(notifications) ? notifications : []).forEach((notification) => {
+            const id = String(notification?.id || '');
+            if (id) {
+                liveIds.add(id);
+            }
+        });
+
+        const prunedThreads = {};
+        Object.entries(getCommentCacheThreads(commentCache)).forEach(([key, entry]) => {
+            if (liveIds.has(key)) {
+                prunedThreads[key] = entry;
+            }
+        });
+        return {
+            version: (commentCache && commentCache.version) || 1,
+            threads: prunedThreads,
+        };
+    }
+
     return {
         DEFAULT_COMMENT_CACHE_TTL_MS,
         buildCommentErrorCacheEntry,
         buildCommentSuccessCacheEntry,
         buildMissingIssueCommentCacheEntry,
         getCommentFetchWindow,
+        getCommentCacheThreads,
         getPendingReviewMetadataNotifications,
         getPreservedCommentMetadata,
         getReviewMetadataNeeds,
@@ -217,6 +269,9 @@
         isDiffstatFresh,
         isReviewDecisionFresh,
         isTimestampFresh,
+        mergeServerSnapshotCommentCache,
+        pruneCommentCacheToNotifications,
+        shouldUseServerSnapshotCommentEntry,
         shouldPrefetchNotificationComments,
         shouldPrefetchReviewMetadata,
     };
