@@ -1,25 +1,24 @@
 import { test, expect } from '@playwright/test';
+import {
+  makeNotification,
+  makeNotificationsResponse,
+  mockHtmlAction,
+  mockRateLimit,
+} from './app-fixture';
 import { addAuthCacheInitScript } from './storage-utils';
 
-function notification(updatedAt: string, ui: Record<string, unknown> = {}) {
-  return {
+function makeWatermarkNotification(updatedAt: string, ui: Record<string, unknown> = {}) {
+  return makeNotification({
     id: 'thread-watermark',
-    unread: true,
     reason: 'comment',
     updated_at: updatedAt,
     last_read_at: '2025-01-01T00:00:00Z',
     subject: {
       title: 'Watermarked comments',
-      url: 'https://github.com/test/repo/issues/7',
       type: 'Issue',
       number: 7,
-      state: 'open',
-      state_reason: null,
     },
-    actors: [],
     ui: {
-      saved: false,
-      done: false,
       action_tokens: {
         archive: 'test-csrf-token',
         unarchive: 'test-csrf-token',
@@ -28,26 +27,7 @@ function notification(updatedAt: string, ui: Record<string, unknown> = {}) {
       },
       ...ui,
     },
-  };
-}
-
-function responseFor(notificationPayload: ReturnType<typeof notification>) {
-  return {
-    source_url: 'https://github.com/notifications?query=repo:test/repo',
-    generated_at: '2025-01-02T00:00:00Z',
-    repository: {
-      owner: 'test',
-      name: 'repo',
-      full_name: 'test/repo',
-    },
-    notifications: [notificationPayload],
-    pagination: {
-      before_cursor: null,
-      after_cursor: null,
-      has_previous: false,
-      has_next: false,
-    },
-  };
+  });
 }
 
 test.describe('Read comment watermark @mutation', () => {
@@ -59,19 +39,11 @@ test.describe('Read comment watermark @mutation', () => {
       localStorage.setItem('ghnotif_comment_expand_issues', 'true');
     });
 
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          rate: { limit: 5000, remaining: 4999, reset: 0 },
-          resources: {},
-        }),
-      });
-    });
+    await mockRateLimit(page);
 
-    let notificationsResponse = responseFor(
-      notification('2025-01-02T00:00:00Z')
+    let notificationsResponse = makeNotificationsResponse(
+      [makeWatermarkNotification('2025-01-02T00:00:00Z')],
+      { generated_at: '2025-01-02T00:00:00Z' }
     );
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
@@ -81,13 +53,7 @@ test.describe('Read comment watermark @mutation', () => {
       });
     });
 
-    await page.route('**/notifications/html/action', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
+    await mockHtmlAction(page);
 
     let savedWatermark: string | null = null;
     await page.route(
@@ -186,10 +152,13 @@ test.describe('Read comment watermark @mutation', () => {
     await expect(page.locator('#status-bar')).toContainText('Marked as done');
     await expect.poll(() => savedWatermark).not.toBeNull();
 
-    notificationsResponse = responseFor(
-      notification('2025-01-03T00:00:00Z', {
-        read_comment_watermark_at: savedWatermark,
-      })
+    notificationsResponse = makeNotificationsResponse(
+      [
+        makeWatermarkNotification('2025-01-03T00:00:00Z', {
+          read_comment_watermark_at: savedWatermark,
+        }),
+      ],
+      { generated_at: '2025-01-02T00:00:00Z' }
     );
 
     await page.locator('#sync-btn').click();

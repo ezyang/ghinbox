@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
+import {
+  makeNotification,
+  makeNotificationsResponse,
+  mockHtmlAction,
+  openNotificationsWithSync,
+} from './app-fixture';
 
 /**
  * Scroll Anchoring Tests
@@ -12,7 +17,7 @@ import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
 function generateLargeFixture(count: number) {
   const notifications = [];
   for (let i = 0; i < count; i++) {
-    notifications.push({
+    notifications.push(makeNotification({
       actors: [{ avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4', login: 'alice' }],
       id: `notif-${i}`,
       reason: 'author',
@@ -34,78 +39,23 @@ function generateLargeFixture(count: number) {
         done: false,
         saved: false,
       },
-      unread: true,
       updated_at: '2024-12-27T12:00:00Z',
-    });
+    }));
   }
-  return {
+  return makeNotificationsResponse(notifications, {
     generated_at: '2024-12-27T12:00:00Z',
-    notifications,
-    pagination: { after_cursor: null, before_cursor: null, has_next: false, has_previous: false },
-    repository: { full_name: 'test/repo', name: 'repo', owner: 'test' },
-    source_url: 'https://github.com/notifications?query=repo:test/repo',
-  };
+  });
 }
 
 const largeFixture = generateLargeFixture(20);
 
 test.describe('Scroll Anchoring', () => {
   test.beforeEach(async ({ page }) => {
-    await addAuthCacheInitScript(page);
-
-    await page.route('**/notifications/html/repo/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(largeFixture),
-      });
+    await mockHtmlAction(page);
+    await openNotificationsWithSync(page, {
+      expectedCount: 20,
+      notifications: largeFixture,
     });
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ data: { repository: {} } }),
-      });
-    });
-
-    await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.route('**/github/rest/repos/**/issues/*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-
-    await page.route('**/notifications/html/action', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 'ok' }),
-      });
-    });
-
-    await page.goto('notifications.html');
-    await clearAppStorage(page);
-
-    await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#sync-btn').click();
     await expect(page.locator('.notification-item')).toHaveCount(20);
     // Wait for comment prefetch to finish so re-renders don't detach DOM elements
     await expect(page.locator('#comment-cache-status')).toHaveText('Comments cached: 20', { timeout: 10000 });
