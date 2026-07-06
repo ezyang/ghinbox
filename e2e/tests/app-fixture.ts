@@ -1,4 +1,5 @@
 import { expect, type Page, type Route } from '@playwright/test';
+import emptyFixture from '../fixtures/notifications_empty.json';
 import mixedFixture from '../fixtures/notifications_mixed.json';
 import {
   addAuthCacheInitScript,
@@ -16,6 +17,11 @@ type RouteHandler = Parameters<Page['route']>[1];
 
 const DEFAULT_REPO = 'test/repo';
 const DEFAULT_LOGIN = 'testuser';
+
+export const syncFixtures = {
+  emptyResponse: emptyFixture,
+  mixedResponse: mixedFixture,
+} as const;
 
 export const TEST_ACTION_TOKENS = {
   archive: 'test-csrf-token',
@@ -94,6 +100,124 @@ export function makeCommentThread(overrides: Record<string, unknown> = {}) {
 
 export function makeCommentCache(threads: Record<string, unknown>) {
   return { version: 1, threads };
+}
+
+export function makeServerSnapshotPayload(
+  repo: string = DEFAULT_REPO,
+  options: {
+    snapshot?: JsonBody;
+    sync?: JsonBody;
+  } = {}
+) {
+  const [owner, name] = repo.split('/');
+  return {
+    repository: { owner, name, full_name: repo },
+    sync: options.sync ?? { status: 'idle', mode: 'full' },
+    snapshot: options.snapshot ?? null,
+  };
+}
+
+export type MockServerSnapshotState = {
+  repo: string;
+  owner: string;
+  name: string;
+  method: string;
+  url: string;
+  getCount: number;
+  postCount: number;
+  pollCount: number;
+};
+
+type MockServerSnapshotReply =
+  | JsonBody
+  | { status?: number; json: JsonBody }
+  | ((state: MockServerSnapshotState) => JsonBody | { status?: number; json: JsonBody } | Promise<JsonBody | { status?: number; json: JsonBody }>);
+
+async function fulfillServerSnapshotReply(
+  route: Route,
+  reply: MockServerSnapshotReply,
+  state: MockServerSnapshotState
+) {
+  const resolved = typeof reply === 'function' ? await reply({ ...state }) : reply;
+  const status =
+    resolved && typeof resolved === 'object' && 'json' in resolved
+      ? resolved.status ?? 200
+      : 200;
+  const body =
+    resolved && typeof resolved === 'object' && 'json' in resolved
+      ? resolved.json
+      : resolved;
+  return fulfillJson(route, body, status);
+}
+
+export async function mockServerSnapshot(
+  page: Page,
+  options: {
+    repo?: string;
+    get?: MockServerSnapshotReply | false;
+    syncPost?: MockServerSnapshotReply | false;
+    syncPoll?: MockServerSnapshotReply | false;
+    syncPolls?: MockServerSnapshotReply[];
+  } = {}
+) {
+  const repo = options.repo ?? DEFAULT_REPO;
+  const [owner, name] = repo.split('/');
+  const state: MockServerSnapshotState = {
+    repo,
+    owner,
+    name,
+    method: 'GET',
+    url: '',
+    getCount: 0,
+    postCount: 0,
+    pollCount: 0,
+  };
+
+  if (options.get !== false) {
+    await page.route(`**/api/snapshots/${owner}/${name}`, async (route) => {
+      state.getCount += 1;
+      state.method = route.request().method();
+      state.url = route.request().url();
+      await fulfillServerSnapshotReply(
+        route,
+        options.get ?? makeServerSnapshotPayload(repo),
+        state
+      );
+    });
+  }
+
+  if (
+    options.syncPost !== undefined ||
+    options.syncPoll !== undefined ||
+    options.syncPolls !== undefined
+  ) {
+    await page.route(`**/api/snapshots/${owner}/${name}/sync`, async (route) => {
+      state.method = route.request().method();
+      state.url = route.request().url();
+      if (state.method === 'POST') {
+        state.postCount += 1;
+        const postReply =
+          options.syncPost === false || options.syncPost === undefined
+            ? makeServerSnapshotPayload(repo)
+            : options.syncPost;
+        await fulfillServerSnapshotReply(route, postReply, state);
+        return;
+      }
+
+      state.pollCount += 1;
+      const pollReply =
+        options.syncPolls?.[state.pollCount - 1] ??
+        options.syncPoll ??
+        makeServerSnapshotPayload(repo);
+      if (pollReply === false) {
+        await route.fallback();
+        return;
+      }
+      await fulfillServerSnapshotReply(route, pollReply, state);
+    });
+  }
+
+  return state;
 }
 
 function fulfillJson(route: Route, body: JsonBody, status = 200) {
@@ -301,6 +425,26 @@ export async function openNotificationsApp(page: Page, options: {
     { repoKey: APP_STORAGE_KEYS.repo, repoValue: repo }
   );
   await page.goto('notifications.html', { waitUntil: 'domcontentloaded' });
+}
+
+export async function openCleanSyncPage(page: Page, options: { login?: string } = {}) {
+  await page.route('**/github/rest/user', (route) =>
+    fulfillJson(route, { login: options.login ?? DEFAULT_LOGIN })
+  );
+
+  await page.goto('notifications.html');
+  await clearAppStorage(page);
+
+  for (const selector of [
+    '#comment-expand-issues-toggle',
+    '#comment-expand-prs-toggle',
+    '#comment-hide-uninteresting-toggle',
+  ]) {
+    const toggle = page.locator(selector);
+    if (await toggle.isChecked()) {
+      await toggle.uncheck();
+    }
+  }
 }
 
 export async function syncNotifications(page: Page, options: {

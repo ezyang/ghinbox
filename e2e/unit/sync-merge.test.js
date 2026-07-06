@@ -112,6 +112,13 @@ test('findIncrementalOverlapIndex treats equivalent timestamp formats as unchang
   assert.equal(findIncrementalOverlapIndex(page, map), 0);
 });
 
+test('findIncrementalOverlapIndex treats UTC offset timestamp formats as unchanged', () => {
+  const previous = [notif('a', 1, '2025-01-05T00:00:00Z')];
+  const map = buildPreviousMatchMap(previous);
+  const page = [notif('a', 1, '2025-01-05T00:00:00+00:00')];
+  assert.equal(findIncrementalOverlapIndex(page, map), 0);
+});
+
 test('mergeIncrementalNotifications appends previous tail from startIndex', () => {
   const previous = [
     notif('a', 1, '2025-01-05T00:00:00Z'),
@@ -331,6 +338,20 @@ test('buildIncrementalRestLookupKeys selects only new or changed notifications',
     [...keys].sort(),
     ['owner/repo:Issue:2', 'owner/repo:Issue:3']
   );
+});
+
+test('buildIncrementalRestLookupKeys returns no keys when fetched notifications are unchanged', () => {
+  const previous = [
+    notif('a', 1, '2025-01-05T00:00:00Z'),
+    notif('b', 2, '2025-01-04T00:00:00Z'),
+  ];
+  const map = buildPreviousMatchMap(previous);
+  const fetched = [
+    notif('api-a', 1, '2025-01-05T00:00:00Z'),
+    notif('api-b', 2, '2025-01-04T00:00:00Z'),
+  ];
+  const keys = buildIncrementalRestLookupKeys(fetched, map);
+  assert.deepEqual([...keys], []);
 });
 
 test('buildNotificationMatchKeySet resolves repo from notification or explicit repo', () => {
