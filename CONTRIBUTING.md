@@ -145,23 +145,37 @@ Redirects to `/app/` (web UI index) or returns API info.
 python -m ghinbox.api.server [options]
 
 Options:
-  --account, -a NAME   Account name for live GitHub fetching (required for live mode)
-  --host HOST          Bind address (default: 127.0.0.1)
-  --port, -p PORT      Bind port (default: 8000)
-  --no-reload          Disable auto-reload on code changes
-  --headed             Show browser window (for debugging)
+  --account, -a ACCOUNT  ghinbox account name for live GitHub fetching. If not specified, uses the default account (auto-setup on first run).
+  --host HOST            Host to bind to (default: 0.0.0.0, listens on localhost and Tailnet 10.*.*.*).
+  --port, -p PORT        Port to bind to (default: 8000)
+  --reload               Enable auto-reload on code changes (auto-enabled in source checkouts)
+  --no-reload            Disable auto-reload even in source checkouts
+  --headed               Run browser in headed mode (visible window)
+  --headed-login         Use headed browser for login (fallback for CAPTCHA or security key 2FA)
+  --test                 Test mode: skip account validation (for E2E tests with mocked APIs)
+  --site-password SITE_PASSWORD  Require this password to access the site (cookie-based gate)
+  --env-file ENV_FILE    Private local environment file for site/webhook secrets (default: auth_state/ghinbox.env).
+  --log-file LOG_FILE    Write JSONL request logs to this file (default: logs/ghinbox.log outside --test).
+  --no-request-log       Disable JSONL request logging. Recent in-memory requests remain enabled.
+  --snapshot-db-path SNAPSHOT_DB_PATH  Path to SQLite database for server-side notification snapshots.
+  --snapshot-sync-interval-minutes SNAPSHOT_SYNC_INTERVAL_MINUTES  Periodically refresh repos with existing server snapshots. Disabled by default.
+  --debug-socket DEBUG_SOCKET  Unix domain socket for local shell/agent HTTP access that bypasses the site password gate (default: auth_state/ghinbox-debug.sock).
+  --no-debug-socket      Disable the local debug Unix socket.
 ```
+
+By default, `--host 0.0.0.0` listens on available interfaces beyond localhost;
+use `--host 127.0.0.1` to restrict the server to the local machine.
 
 ## Authentication Setup
 
 ### 1. Browser Session (for HTML fetching)
 
 ```bash
-# Opens browser for manual GitHub login
+# Opens a headed browser for manual GitHub login if no auth state exists
 python -m ghinbox.auth myaccount
 
-# Headless mode (if session exists)
-python -m ghinbox.auth myaccount --headed
+# Verify an existing auth state headlessly
+python -m ghinbox.auth myaccount --verify
 ```
 
 Session saved to `auth_state/myaccount.json`.
@@ -233,6 +247,9 @@ python -m ghinbox.fixtures list
 
 # Update test fixtures from latest responses
 python -m ghinbox.fixtures update
+
+# Regenerate E2E JSON fixtures from HTML fixtures
+uv run python -m ghinbox.fixtures generate-e2e --force
 ```
 
 Directories:
