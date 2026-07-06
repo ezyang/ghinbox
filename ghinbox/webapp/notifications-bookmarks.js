@@ -90,21 +90,15 @@
     }
 
     function shouldShowMoveToFeed(notification) {
-        if (
-            state.view !== 'pr-notifications' ||
-            state.view === 'cleaned' ||
-            notification?.ui?.replies_muted ||
-            !safeIsNotificationDirectedAtCurrentUser(notification)
-        ) {
-            return false;
-        }
         const cached = state.commentCache.threads[getNotificationKey(notification)];
-        return !COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+        return COMMENT_INTEREST.shouldShowMoveToFeed(notification, {
             authorLogin: cached?.authorLogin,
             comments: getSortedNotificationComments(notification),
             currentUserLogin: state.currentUserLogin,
+            directedAtCurrentUser: safeIsNotificationDirectedAtCurrentUser(notification),
             lastReadAt: cached?.lastReadAt,
-            suppressParticipationReplies: true,
+            stateEvents: cached?.stateEvents,
+            view: state.view,
         });
     }
 

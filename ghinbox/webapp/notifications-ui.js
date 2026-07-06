@@ -1222,29 +1222,6 @@
             return li;
         }
 
-        // Check if current user is a reviewer on a PR
-        async function checkIfUserIsReviewer(notification) {
-            if (notification.subject.type !== 'PullRequest') return false;
-
-            const match = notification.subject.url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
-            if (!match) return false;
-
-            const [, owner, repo, prNumber] = match;
-            if (!state.currentUserLogin) return false;
-
-            try {
-                const pr = await fetchJson(`/github/rest/repos/${owner}/${repo}/pulls/${prNumber}`);
-                const requestedReviewers = pr.requested_reviewers || [];
-
-                return requestedReviewers.some(r =>
-                    r.login.toLowerCase() === state.currentUserLogin.toLowerCase()
-                );
-            } catch (e) {
-                console.error('[CheckReviewer] Error checking reviewer status:', e);
-                return false;
-            }
-        }
-
         // Get icon for notification type and state
         function getNotificationIcon(notif) {
             const type = notif.subject.type;
@@ -1417,7 +1394,6 @@
 
             // Keep rendering already-applied notifications while async server syncs continue.
             const filteredNotifications = getFilteredNotifications();
-            const displayNotifications = filteredNotifications;
             ensureActiveNotification(filteredNotifications);
 
             // Show/hide empty state with dynamic message
@@ -1561,14 +1537,11 @@
             }
 
             // Update progress bar
-            const prefetchProgress = state.commentPrefetchProgress;
             const doneProgress = doneQueue ? GhinboxDoneQueue.getProgressBarState(doneQueue) : null;
             if (doneProgress) {
                 elements.progressContainer.className = 'progress-container visible';
                 elements.progressBarFill.style.width = `${doneProgress.percent}%`;
                 elements.progressText.textContent = doneProgress.message;
-            } else if (prefetchProgress?.active && prefetchProgress.total > 0) {
-                elements.progressContainer.className = 'progress-container';
             } else {
                 elements.progressContainer.className = 'progress-container';
             }
@@ -1576,10 +1549,10 @@
             // Render notifications list
             elements.notificationsList.innerHTML = '';
 
-            if (displayNotifications.length > 0) {
-                const diffstatContext = getDiffstatRenderContext(displayNotifications);
+            if (filteredNotifications.length > 0) {
+                const diffstatContext = getDiffstatRenderContext(filteredNotifications);
                 const fragment = document.createDocumentFragment();
-                displayNotifications.forEach((notif) => {
+                filteredNotifications.forEach((notif) => {
                     fragment.appendChild(renderNotificationItem(notif, diffstatContext));
                 });
                 elements.notificationsList.appendChild(fragment);

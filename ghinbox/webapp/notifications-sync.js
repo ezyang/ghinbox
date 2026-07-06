@@ -124,21 +124,6 @@
             return GhinboxNotificationIdentity.getNotificationMatchKey(notification);
         }
 
-        function getNotificationDedupKey(notification) {
-            return GhinboxNotificationIdentity.getNotificationDedupKey(notification);
-        }
-
-        function formatCursorLabel(cursor) {
-            if (!cursor) {
-                return 'initial';
-            }
-            const raw = String(cursor);
-            if (raw.length <= 10) {
-                return `after ${raw}`;
-            }
-            return `after ${raw.slice(0, 4)}...${raw.slice(-4)}`;
-        }
-
         const {
             buildIncrementalRestLookupKeys,
             buildNotificationMatchKeySet,

@@ -75,7 +75,6 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
     if (shouldUpdate) {
         clearCommentPrefetchStatusTimers();
         state.commentPrefetchStatusLastUpdate = now;
-        state.commentPrefetchStatusActive = true;
         showStatus(statusMessage, 'info', {
             flash: true,
             durationMs: PREFETCH_STATUS_REFRESH_MS + PREFETCH_STATUS_IDLE_CLEAR_MS,
@@ -89,7 +88,6 @@ function updateCommentPrefetchStatus(message, { force = false } = {}) {
                 return;
             }
             state.commentPrefetchStatusLastUpdate = Date.now();
-            state.commentPrefetchStatusActive = true;
             showStatus(
                 getCommentPrefetchStatusDisplayMessage(state.commentPrefetchStatusMessage),
                 'info',
@@ -111,7 +109,6 @@ function scheduleCommentPrefetchIdleClear() {
     clearCommentPrefetchIdleTimer();
     state.commentPrefetchIdleTimer = setTimeout(() => {
         state.commentPrefetchIdleTimer = null;
-        state.commentPrefetchStatusActive = false;
         state.commentPrefetchStatusMessage = null;
         state.commentPrefetchStatusLastUpdate = 0;
         state.commentPrefetchProgress = {
@@ -894,38 +891,6 @@ function getCommentItems(notification) {
         .join('');
 }
 
-function filterCommentsAfterOwnComment(comments) {
-    return COMMENT_INTEREST.filterCommentsAfterOwnComment(comments, state.currentUserLogin);
-}
-
-function getReviewThreadKey(comment) {
-    return COMMENT_INTEREST.getReviewThreadKey(comment);
-}
-
-function getCommentTimestampMs(comment) {
-    return COMMENT_INTEREST.getCommentTimestampMs(comment);
-}
-
-function mentionsCurrentUser(text) {
-    return COMMENT_INTEREST.mentionsCurrentUser(text, state.currentUserLogin);
-}
-
-function isCurrentUserCcLine(line) {
-    return COMMENT_INTEREST.isCurrentUserCcLine(line, state.currentUserLogin);
-}
-
-function hasActionableCurrentUserMention(comment) {
-    return COMMENT_INTEREST.hasActionableCurrentUserMention(comment, state.currentUserLogin);
-}
-
-function getParticipationThreadKey(comment) {
-    return COMMENT_INTEREST.getParticipationThreadKey(comment);
-}
-
-function isMainThreadComment(comment) {
-    return COMMENT_INTEREST.isMainThreadComment(comment);
-}
-
 function getSortedNotificationComments(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     if (!cached || cached.error || !Array.isArray(cached.comments)) {
@@ -953,25 +918,6 @@ function isNotificationDirectedAtCurrentUser(notification) {
         lastReadAt: cached?.lastReadAt,
         stateEvents: cached?.stateEvents,
         suppressParticipationReplies: notification?.ui?.replies_muted,
-    });
-}
-
-function getDirectReviewThreadReplies(comments) {
-    return COMMENT_INTEREST.getDirectReviewThreadReplies(comments, state.currentUserLogin);
-}
-
-function filterRelevantCommentsForNotification(notification, comments) {
-    return COMMENT_INTEREST.filterRelevantCommentsForNotification(
-        notification,
-        comments,
-        state.currentUserLogin
-    );
-}
-
-function isNotificationUninteresting(notification) {
-    const cached = state.commentCache.threads[getNotificationKey(notification)];
-    return COMMENT_STATUS.isUninteresting(notification, cached, {
-        currentUserLogin: state.currentUserLogin,
     });
 }
 
@@ -1026,20 +972,4 @@ function hasNotificationAuthorPermission(notification) {
 
 function isUninterestingComment(comment) {
     return COMMENT_INTEREST.isUninterestingComment(comment);
-}
-
-function areCommentsOnlyByCurrentUserOrBots(comments) {
-    return COMMENT_INTEREST.areCommentsOnlyByCurrentUserOrBots(comments, state.currentUserLogin);
-}
-
-function isRevertRelated(body) {
-    return COMMENT_INTEREST.isRevertRelated(body);
-}
-
-function isBotAuthor(login) {
-    return COMMENT_INTEREST.isBotAuthor(login);
-}
-
-function isBotInteractionComment(body) {
-    return COMMENT_INTEREST.isBotInteractionComment(body);
 }
