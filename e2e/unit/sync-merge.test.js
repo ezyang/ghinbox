@@ -4,12 +4,18 @@ const {
   buildIncrementalRestLookupKeys,
   buildNotificationMatchKeySet,
   buildPreviousMatchMap,
+  canUseIncrementalOverlapMerge,
+  dedupAndSortNotifications,
   findIncrementalOverlapIndex,
   getUpdatedAtSignature,
   mergeIncrementalNotifications,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
+const {
+  getNotificationDedupKey,
+} = require('../../ghinbox/webapp/notifications-identity.js');
 
 function notif(id, number, updatedAt, extra = {}) {
+  const { subject: subjectOverrides = {}, ...rest } = extra;
   return {
     id,
     updated_at: updatedAt,
@@ -21,10 +27,26 @@ function notif(id, number, updatedAt, extra = {}) {
       number,
       state: 'open',
       state_reason: null,
-      ...extra.subject,
+      ...subjectOverrides,
+    },
+    ...rest,
+  };
+}
+
+function prNotif(id, number, updatedAt, extra = {}) {
+  return notif(id, number, updatedAt, {
+    reason: 'review_requested',
+    repository: { owner: 'owner', name: 'repo', full_name: 'owner/repo' },
+    subject: {
+      type: 'PullRequest',
+      title: `PR #${number}`,
+      url: `https://github.com/owner/repo/pull/${number}`,
+      number,
+      state: 'open',
+      state_reason: null,
     },
     ...extra,
-  };
+  });
 }
 
 test('getUpdatedAtSignature normalizes equivalent timestamps', () => {
@@ -135,6 +157,161 @@ test('mergeIncrementalNotifications with startIndex 0 never duplicates the overl
   assert.deepEqual(
     merged.map((n) => n.id),
     ['a', 'b']
+  );
+});
+
+test('canUseIncrementalOverlapMerge only allows same single-source incremental cache', () => {
+  const previous = [notif('a', 1, '2025-01-05T00:00:00Z')];
+  const repoSource = {
+    kind: 'repo',
+    value: 'repo:owner/repo',
+    fullName: 'owner/repo',
+  };
+  const querySource = {
+    kind: 'query',
+    value: 'involves:testuser repo:owner/repo',
+    query: 'involves:testuser repo:owner/repo',
+  };
+  const cases = [
+    {
+      name: 'profile signature match',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'custom:owner/repo',
+        profileSignature: 'custom:owner/repo',
+      },
+      expected: true,
+    },
+    {
+      name: 'legacy repo fullName match',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'owner/repo',
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: true,
+    },
+    {
+      name: 'source value match',
+      input: {
+        syncMode: 'incremental',
+        sources: [querySource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'involves:testuser repo:owner/repo',
+        profileSignature: 'custom:involves:testuser repo:owner/repo',
+      },
+      expected: true,
+    },
+    {
+      name: 'full sync cannot use overlap merge',
+      input: {
+        syncMode: 'full',
+        sources: [repoSource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'owner/repo',
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: false,
+    },
+    {
+      name: 'multiple sources cannot use overlap merge',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource, querySource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'custom:repo:owner/repo',
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: false,
+    },
+    {
+      name: 'empty previous notifications cannot use overlap merge',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource],
+        previousNotifications: [],
+        lastSyncedRepo: 'owner/repo',
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: false,
+    },
+    {
+      name: 'different last synced source cannot use overlap merge',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource],
+        previousNotifications: previous,
+        lastSyncedRepo: 'owner/other',
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: false,
+    },
+    {
+      name: 'missing last synced source cannot use overlap merge',
+      input: {
+        syncMode: 'incremental',
+        sources: [repoSource],
+        previousNotifications: previous,
+        profileSignature: 'custom:repo:owner/repo',
+      },
+      expected: false,
+    },
+  ];
+
+  cases.forEach(({ name, input, expected }) => {
+    assert.equal(canUseIncrementalOverlapMerge(input), expected, name);
+  });
+});
+
+test('dedupAndSortNotifications dedups repeated ids and sorts by updated_at descending', () => {
+  const items = [
+    notif('same', 1, '2025-01-04T00:00:00Z'),
+    notif('newest', 2, '2025-01-06T00:00:00Z'),
+    notif('same', 3, '2025-01-07T00:00:00Z'),
+    notif('oldest', 4, '2025-01-03T00:00:00Z'),
+  ];
+
+  const result = dedupAndSortNotifications(items);
+
+  assert.deepEqual(
+    result.map((n) => `${n.id}:${n.subject.number}`),
+    ['newest:2', 'same:1', 'oldest:4']
+  );
+});
+
+test('dedupAndSortNotifications keeps NT and synthetic review-request rows for same PR', () => {
+  const htmlNotification = prNotif('NT_pr_10', 10, '2025-01-05T12:30:00Z');
+  const syntheticReviewRequest = prNotif(
+    'review-request:owner/repo#10',
+    10,
+    '2025-01-05T12:00:00Z',
+    {
+      unread: false,
+      responsibility_source: 'review-requested',
+      last_read_at: null,
+      ui: { action_tokens: {} },
+    }
+  );
+
+  assert.equal(getNotificationDedupKey(htmlNotification), 'owner/repo:PullRequest:10');
+  assert.equal(
+    getNotificationDedupKey(htmlNotification),
+    getNotificationDedupKey(syntheticReviewRequest)
+  );
+  assert.notEqual(htmlNotification.id, syntheticReviewRequest.id);
+
+  const result = dedupAndSortNotifications([
+    htmlNotification,
+    syntheticReviewRequest,
+  ]);
+
+  assert.deepEqual(
+    result.map((n) => n.id),
+    ['NT_pr_10', 'review-request:owner/repo#10']
   );
 });
 
