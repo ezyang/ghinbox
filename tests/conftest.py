@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from ghinbox.api import site_auth
+from ghinbox.api.rate_governor import get_rate_governor
 from ghinbox.api.snapshot_store import init_snapshot_db
 
 _ENV_PREFIXES = ("GHINBOX_",)
@@ -52,3 +53,10 @@ def _isolated_snapshot_db(_restore_ghinbox_env, monkeypatch: pytest.MonkeyPatch)
             os.unlink(path + suffix)
         except FileNotFoundError:
             pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_governor():
+    get_rate_governor().reset()
+    yield
+    get_rate_governor().reset()

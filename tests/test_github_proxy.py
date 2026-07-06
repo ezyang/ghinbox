@@ -1,6 +1,7 @@
 """Tests for GitHub API proxy helpers."""
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from fastapi import Request
@@ -8,6 +9,11 @@ import httpx
 import pytest
 
 from ghinbox.api import github_proxy
+from ghinbox.api.rate_governor import (
+    RateGovernorDecision,
+    RateGovernorDeniedError,
+    get_rate_governor,
+)
 from ghinbox.api.notification_shapes import notification_to_bulk_comment_item
 
 
@@ -272,6 +278,94 @@ def test_bulk_comment_item_can_be_built_from_notification_payload() -> None:
         "anchor": "discussion_r42",
         "last_read_at": "2026-06-08T09:00:00Z",
     }
+
+
+def test_bulk_comment_results_stop_with_partial_rate_limited_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_bulk_comment_item(
+        client,
+        token: str,
+        item: dict,
+        *,
+        request_id: str | None = None,
+    ):
+        assert client == "client"
+        assert token == "token"
+        assert request_id == "req-123"
+        if item["key"] == "two":
+            raise RateGovernorDeniedError(
+                RateGovernorDecision(
+                    allowed=False,
+                    reason="remaining_below_floor",
+                    call_class="background",
+                    pool="core",
+                    remaining=499,
+                    floor=500,
+                    reset_at=datetime(2026, 7, 6, 13, 0, tzinfo=UTC),
+                    request_id="req-123",
+                    request_count=1,
+                    request_budget=300,
+                )
+            )
+        return item["key"], {"comments": [{"id": item["key"]}]}
+
+    monkeypatch.setattr(github_proxy, "get_client", lambda: "client")
+    monkeypatch.setattr(
+        github_proxy,
+        "_fetch_bulk_comment_item",
+        fake_fetch_bulk_comment_item,
+    )
+
+    results = asyncio.run(
+        github_proxy.fetch_bulk_comment_results(
+            "token",
+            [
+                {"key": "one"},
+                {"key": "two"},
+                {"key": "three"},
+            ],
+            request_id="req-123",
+        )
+    )
+
+    assert results.rate_limited is True
+    assert results.denial is not None
+    assert results.denial["reason"] == "remaining_below_floor"
+    assert any(result.get("rate_limited") for _key, result in results)
+
+
+def test_archive_delete_is_governed_before_direct_httpx_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ghinbox.api import archive_api
+
+    class FakeClient:
+        async def request(self, *args, **kwargs):
+            raise AssertionError("governor should deny before DELETE is issued")
+
+    monkeypatch.delenv("GHINBOX_TEST_MODE", raising=False)
+    monkeypatch.setattr(archive_api, "get_token", lambda: "token")
+    monkeypatch.setattr(archive_api, "get_client", lambda: FakeClient())
+    get_rate_governor().update_from_headers(
+        {
+            "x-ratelimit-remaining": "50",
+            "x-ratelimit-reset": "4102444800",
+            "x-ratelimit-resource": "core",
+        },
+        observed_at=datetime(2026, 7, 6, 12, 0, tzinfo=UTC),
+    )
+
+    with pytest.raises(RateGovernorDeniedError) as error:
+        asyncio.run(
+            archive_api._submit_archive_with_github_api(
+                ["12345"],
+                request_id="req-archive",
+            )
+        )
+
+    assert error.value.detail["reason"] == "remaining_below_floor"
+    assert error.value.detail["pool"] == "core"
 
 
 def test_review_requests_endpoint_normalizes_search_results(

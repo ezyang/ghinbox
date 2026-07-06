@@ -32,6 +32,17 @@
         return isExpiredBrowserSessionMessage(message);
     }
 
+    function appendResetAt(message, detail) {
+        if (!detail || typeof detail !== 'object' || !detail.reset_at) {
+            return message;
+        }
+        const resetAt = String(detail.reset_at);
+        if (message.includes(resetAt)) {
+            return message;
+        }
+        return `${message} Resets at ${resetAt}.`;
+    }
+
     async function readErrorDetail(response) {
         const text = await response.text();
         const fallbackMessage = `HTTP ${response.status} ${response.statusText}`;
@@ -53,6 +64,7 @@
                 if (detail.message) {
                     message = String(detail.message);
                 }
+                message = appendResetAt(message, detail);
             } else if (parsed?.message) {
                 message = String(parsed.message);
             } else {
@@ -121,13 +133,14 @@
     async function fetchJson(url, options = {}) {
         const response = await root.fetch(url, options);
         if (!response.ok) {
-            const { detail, sessionExpired } = await readErrorDetail(response);
+            const { detail, message, sessionExpired } = await readErrorDetail(response);
             if (sessionExpired) {
                 await handleSessionExpired();
             }
-            const error = new Error(`Request failed: ${url} (${response.status}) ${detail}`);
+            const error = new Error(`Request failed: ${url} (${response.status}) ${message || detail}`);
             error.status = response.status;
             error.detail = detail;
+            error.responseMessage = message;
             throw error;
         }
         return response.json();

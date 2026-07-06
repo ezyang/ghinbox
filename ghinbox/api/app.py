@@ -7,7 +7,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ghinbox.api.routes import router as notifications_router
@@ -18,6 +19,7 @@ from ghinbox.api.observability import (
     ObservabilityMiddleware,
     router as observability_router,
 )
+from ghinbox.api.rate_governor import RateGovernorDeniedError
 from ghinbox.api.snapshot_routes import (
     router as snapshot_router,
     start_periodic_snapshot_sync,
@@ -121,6 +123,16 @@ app.include_router(site_auth_router)
 app.include_router(observability_router)
 app.include_router(snapshot_router)
 app.include_router(webhook_router)
+
+
+@app.exception_handler(RateGovernorDeniedError)
+async def rate_governor_denied_handler(
+    _request: Request,
+    error: RateGovernorDeniedError,
+) -> JSONResponse:
+    """Surface governor denials as structured 429 responses."""
+    return JSONResponse(status_code=429, content={"detail": error.detail})
+
 
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:

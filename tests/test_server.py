@@ -5,6 +5,11 @@ from pathlib import Path
 import pytest
 
 from ghinbox.api import server
+from ghinbox.api.rate_governor import (
+    ENV_RATE_FLOOR_BACKGROUND,
+    ENV_RATE_FLOOR_INTERACTIVE,
+    ENV_RATE_REQUEST_BUDGET,
+)
 from ghinbox.api.server import _iter_reload_files, _load_env_file
 
 
@@ -97,6 +102,12 @@ def test_test_mode_clears_live_github_environment(
             str(tmp_path / "missing.env"),
             "--snapshot-db-path",
             str(snapshot_db),
+            "--rate-floor-background",
+            "700",
+            "--rate-floor-interactive",
+            "80",
+            "--rate-request-budget",
+            "123",
             "--port",
             "0",
         ],
@@ -114,6 +125,9 @@ def test_test_mode_clears_live_github_environment(
     assert os.environ["GHINBOX_TEST_MODE"] == "1"
     assert os.environ["GHINBOX_SNAPSHOT_DB_PATH"] == str(snapshot_db)
     assert os.environ["GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS"] == "0"
+    assert os.environ[ENV_RATE_FLOOR_BACKGROUND] == "700"
+    assert os.environ[ENV_RATE_FLOOR_INTERACTIVE] == "80"
+    assert os.environ[ENV_RATE_REQUEST_BUDGET] == "123"
     assert "GHINBOX_ACCOUNT" not in os.environ
     assert "GHINBOX_HEADLESS" not in os.environ
     assert "GHINBOX_NEEDS_AUTH" not in os.environ

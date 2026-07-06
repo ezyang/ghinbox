@@ -7,7 +7,9 @@ Proxies requests to GitHub's REST and GraphQL APIs using the stored token.
 import asyncio
 import os
 import time
-from urllib.parse import urlencode
+from collections.abc import Iterable, Mapping
+from typing import Any
+from urllib.parse import urlencode, urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -20,6 +22,11 @@ from ghinbox.api.notification_shapes import (
     search_item_to_review_request_notification,
 )
 from ghinbox.api.observability import emit_github_api_call_audit
+from ghinbox.api.rate_governor import (
+    CallClass,
+    RateGovernorDeniedError,
+    get_rate_governor,
+)
 from ghinbox.token import load_token
 
 router = APIRouter(prefix="/github", tags=["github-proxy"])
@@ -57,6 +64,55 @@ def _github_url(path_or_url: str, params: dict[str, str] | None = None) -> str:
     return url
 
 
+def _expected_rest_rate_pool(path_or_url: str) -> str:
+    parsed = urlparse(path_or_url)
+    path = parsed.path if parsed.scheme else path_or_url.partition("?")[0]
+    normalized_path = path.lstrip("/")
+    if normalized_path.startswith("search/"):
+        return "search"
+    return "core"
+
+
+def check_github_rate_governor(
+    *,
+    request_id: str | None,
+    source: str,
+    method: str,
+    url: str,
+    call_class: CallClass,
+    pool: str,
+) -> None:
+    decision = get_rate_governor().check(
+        pool=pool,
+        call_class=call_class,
+        request_id=request_id,
+        source=source,
+        method=method,
+        url=url,
+    )
+    if decision.allowed:
+        return
+
+    detail = decision.to_detail()
+    emit_github_api_call_audit(
+        request_id=request_id,
+        source=source,
+        method=method,
+        url=url,
+        status_code=429,
+        duration_ms=0,
+        error="rate_governor_denied",
+        governor_denial=detail,
+    )
+    raise RateGovernorDeniedError(decision)
+
+
+def update_github_rate_governor_from_headers(
+    headers: Mapping[str, str] | None,
+) -> None:
+    get_rate_governor().update_from_headers(headers)
+
+
 async def _github_get_json_with_headers(
     client: httpx.AsyncClient,
     token: str,
@@ -65,6 +121,7 @@ async def _github_get_json_with_headers(
     *,
     source: str = "github_proxy",
     request_id: str | None = None,
+    call_class: CallClass = "background",
 ) -> tuple[int, object, httpx.Headers]:
     # Build the query string into the URL rather than passing params to
     # httpx: client.get(url, params={}) REPLACES the URL's own query string,
@@ -73,6 +130,14 @@ async def _github_get_json_with_headers(
     # limit on 2026-07-06).
     request_url = _github_url(path_or_url, params)
     audit_url = request_url
+    check_github_rate_governor(
+        request_id=request_id,
+        source=source,
+        method="GET",
+        url=audit_url,
+        call_class=call_class,
+        pool=_expected_rest_rate_pool(request_url),
+    )
     started = time.perf_counter()
     try:
         response = await client.get(
@@ -99,6 +164,7 @@ async def _github_get_json_with_headers(
         duration_ms=(time.perf_counter() - started) * 1000,
         response_headers=response.headers,
     )
+    update_github_rate_governor_from_headers(response.headers)
     if response.status_code >= 400:
         return response.status_code, response.text, response.headers
     return response.status_code, response.json(), response.headers
@@ -112,6 +178,7 @@ async def _github_get_json(
     *,
     source: str = "github_proxy",
     request_id: str | None = None,
+    call_class: CallClass = "background",
 ) -> tuple[int, object]:
     status, payload, _headers = await _github_get_json_with_headers(
         client,
@@ -120,6 +187,7 @@ async def _github_get_json(
         params,
         source=source,
         request_id=request_id,
+        call_class=call_class,
     )
     return status, payload
 
@@ -148,6 +216,7 @@ async def _github_get_paginated_list(
     *,
     source: str = "github_proxy",
     request_id: str | None = None,
+    call_class: CallClass = "background",
 ) -> tuple[int, object]:
     items: list[object] = []
     path_or_url = path
@@ -165,6 +234,7 @@ async def _github_get_paginated_list(
             page_params,
             source=source,
             request_id=request_id,
+            call_class=call_class,
         )
         if status >= 400:
             return status, payload
@@ -206,6 +276,7 @@ async def fetch_review_request_notifications(
         {"q": search_query, "per_page": str(REVIEW_REQUEST_SEARCH_PER_PAGE)},
         source="review_requests.search",
         request_id=request_id,
+        call_class="background",
     )
     if status >= 400:
         raise ReviewRequestSearchError(status, payload)
@@ -227,29 +298,88 @@ async def fetch_review_request_notifications(
     ]
 
 
+class BulkCommentFetchResults(list[tuple[str, dict]]):
+    """List of fetched bulk comment results plus stop reason metadata."""
+
+    def __init__(
+        self,
+        values: Iterable[tuple[str, dict[str, Any]]] = (),
+        *,
+        rate_limited: bool = False,
+        denial: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(values)
+        self.rate_limited = rate_limited
+        self.denial = denial
+
+
 async def fetch_bulk_comment_results(
     token: str,
     items: list[dict],
     on_progress=None,
     request_id: str | None = None,
-) -> list[tuple[str, dict]]:
+) -> BulkCommentFetchResults:
     """Fetch comment threads for multiple notifications with bounded concurrency."""
     client = get_client()
-    limit = asyncio.Semaphore(COMMENT_BULK_CONCURRENCY)
+    next_index = 0
+    stopped = False
+    denial_detail: dict[str, Any] | None = None
+    results_by_index: dict[int, tuple[str, dict]] = {}
+    lock = asyncio.Lock()
 
-    async def run_item(item: dict) -> tuple[str, dict]:
-        async with limit:
-            result = await _fetch_bulk_comment_item(
-                client,
-                token,
-                item,
-                request_id=request_id,
-            )
-        if on_progress is not None:
-            on_progress(result)
-        return result
+    async def claim_item() -> tuple[int, dict] | None:
+        nonlocal next_index
+        async with lock:
+            if stopped or next_index >= len(items):
+                return None
+            index = next_index
+            next_index += 1
+            return index, items[index]
 
-    return await asyncio.gather(*(run_item(item) for item in items))
+    async def stop_for_denial(detail: dict[str, Any]) -> None:
+        nonlocal stopped, denial_detail
+        async with lock:
+            stopped = True
+            if denial_detail is None:
+                denial_detail = detail
+
+    async def run_worker() -> None:
+        while claimed := await claim_item():
+            index, item = claimed
+            try:
+                result = await _fetch_bulk_comment_item(
+                    client,
+                    token,
+                    item,
+                    request_id=request_id,
+                )
+            except RateGovernorDeniedError as error:
+                detail = error.detail
+                await stop_for_denial(detail)
+                result = (
+                    str(item.get("key") or ""),
+                    {
+                        "error": detail.get("message") or str(error),
+                        "rate_limited": True,
+                        "governor": detail,
+                    },
+                )
+            results_by_index[index] = result
+            if on_progress is not None:
+                on_progress(result)
+
+    worker_count = min(COMMENT_BULK_CONCURRENCY, len(items))
+    if worker_count:
+        await asyncio.gather(*(run_worker() for _ in range(worker_count)))
+
+    ordered_results = [
+        results_by_index[index] for index in sorted(results_by_index.keys())
+    ]
+    return BulkCommentFetchResults(
+        ordered_results,
+        rate_limited=denial_detail is not None,
+        denial=denial_detail,
+    )
 
 
 def _issue_to_comment(issue: object) -> dict | None:
@@ -296,6 +426,7 @@ async def _fetch_bulk_comment_item(
             f"repos/{owner}/{repo}/issues/{number}",
             source="comments_bulk.issue",
             request_id=request_id,
+            call_class="background",
         )
         if status < 400:
             issue_comment = _issue_to_comment(issue)
@@ -321,6 +452,7 @@ async def _fetch_bulk_comment_item(
         params,
         source="comments_bulk.issue_comments",
         request_id=request_id,
+        call_class="background",
     )
     if status >= 400:
         return key, {
@@ -337,6 +469,7 @@ async def _fetch_bulk_comment_item(
             params,
             source="comments_bulk.pr_review_comments",
             request_id=request_id,
+            call_class="background",
         )
         if status < 400 and isinstance(review_comments, list):
             for comment in review_comments:
@@ -352,6 +485,7 @@ async def _fetch_bulk_comment_item(
             {},
             source="comments_bulk.issue_events",
             request_id=request_id,
+            call_class="background",
         )
         if status < 400 and isinstance(issue_events, list):
             state_events.extend(
@@ -429,7 +563,11 @@ async def bulk_comments(request: Request) -> dict:
         request_id=request_id if isinstance(request_id, str) else None,
     )
     threads = {key: result for key, result in results if key}
-    return {"threads": threads}
+    response: dict[str, Any] = {"threads": threads}
+    if results.rate_limited:
+        response["rate_limited"] = True
+        response["rate_limit"] = results.denial
+    return response
 
 
 @router.get(
@@ -502,6 +640,14 @@ async def rest_proxy(path: str, request: Request) -> Response:
     client = get_client()
     request_id = request.scope.get("ghinbox_request_id")
     request_id = request_id if isinstance(request_id, str) else None
+    check_github_rate_governor(
+        request_id=request_id,
+        source="rest_proxy",
+        method=request.method,
+        url=url,
+        call_class="interactive",
+        pool=_expected_rest_rate_pool(url),
+    )
     started = time.perf_counter()
     try:
         response = await client.request(
@@ -530,6 +676,7 @@ async def rest_proxy(path: str, request: Request) -> Response:
         duration_ms=(time.perf_counter() - started) * 1000,
         response_headers=response.headers,
     )
+    update_github_rate_governor_from_headers(response.headers)
 
     # Return the response with appropriate headers
     return Response(
@@ -567,6 +714,14 @@ async def graphql_proxy(request: Request) -> Response:
     request_id = request.scope.get("ghinbox_request_id")
     request_id = request_id if isinstance(request_id, str) else None
     url = f"{GITHUB_API_BASE}/graphql"
+    check_github_rate_governor(
+        request_id=request_id,
+        source="graphql_proxy",
+        method="POST",
+        url=url,
+        call_class="interactive",
+        pool="graphql",
+    )
     started = time.perf_counter()
     try:
         response = await client.post(
@@ -594,6 +749,7 @@ async def graphql_proxy(request: Request) -> Response:
         duration_ms=(time.perf_counter() - started) * 1000,
         response_headers=response.headers,
     )
+    update_github_rate_governor_from_headers(response.headers)
 
     return Response(
         content=response.content,
