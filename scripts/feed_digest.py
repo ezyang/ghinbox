@@ -316,8 +316,20 @@ def _is_directed_at_current_user(
 
     last_read_at_ms = _parse_timestamp(notification.get("last_read_at"))
 
+    # A user's own comment implies they have read everything up to that point,
+    # so treat the timestamp of their latest comment as a read watermark even
+    # when GitHub's last_read_at is missing/stale. Mirrors the webapp.
+    own_latest_ms: float | None = None
+    for c in sorted_comments:
+        if ((c.get("user") or {}).get("login") or "").lower() != login:
+            continue
+        ts = _comment_timestamp_ms(c)
+        own_latest_ms = ts if own_latest_ms is None else max(own_latest_ms, ts)
+
     def is_unread(c: dict) -> bool:
         ts = _comment_timestamp_ms(c)
+        if own_latest_ms is not None and ts <= own_latest_ms:
+            return False
         return last_read_at_ms is None or ts > last_read_at_ms
 
     # For closed/merged notifications, only consider comments after close event

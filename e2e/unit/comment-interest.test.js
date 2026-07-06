@@ -167,6 +167,48 @@ test('delegated claude[bot] task-completion mentions are directed at the current
   );
 });
 
+test('a delegated claude[bot] mention the user already replied past is not directed', () => {
+  // ezyang asked @claude, claude finished @-mentioning ezyang, and THEN ezyang
+  // commented again. The user's own later comment implies they read the claude
+  // response, so this belongs in Feed, not Replies. (All comments unread per
+  // last_read_at so the own-comment watermark is what's under test.)
+  const comments = [
+    comment(10, 'testuser', '@claude Answer the outstanding comments on PR'),
+    comment(
+      11,
+      'claude[bot]',
+      "**Claude finished @testuser's task** — Answers to outstanding review comments...",
+    ),
+    comment(12, 'testuser', 'Thanks, merging.'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest', 'mention'), {
+      comments,
+      currentUserLogin: 'testuser',
+    }),
+    false
+  );
+});
+
+test("a human reply after the user's own latest comment is still directed", () => {
+  // The own-comment read watermark must not swallow genuinely new replies: a
+  // human comment after the user's last comment still routes to Replies.
+  const comments = [
+    comment(10, 'alice', '@testuser can you take a look?'),
+    comment(11, 'testuser', 'Looking now.'),
+    comment(12, 'alice', 'Gentle ping @testuser, thanks!'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('Issue', 'mention'), {
+      comments,
+      currentUserLogin: 'testuser',
+    }),
+    true
+  );
+});
+
 test('generic claude[bot] review that does not mention the user is not directed', () => {
   // A claude[bot] auto-review of someone else's PR that does not @-mention the
   // user must stay filtered as bot noise (Feed), not leak into Replies.

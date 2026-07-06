@@ -284,8 +284,33 @@
 
         const lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
         const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
+        // A user's own comment implies they have read everything up to that
+        // point within the same thread, so treat the timestamp of their latest
+        // comment in a thread as a per-thread read watermark even when GitHub's
+        // last_read_at is missing/stale. Scoped per participation thread so a
+        // comment on one thread does not mark unrelated threads read. Only
+        // activity strictly after their last comment in that thread can be
+        // "directed" at them.
+        const ownLatestByThread = new Map();
+        comments.forEach((comment) => {
+            if (normalizeLogin(comment?.user?.login) !== currentUser) {
+                return;
+            }
+            const key = getParticipationThreadKey(comment);
+            const timestamp = getCommentTimestampMs(comment);
+            const previous = ownLatestByThread.get(key);
+            if (previous === undefined || timestamp > previous) {
+                ownLatestByThread.set(key, timestamp);
+            }
+        });
         const isUnread = (comment) => {
             const timestamp = getCommentTimestampMs(comment);
+            const ownLatestMs = ownLatestByThread.get(
+                getParticipationThreadKey(comment)
+            );
+            if (ownLatestMs !== undefined && timestamp <= ownLatestMs) {
+                return false;
+            }
             return Number.isNaN(lastReadAt) || timestamp > lastReadAt;
         };
         const latestCloseEventMs = isClosedOrMergedNotification(notification)
