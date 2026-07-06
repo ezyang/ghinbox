@@ -9,89 +9,33 @@ Uses Playwright's async API to work properly with FastAPI's asyncio event loop.
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import replace
 from typing import Any
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-from ghinbox.auth import (
-    AUTH_STATE_DIR,
-    PROFILE_LINK_SELECTOR,
-    PROFILE_SETTINGS_URL,
-    USER_LOGIN_META_SELECTOR,
-    USER_MENU_SELECTOR,
-    get_auth_state_path,
+from ghinbox.api.login_page_state import (
+    ALTERNATE_ERROR_SELECTORS,
+    FLASH_ERROR_SELECTOR,
+    MOBILE_VERIFICATION_CODE_SELECTORS,
+    PAGE_STATE_SELECTORS,
+    SECURITY_KEY_MOBILE_LINK_SELECTOR,
+    PageState,
+    PageStateFacts,
+    PageStateResult,
+    classify_page_state,
+    extract_mobile_verification_code,
+    needs_main_page_flash_recheck,
+    security_key_mobile_redirect_url,
+)
+from ghinbox.auth_common import (
+    GITHUB_LOGGED_IN_SELECTORS,
+    extract_username_async,
+    save_auth_state_async,
     save_username,
 )
 
 logger = logging.getLogger(__name__)
-
-
-class PageState(Enum):
-    """Detected state of the current page."""
-
-    LOGIN_FORM = "login_form"  # On the login page with username/password form
-    TWOFA_APP = "twofa_app"  # 2FA page for authenticator app
-    TWOFA_SMS = "twofa_sms"  # 2FA page for SMS code
-    TWOFA_MOBILE = "twofa_mobile"  # 2FA page for GitHub mobile app approval
-    TWOFA_SECURITY_KEY = "twofa_security_key"  # 2FA page for security key (unsupported)
-    LOGGED_IN = "logged_in"  # Successfully logged in
-    LOGIN_ERROR = "login_error"  # Login failed (wrong credentials)
-    CAPTCHA = "captcha"  # CAPTCHA challenge detected
-    UNKNOWN = "unknown"  # Unable to determine page state
-
-
-@dataclass
-class PageStateResult:
-    """Result of detecting page state."""
-
-    state: PageState
-    error_message: str | None = None
-    twofa_method: str | None = None  # 'app', 'sms', or 'mobile'
-    verification_code: str | None = None  # Digits to confirm on mobile device
-
-
-async def extract_username_async(page: Page) -> str | None:
-    """
-    Extract the GitHub username from an authenticated page (async version).
-
-    Args:
-        page: A Playwright page that is logged into GitHub
-
-    Returns:
-        The username or None if it couldn't be extracted
-    """
-    # Method 1: Look for the username in the user menu button
-    user_button = page.locator(USER_MENU_SELECTOR)
-    if await user_button.count() > 0:
-        # The username is often in the image alt or nearby elements
-        img = user_button.locator("img")
-        if await img.count() > 0:
-            alt = await img.get_attribute("alt")
-            if alt and alt.startswith("@"):
-                return alt[1:]  # Remove the @ prefix
-
-    # Method 2: Navigate to profile and extract from URL
-    await page.goto(PROFILE_SETTINGS_URL)
-    await page.wait_for_load_state("domcontentloaded")
-
-    # Method 3: Get it from the meta tag or page content
-    # GitHub has a meta tag with the user login
-    meta = page.locator(USER_LOGIN_META_SELECTOR)
-    if await meta.count() > 0:
-        content = await meta.get_attribute("content")
-        if content:
-            return content
-
-    # Method 4: Parse from the profile URL link
-    profile_link = page.locator(PROFILE_LINK_SELECTOR)
-    if await profile_link.count() > 0:
-        href = await profile_link.get_attribute("href")
-        if href and href.startswith("/"):
-            return href[1:]  # Remove the leading /
-
-    return None
 
 
 class LoginFetcher:
@@ -178,56 +122,28 @@ class LoginFetcher:
             return None
 
     async def _extract_mobile_verification_code(self, page: Page) -> str | None:
-        """Extract the verification code digits from GitHub Mobile 2FA page.
-
-        GitHub shows a 2-digit code that the user needs to match on their phone.
-
-        Returns:
-            The verification code string, or None if not found
-        """
+        """Extract the verification code digits from GitHub Mobile 2FA page."""
         try:
-            # GitHub shows the verification digits in various ways
-            # Try common selectors for the verification code
-            code_selectors = [
-                ".js-verification-code",
-                "[data-target='device-verification.number']",
-                ".verification-code",
-                ".auth-form-body strong",
-                ".Box-body strong",
-                # Try finding large numbers that look like verification codes
-                "div.text-center strong",
-                ".flash strong",
-            ]
-
-            for selector in code_selectors:
+            selector_texts: dict[str, str | None] = {}
+            for selector in MOBILE_VERIFICATION_CODE_SELECTORS:
                 element = page.locator(selector)
                 count = await element.count()
                 if count > 0:
-                    text = await element.first.text_content()
-                    if text:
-                        # Extract just the digits
-                        digits = "".join(c for c in text if c.isdigit())
-                        if len(digits) >= 2:
-                            logger.debug(
-                                "Found verification code '%s' using selector: %s",
-                                digits,
-                                selector,
-                            )
-                            return digits
+                    selector_texts[selector] = await element.first.text_content()
+                    code = extract_mobile_verification_code(selector_texts, "")
+                    if code:
+                        logger.debug(
+                            "Found verification code '%s' using selector: %s",
+                            code,
+                            selector,
+                        )
+                        return code
 
-            # Fallback: try to find any prominent number on the page
-            # Look for text containing just digits (2-3 digits typical)
             body_text = await page.locator("body").text_content() or ""
-            import re
-
-            # Find standalone 2-digit numbers (typical for GitHub Mobile)
-            matches = re.findall(r"\b(\d{2})\b", body_text)
-            if matches:
-                # Return the first match (most likely the verification code)
-                logger.debug(
-                    "Found potential verification code via regex: %s", matches[0]
-                )
-                return matches[0]
+            code = extract_mobile_verification_code({}, body_text)
+            if code:
+                logger.debug("Found potential verification code via regex: %s", code)
+                return code
 
             logger.warning("Could not find verification code on mobile 2FA page")
             return None
@@ -235,6 +151,56 @@ class LoginFetcher:
         except Exception as e:
             logger.warning("Error extracting verification code: %s", e)
             return None
+
+    async def _selector_counts(
+        self,
+        page: Page,
+        selectors: tuple[str, ...],
+    ) -> dict[str, int]:
+        """Evaluate selector counts for page-state classification."""
+        counts: dict[str, int] = {}
+        for selector in selectors:
+            counts[selector] = await page.locator(selector).count()
+        return counts
+
+    async def _gather_page_state_facts(self, page: Page) -> PageStateFacts:
+        """Gather Playwright facts needed by the pure page-state classifier."""
+        current_url = page.url
+        selector_counts = await self._selector_counts(page, PAGE_STATE_SELECTORS)
+        page_content_lower = (await page.content()).lower()
+
+        flash_error_text = None
+        if selector_counts.get(FLASH_ERROR_SELECTOR, 0) > 0:
+            flash_error = page.locator(FLASH_ERROR_SELECTOR).first
+            flash_error_text = await flash_error.text_content()
+
+        alternate_error_texts: dict[str, str] = {}
+        for selector in ALTERNATE_ERROR_SELECTORS:
+            if selector_counts.get(selector, 0) > 0:
+                error_text = await page.locator(selector).first.text_content()
+                if error_text is not None:
+                    alternate_error_texts[selector] = error_text
+
+        security_key_mobile_href = None
+        mobile_link = page.locator(SECURITY_KEY_MOBILE_LINK_SELECTOR)
+        if await mobile_link.count() > 0:
+            security_key_mobile_href = await mobile_link.first.get_attribute("href")
+
+        mobile_verification_code = None
+        if "two-factor/mobile" in current_url:
+            mobile_verification_code = await self._extract_mobile_verification_code(
+                page
+            )
+
+        return PageStateFacts(
+            current_url=current_url,
+            selector_counts=selector_counts,
+            page_content_lower=page_content_lower,
+            flash_error_text=flash_error_text,
+            alternate_error_texts=alternate_error_texts,
+            mobile_verification_code=mobile_verification_code,
+            security_key_mobile_href=security_key_mobile_href,
+        )
 
     async def detect_page_state(self) -> PageStateResult:
         """
@@ -248,254 +214,69 @@ class LoginFetcher:
             return PageStateResult(state=PageState.UNKNOWN)
 
         page = self._page
-        current_url = page.url
-        logger.warning("Detecting page state, current URL: %s", current_url)
+        logger.warning("Detecting page state, current URL: %s", page.url)
 
         try:
-            # Check if logged in using multiple indicators
-            logged_in_selectors = [
-                USER_MENU_SELECTOR,
-                "img.avatar.circle",  # User avatar in header
-                'meta[name="user-login"][content]:not([content=""])',  # Meta tag with username
-                'a[href*="/settings/profile"]',  # Settings link only visible when logged in
-            ]
-            for selector in logged_in_selectors:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    logger.info("Detected LOGGED_IN state (selector: %s)", selector)
-                    return PageStateResult(state=PageState.LOGGED_IN)
+            facts = await self._gather_page_state_facts(page)
 
-            # Check for CAPTCHA
-            captcha_indicators = [
-                'iframe[src*="captcha"]',
-                'iframe[src*="recaptcha"]',
-                'div[class*="captcha"]',
-                "#captcha-container",
-            ]
-            for selector in captcha_indicators:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    logger.warning("Detected CAPTCHA (selector: %s)", selector)
-                    return PageStateResult(
-                        state=PageState.CAPTCHA,
-                        error_message="CAPTCHA required. Use --headed-login flag to login manually.",
-                    )
+            mobile_redirect_url = security_key_mobile_redirect_url(facts)
+            if mobile_redirect_url:
+                logger.warning(
+                    "On security key page, navigating to mobile 2FA: %s",
+                    mobile_redirect_url,
+                )
+                await page.goto(mobile_redirect_url, wait_until="domcontentloaded")
+                await asyncio.sleep(0.5)
+                return await self.detect_page_state()
 
-            # Check for 2FA pages BEFORE checking for flash-error
-            # (2FA pages may have empty flash-error elements)
-
-            # GitHub Mobile 2FA - check by URL or page elements
-            if "two-factor/mobile" in current_url:
-                logger.warning("Detected TWOFA_MOBILE via URL")
-                # Extract the verification code (digits to confirm on device)
-                verification_code = await self._extract_mobile_verification_code(page)
-                if verification_code:
-                    logger.warning("Mobile verification code: %s", verification_code)
-                return PageStateResult(
-                    state=PageState.TWOFA_MOBILE,
-                    twofa_method="mobile",
-                    verification_code=verification_code,
+            if needs_main_page_flash_recheck(facts):
+                logger.warning(
+                    "Flash error on main page, waiting for page to stabilize..."
+                )
+                await asyncio.sleep(1.5)
+                post_wait_counts = await self._selector_counts(
+                    page,
+                    GITHUB_LOGGED_IN_SELECTORS,
+                )
+                facts = replace(
+                    facts,
+                    post_wait_selector_counts=post_wait_counts,
                 )
 
-            # Also check for mobile 2FA by looking for specific elements
-            # GitHub mobile auth page typically has "Check your device" or similar text
-            mobile_indicators = [
-                "[data-target='sudo-credential-options.mobileOption']",
-                "button[data-action*='mobile']",
-                ".js-mobile-credential-option",
-            ]
-            for selector in mobile_indicators:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    logger.warning(
-                        "Detected TWOFA_MOBILE via element selector: %s", selector
-                    )
-                    return PageStateResult(
-                        state=PageState.TWOFA_MOBILE,
-                        twofa_method="mobile",
-                    )
+            result = classify_page_state(facts)
 
-            # Security key page (WebAuthn) - check by URL first
-            # But also check if there's a mobile option we can switch to
-            if (
-                "two-factor/webauthn" in current_url
-                or "two-factor/security" in current_url
-            ):
-                # Check if there's a link to use mobile instead
-                mobile_link = page.locator("a[href*='two-factor/mobile']")
-                mobile_link_count = await mobile_link.count()
-                if mobile_link_count > 0:
-                    # Get the href and navigate directly (more reliable than clicking)
-                    href = await mobile_link.first.get_attribute("href")
-                    if href:
-                        # Build full URL if it's relative
-                        if href.startswith("/"):
-                            href = f"https://github.com{href}"
-                        logger.warning(
-                            "On security key page, navigating to mobile 2FA: %s", href
-                        )
-                        await page.goto(href, wait_until="domcontentloaded")
-                        await asyncio.sleep(0.5)
-                        # Re-detect the page state
-                        return await self.detect_page_state()
-
-                logger.warning("Detected TWOFA_SECURITY_KEY via URL (not supported)")
-                await self.save_debug_screenshot("security_key_2fa")
-                return PageStateResult(
-                    state=PageState.TWOFA_SECURITY_KEY,
-                    error_message="Security key 2FA not supported. Please configure authenticator app in GitHub settings.",
-                    twofa_method="security_key",
-                )
-
-            # Also check by button selector
-            security_key_btn = page.locator(
-                'button[data-action="click:webauthn-get#start"]'
-            )
-            security_key_count = await security_key_btn.count()
-            logger.debug("Security key button count: %d", security_key_count)
-            if security_key_count > 0:
-                logger.warning("Detected TWOFA_SECURITY_KEY via button (not supported)")
-                return PageStateResult(
-                    state=PageState.TWOFA_SECURITY_KEY,
-                    error_message="Security key 2FA not supported. Please configure authenticator app in GitHub settings.",
-                    twofa_method="security_key",
-                )
-
-            # Check for authenticator app 2FA
-            # Look for OTP input or TOTP-related elements
-            otp_input = page.locator('input[name="app_otp"], input[id="app_totp"]')
-            otp_input_count = await otp_input.count()
-            logger.debug("OTP input (app_otp/app_totp) count: %d", otp_input_count)
-            if otp_input_count > 0:
-                logger.info("Detected TWOFA_APP state")
-                return PageStateResult(
-                    state=PageState.TWOFA_APP,
-                    twofa_method="app",
-                )
-
-            # Alternative 2FA detection via page content
-            page_text = (await page.content()).lower()
-            has_2fa_text = (
-                "two-factor" in page_text or "authentication code" in page_text
-            )
-            logger.debug("Page contains 2FA text: %s", has_2fa_text)
-            if has_2fa_text:
-                # Check for SMS option
-                sms_input = page.locator('input[name="sms_otp"]')
-                sms_count = await sms_input.count()
-                logger.debug("SMS OTP input count: %d", sms_count)
-                if sms_count > 0:
-                    logger.info("Detected TWOFA_SMS state")
-                    return PageStateResult(
-                        state=PageState.TWOFA_SMS,
-                        twofa_method="sms",
-                    )
-
-                # Generic 2FA input
-                otp_inputs = page.locator(
-                    'input[type="text"][autocomplete="one-time-code"]'
-                )
-                generic_otp_count = await otp_inputs.count()
-                logger.debug("Generic OTP input count: %d", generic_otp_count)
-                if generic_otp_count > 0:
-                    logger.info("Detected TWOFA_APP state (via generic OTP input)")
-                    return PageStateResult(
-                        state=PageState.TWOFA_APP,
-                        twofa_method="app",
-                    )
-
-            # Check for login error (flash error message)
-            # Only treat as error if there's actual error text
-            flash_error = page.locator(".flash-error")
-            flash_error_count = await flash_error.count()
-            logger.debug("Flash error count: %d", flash_error_count)
-            if flash_error_count > 0:
-                error_text = await flash_error.first.text_content()
-                error_msg = (error_text or "").strip()
-                # Only treat as error if there's actual text content
-                if error_msg:
-                    # If we're on the main GitHub page (not login/2FA), the page might
-                    # still be loading after redirect. Wait and re-check for user menu.
-                    is_main_page = current_url.rstrip(
-                        "/"
-                    ) == "https://github.com" or current_url.startswith(
-                        "https://github.com/?"
-                    )
-                    if is_main_page:
-                        logger.warning(
-                            "Flash error on main page, waiting for page to stabilize..."
-                        )
-                        await asyncio.sleep(1.5)
-                        # Re-check for logged-in state using multiple indicators
-                        for selector in logged_in_selectors:
-                            recheck_count = await page.locator(selector).count()
-                            if recheck_count > 0:
-                                logger.info(
-                                    "Logged in after wait (selector: %s) - ignoring flash error",
-                                    selector,
-                                )
-                                return PageStateResult(state=PageState.LOGGED_IN)
-
-                    error_html = await flash_error.first.inner_html()
+            if result.state == PageState.TWOFA_MOBILE and result.verification_code:
+                logger.warning("Mobile verification code: %s", result.verification_code)
+            elif result.state == PageState.TWOFA_SECURITY_KEY:
+                logger.warning("Detected TWOFA_SECURITY_KEY (not supported)")
+                if (
+                    "two-factor/webauthn" in facts.current_url
+                    or "two-factor/security" in facts.current_url
+                ):
+                    await self.save_debug_screenshot("security_key_2fa")
+            elif result.state == PageState.LOGIN_ERROR:
+                if facts.flash_error_text and facts.flash_error_text.strip():
+                    error_html = await page.locator(
+                        FLASH_ERROR_SELECTOR
+                    ).first.inner_html()
                     logger.warning("Flash error HTML: %s", error_html)
-                    logger.warning("Flash error text: '%s'", error_text)
+                    logger.warning("Flash error text: '%s'", facts.flash_error_text)
                     await self.save_debug_screenshot("login_error")
-                    logger.warning("Detected LOGIN_ERROR: %s", error_msg)
-                    return PageStateResult(
-                        state=PageState.LOGIN_ERROR,
-                        error_message=error_msg,
+                logger.warning("Detected LOGIN_ERROR: %s", result.error_message)
+            elif result.state == PageState.UNKNOWN:
+                logger.warning(
+                    "UNKNOWN page state. URL: %s, Title: %s",
+                    page.url,
+                    await page.title(),
+                )
+                body_text = await page.locator("body").text_content()
+                if body_text:
+                    logger.debug(
+                        "Page body text (first 500 chars): %s", body_text[:500]
                     )
-                else:
-                    logger.debug("Flash error element found but empty, ignoring")
+                await self.save_debug_screenshot("unknown_state")
 
-            # Also check for other error patterns on GitHub login page
-            # Sometimes errors appear in different elements
-            error_selectors = [
-                ".js-flash-alert",
-                "#js-flash-container .flash",
-            ]
-            for selector in error_selectors:
-                error_el = page.locator(selector)
-                count = await error_el.count()
-                if count > 0:
-                    error_text = await error_el.first.text_content()
-                    if error_text and error_text.strip():
-                        logger.warning(
-                            "Detected error via selector '%s': %s",
-                            selector,
-                            error_text.strip(),
-                        )
-                        return PageStateResult(
-                            state=PageState.LOGIN_ERROR,
-                            error_message=error_text.strip(),
-                        )
-
-            # Check if on login form
-            login_input = page.locator('input[name="login"], input#login_field')
-            password_input = page.locator('input[name="password"], input#password')
-            login_count = await login_input.count()
-            password_count = await password_input.count()
-            logger.debug(
-                "Login form inputs - login: %d, password: %d",
-                login_count,
-                password_count,
-            )
-            if login_count > 0 and password_count > 0:
-                logger.info("Detected LOGIN_FORM state")
-                return PageStateResult(state=PageState.LOGIN_FORM)
-
-            # Unknown state - log page content for debugging
-            logger.warning(
-                "UNKNOWN page state. URL: %s, Title: %s",
-                page.url,
-                await page.title(),
-            )
-            # Log a snippet of the page content for debugging
-            body_text = await page.locator("body").text_content()
-            if body_text:
-                logger.debug("Page body text (first 500 chars): %s", body_text[:500])
-            await self.save_debug_screenshot("unknown_state")
-            return PageStateResult(state=PageState.UNKNOWN)
+            return result
 
         except Exception as e:
             logger.exception("Error detecting page state: %s", e)
@@ -757,10 +538,8 @@ class LoginFetcher:
                 save_username(account, username)
 
             # Save browser storage state
-            AUTH_STATE_DIR.mkdir(parents=True, exist_ok=True)
-            auth_path = get_auth_state_path(account)
+            auth_path = await save_auth_state_async(self._context, account)
             logger.info("Saving storage state to: %s", auth_path)
-            await self._context.storage_state(path=str(auth_path))
 
             logger.info("Auth state saved successfully")
             return True, username
