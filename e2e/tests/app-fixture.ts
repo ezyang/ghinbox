@@ -170,6 +170,21 @@ export async function mockDefaultApiRoutes(page: Page, options: {
     return fulfillJson(route, { id: 1, body: '', user: { login } });
   });
   await page.route(`**/api/snapshots/${owner}/${name}`, (route) => fulfillJson(route, { snapshot: null }));
+  await mockServerSnapshotSyncUnavailable(page, repo);
+}
+
+export async function mockServerSnapshotSyncUnavailable(
+  page: Page,
+  repo: string = DEFAULT_REPO
+) {
+  const [owner, name] = repo.split('/');
+  await page.route(`**/api/snapshots/${owner}/${name}/sync`, (route) =>
+    fulfillJson(
+      route,
+      { detail: 'No GitHub fetcher configured. Start server with --account.' },
+      503
+    )
+  );
 }
 
 export async function mockHtmlAction(

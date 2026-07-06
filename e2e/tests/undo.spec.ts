@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import mixedFixture from '../fixtures/notifications_mixed.json';
+import { mockServerSnapshotSyncUnavailable } from './app-fixture';
 import { clearAppStorage, readNotificationsCache } from './storage-utils';
 
 const THREAD_SYNC_PAYLOAD = {
@@ -51,6 +52,7 @@ test.describe('Undo @mutation', () => {
         body: JSON.stringify(fixtureWithToken),
       });
     });
+    await mockServerSnapshotSyncUnavailable(page);
 
     // Mock comments endpoint for syncNotificationBeforeDone
     await page.route('**/github/rest/repos/**/issues/*/comments', (route) => {
@@ -72,6 +74,14 @@ test.describe('Undo @mutation', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+
+    // Auto-clean defaults on and would immediately archive the closed/merged
+    // fixture notifications through the mocked action endpoint; disable it so
+    // all 5 stay visible for undo testing.
+    const autoCleanToggle = page.locator('#auto-clean-low-priority-toggle');
+    if (await autoCleanToggle.isChecked()) {
+      await autoCleanToggle.uncheck();
+    }
 
     // Sync to load notifications
     await page.locator('#repo-input').fill('test/repo');
