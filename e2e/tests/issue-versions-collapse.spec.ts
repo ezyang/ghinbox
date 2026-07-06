@@ -36,7 +36,7 @@ const notificationsResponse = {
   },
 };
 
-test.describe('Issue versions section', () => {
+test.describe('Issue versions section @layout', () => {
   test.beforeEach(async ({ page }) => {
     const commentCache = {
       version: 1,

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Observability endpoints', () => {
+test.describe('Observability endpoints @smoke', () => {
   test('records recent API requests with request IDs', async ({ request }) => {
     const clearResponse = await request.post('/debug/requests/clear');
     expect(clearResponse.status()).toBe(200);

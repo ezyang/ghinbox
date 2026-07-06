@@ -176,6 +176,12 @@ test('classifies notifications into view counts', () => {
     expected: ['issue-closed'],
   },
   {
+    name: 'interest has-new keeps interesting feed items',
+    view: 'issues',
+    filters: { issues: { interest: 'has-new' } },
+    expected: ['issue-open', 'my-pr', 'approved-pr', 'changes-requested-pr'],
+  },
+  {
     name: 'replies view keeps directed notifications',
     view: 'pr-notifications',
     filters: {},
@@ -224,5 +230,28 @@ test('computes subfilter counts after cross-filters', () => {
     committer: 1,
     ai: 1,
     external: 1,
+  });
+});
+
+test('computes feed interest subfilter counts', () => {
+  const interestNotifications = [
+    notification('thread-interesting', 'Issue', 'open'),
+    notification('thread-bot-only', 'Issue', 'open'),
+    notification('thread-bot-commands', 'Issue', 'open'),
+    notification('thread-no-comments', 'Issue', 'open'),
+  ];
+  const counts = getSubfilterCounts(input({
+    notifications: interestNotifications,
+    deps: {
+      ...baseDeps,
+      getUninterestingReason: (notification) =>
+        notification.id === 'thread-interesting' ? null : 'no-comments',
+    },
+  }));
+
+  assert.deepEqual(counts.interest, {
+    all: 4,
+    hasNew: 1,
+    noNew: 3,
   });
 });

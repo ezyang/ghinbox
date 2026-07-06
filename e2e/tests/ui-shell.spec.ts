@@ -7,7 +7,7 @@ import { addAuthCacheInitScript, APP_STORAGE_KEYS } from './storage-utils';
  * Keep this file lean: verify core structure and a couple of key behaviors.
  */
 
-test.describe('UI Shell', () => {
+test.describe('UI Shell @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ colorScheme: 'light' });
 
@@ -95,10 +95,9 @@ test.describe('UI Shell', () => {
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expect(themeToggle).toBeChecked();
 
-    const savedTheme = await page.evaluate(() =>
-      localStorage.getItem('ghnotif_theme')
-    );
-    expect(savedTheme).toBe('dark');
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('ghnotif_theme')))
+      .toBe('dark');
 
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(1, 4, 9)');
 
@@ -108,7 +107,7 @@ test.describe('UI Shell', () => {
   });
 });
 
-test.describe('Repository Input', () => {
+test.describe('Repository Input @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({
@@ -130,18 +129,16 @@ test.describe('Repository Input', () => {
     const input = page.locator('#repo-input');
     await input.fill('vercel/next.js');
 
-    const savedValue = await page.evaluate(
-      (repoKey) => localStorage.getItem(repoKey),
-      APP_STORAGE_KEYS.repo
-    );
-    expect(savedValue).toBe('vercel/next.js');
+    await expect
+      .poll(() => page.evaluate((repoKey) => localStorage.getItem(repoKey), APP_STORAGE_KEYS.repo))
+      .toBe('vercel/next.js');
 
     await page.reload();
     await expect(input).toHaveValue('vercel/next.js');
   });
 });
 
-test.describe('Sync Button', () => {
+test.describe('Sync Button @layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.clear();
@@ -171,7 +168,7 @@ test.describe('Sync Button', () => {
   });
 });
 
-test.describe('Auth Status', () => {
+test.describe('Auth Status @layout', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage to ensure fresh auth check (auth is cached with TTL)
     await page.addInitScript(() => {

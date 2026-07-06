@@ -5,7 +5,7 @@ import {
   mockDefaultApiRoutes,
 } from './app-fixture';
 
-test.describe('Comments without last_read_at', () => {
+test.describe('Comments without last_read_at @sync', () => {
   test.beforeEach(async ({ page }) => {
     await mockDefaultApiRoutes(page);
   });

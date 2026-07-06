@@ -107,6 +107,15 @@ const commentCache = {
           body: 'Simplified in the latest push.',
           user: { login: 'alice' },
         },
+        {
+          id: 122,
+          isReviewComment: true,
+          path: 'src/other.py',
+          line: 9,
+          created_at: '2025-01-07T11:00:00Z',
+          body: 'Separate note on another thread.',
+          user: { login: 'testuser' },
+        },
       ],
     },
     'others-pr': {
@@ -251,6 +260,11 @@ test.describe('Replies queue classification @classification', () => {
     await expect(page.locator('[data-id="own-pr-review-comment"]')).toBeVisible();
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
     await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toHaveCount(0);
+
+    const reply = page.locator('[data-id="reply-pr"]');
+    await expect(reply.locator('.comment-item')).toHaveCount(1);
+    await expect(reply.locator('.comment-item')).toContainText('Simplified in the latest push.');
+    await expect(reply.locator('.comment-item')).not.toContainText('Separate note on another thread.');
 
     await page.locator('#view-issues').click();
     await expect(page.locator('.notification-item')).toHaveCount(2);

@@ -189,11 +189,17 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
     await expect
-      .poll(() => issueCommentRequests.find((url) => url.includes('/issues/10/comments')))
-      .toBeTruthy();
-    expect(
-      issueCommentRequests.find((url) => url.includes('/issues/10/comments'))
-    ).not.toContain('since=');
+      .poll(() => {
+        const matchingUrl = issueCommentRequests.find((url) =>
+          url.includes('/issues/10/comments')
+        );
+        if (!matchingUrl) {
+          return null;
+        }
+        const parsed = new URL(matchingUrl);
+        return `${parsed.pathname}${parsed.search}`;
+      })
+      .toBe('/github/rest/repos/test/repo/issues/10/comments');
   });
 
   test('remove me exits a synthetic responsibility item without notification actions', async ({

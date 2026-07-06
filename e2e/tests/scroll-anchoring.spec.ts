@@ -49,7 +49,7 @@ function generateLargeFixture(count: number) {
 
 const largeFixture = generateLargeFixture(20);
 
-test.describe('Scroll Anchoring', () => {
+test.describe('Scroll Anchoring @layout', () => {
   test.beforeEach(async ({ page }) => {
     await mockHtmlAction(page);
     await openNotificationsWithSync(page, {

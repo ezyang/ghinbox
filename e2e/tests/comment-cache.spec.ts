@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { clearAppStorage, readCommentCache, seedCommentCache } from './storage-utils';
 
-test.describe('Comment cache', () => {
+test.describe('Comment cache @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await page.route('**/github/rest/user', (route) => {
       route.fulfill({

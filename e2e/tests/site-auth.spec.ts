@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Site auth warning banner', () => {
+test.describe('Site auth warning banner @smoke', () => {
   test('shows warning when no password is configured', async ({ page }) => {
     await page.goto('/site-auth/login');
 

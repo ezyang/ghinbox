@@ -474,13 +474,10 @@ test.describe('XSS Prevention', () => {
 
     // The script tag should be escaped and visible as text
     const title = page.locator('.notification-title').first();
-    const text = await title.textContent();
-    expect(text).toContain('<script>');
-    expect(text).toContain('Malicious Title');
+    await expect(title).toContainText('<script>');
+    await expect(title).toContainText('Malicious Title');
 
     // No actual script execution should occur
-    const html = await title.innerHTML();
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('&lt;script&gt;');
+    await expect(title.locator('script')).toHaveCount(0);
   });
 });
