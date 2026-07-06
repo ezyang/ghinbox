@@ -66,14 +66,18 @@ async def _github_get_json_with_headers(
     source: str = "github_proxy",
     request_id: str | None = None,
 ) -> tuple[int, object, httpx.Headers]:
-    request_url = _github_url(path_or_url)
-    audit_url = _github_url(path_or_url, params)
+    # Build the query string into the URL rather than passing params to
+    # httpx: client.get(url, params={}) REPLACES the URL's own query string,
+    # which silently strips page/per_page from Link rel="next" URLs and turns
+    # pagination into an infinite page-1 loop (burned the full core rate
+    # limit on 2026-07-06).
+    request_url = _github_url(path_or_url, params)
+    audit_url = request_url
     started = time.perf_counter()
     try:
         response = await client.get(
             request_url,
             headers=github_rest_headers(token),
-            params=params,
         )
     except Exception as error:
         emit_github_api_call_audit(
@@ -150,7 +154,10 @@ async def _github_get_paginated_list(
     page_params = dict(params or {})
     page_params.setdefault("per_page", "100")
 
-    while True:
+    # Hard cap on pages followed: an unbounded Link-header walk once burned
+    # the entire core rate limit (see _github_get_json_with_headers comment).
+    # 20 pages x 100 items is far beyond any legitimate consumer here.
+    for _ in range(20):
         status, payload, headers = await _github_get_json_with_headers(
             client,
             token,
@@ -168,7 +175,8 @@ async def _github_get_paginated_list(
         if not next_url:
             return status, items
         path_or_url = next_url
-        page_params = {}
+        page_params = None
+    return status, items
 
 
 class ReviewRequestSearchError(RuntimeError):
