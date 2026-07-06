@@ -246,6 +246,13 @@ export const testIds = {
   notificationCheckbox: (id: string) => `[data-id="${id}"] .notification-checkbox`,
 };
 
+export async function disableAutoClean(page: Page) {
+  const autoCleanToggle = page.locator('#auto-clean-low-priority-toggle');
+  if (await autoCleanToggle.isChecked()) {
+    await autoCleanToggle.uncheck();
+  }
+}
+
 export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned') {
   return page.locator(`#view-${view}`);
 }

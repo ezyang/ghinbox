@@ -22,6 +22,27 @@
         };
     }
 
+    function parseRepoUrl(value) {
+        const url = String(value || '');
+        const apiMatch = url.match(/api\.github\.com\/repos\/([^/]+)\/([^/?#]+)/);
+        if (apiMatch) {
+            return {
+                owner: apiMatch[1],
+                repo: apiMatch[2],
+                fullName: `${apiMatch[1]}/${apiMatch[2]}`,
+            };
+        }
+        const webMatch = url.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+        if (webMatch) {
+            return {
+                owner: webMatch[1],
+                repo: webMatch[2],
+                fullName: `${webMatch[1]}/${webMatch[2]}`,
+            };
+        }
+        return null;
+    }
+
     function getRepoInfo(notification, fallback = null) {
         const fullName = notification?.repository?.full_name;
         const parsedFullName = fullName ? parseRepoInput(fullName) : null;
@@ -29,20 +50,30 @@
             return parsedFullName;
         }
 
-        const url = String(notification?.subject?.url || notification?.url || '');
-        const match = url.match(/github\.com\/([^/]+)\/([^/]+)\//);
-        if (match) {
-            return {
-                owner: match[1],
-                repo: match[2],
-                fullName: `${match[1]}/${match[2]}`,
-            };
+        const parsedUrl = parseRepoUrl(notification?.subject?.url || notification?.url || '');
+        if (parsedUrl) {
+            return parsedUrl;
         }
 
         const parsedFallback = fallback
             ? parseRepoInput(fallback.fullName || `${fallback.owner}/${fallback.repo}`)
             : null;
         return parsedFallback || null;
+    }
+
+    function groupNotificationsByRepo(notifications) {
+        const groups = new Map();
+        (Array.isArray(notifications) ? notifications : []).forEach((notification) => {
+            const repoInfo = getRepoInfo(notification);
+            if (!repoInfo) {
+                return;
+            }
+            if (!groups.has(repoInfo.fullName)) {
+                groups.set(repoInfo.fullName, { repoInfo, notifications: [] });
+            }
+            groups.get(repoInfo.fullName).notifications.push(notification);
+        });
+        return Array.from(groups.values());
     }
 
     function getNotificationKey(notification) {
@@ -91,6 +122,7 @@
         getNotificationMatchKeyForRepo,
         getRepoInfo,
         getRestNotificationMatchKey,
+        groupNotificationsByRepo,
         parseRepoInput,
     };
 });
