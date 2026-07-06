@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ghinbox.github_headers import github_graphql_headers, github_rest_headers
 
 RESPONSES_DIR = Path("responses")
 
@@ -31,11 +32,7 @@ class GitHubAPI:
     ) -> dict | list | None:
         """Make an API request."""
         url = f"{self.BASE_URL}{endpoint}"
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+        headers = github_rest_headers(self.token)
 
         body = None
         if data is not None:
@@ -238,10 +235,7 @@ class GitHubAPI:
     def graphql(self, query: str, variables: dict | None = None) -> Any:
         """Execute a GraphQL query."""
         url = "https://api.github.com/graphql"
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
+        headers = github_graphql_headers(self.token)
 
         payload: dict[str, Any] = {"query": query}
         if variables:

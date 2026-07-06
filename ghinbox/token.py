@@ -18,6 +18,7 @@ from ghinbox.auth import (
     has_valid_auth,
     create_authenticated_context,
 )
+from ghinbox.github_headers import github_rest_headers
 
 
 TOKEN_DIR = Path("auth_state")
@@ -64,11 +65,7 @@ def verify_token(account: str) -> tuple[bool, str | None]:
     try:
         response = httpx.get(
             "https://api.github.com/user",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            headers=github_rest_headers(token),
             timeout=10.0,
         )
         if response.status_code == 200:

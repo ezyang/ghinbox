@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from ghinbox.github_headers import github_graphql_headers, github_rest_headers
 from ghinbox.api.notification_shapes import (
     REVIEW_REQUEST_SEARCH_PER_PAGE,
     build_review_request_search_query,
@@ -65,23 +66,21 @@ async def _github_get_json_with_headers(
     source: str = "github_proxy",
     request_id: str | None = None,
 ) -> tuple[int, object, httpx.Headers]:
-    url = _github_url(path_or_url, params)
+    request_url = _github_url(path_or_url)
+    audit_url = _github_url(path_or_url, params)
     started = time.perf_counter()
     try:
         response = await client.get(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            request_url,
+            headers=github_rest_headers(token),
+            params=params,
         )
     except Exception as error:
         emit_github_api_call_audit(
             request_id=request_id,
             source=source,
             method="GET",
-            url=url,
+            url=audit_url,
             status_code=None,
             duration_ms=(time.perf_counter() - started) * 1000,
             error=error.__class__.__name__,
@@ -91,7 +90,7 @@ async def _github_get_json_with_headers(
         request_id=request_id,
         source=source,
         method="GET",
-        url=url,
+        url=audit_url,
         status_code=response.status_code,
         duration_ms=(time.perf_counter() - started) * 1000,
         response_headers=response.headers,
@@ -488,13 +487,6 @@ async def rest_proxy(path: str, request: Request) -> Response:
     if request.query_params:
         url += f"?{request.query_params}"
 
-    # Build headers
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-
     # Get request body if present
     body = await request.body()
 
@@ -507,7 +499,7 @@ async def rest_proxy(path: str, request: Request) -> Response:
         response = await client.request(
             method=request.method,
             url=url,
-            headers=headers,
+            headers=github_rest_headers(token),
             content=body if body else None,
         )
     except Exception as error:
@@ -562,12 +554,6 @@ async def graphql_proxy(request: Request) -> Response:
     # Get request body
     body = await request.body()
 
-    # Build headers
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
     # Make the proxied request
     client = get_client()
     request_id = request.scope.get("ghinbox_request_id")
@@ -577,7 +563,7 @@ async def graphql_proxy(request: Request) -> Response:
     try:
         response = await client.post(
             url,
-            headers=headers,
+            headers=github_graphql_headers(token),
             content=body,
         )
     except Exception as error:
