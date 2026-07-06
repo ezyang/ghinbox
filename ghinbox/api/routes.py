@@ -227,16 +227,13 @@ async def get_repo_notifications(
     ] = None,
     fixture: Annotated[
         str | None,
-        Query(
-            description="Path to HTML fixture file (for testing). "
-            "If not provided, returns empty response."
-        ),
+        Query(description="Path to HTML fixture file. Only available in test mode."),
     ] = None,
 ) -> NotificationsResponse:
     """
     Get notifications for a repository from HTML.
 
-    If a fixture path is provided, reads from that file.
+    If a fixture path is provided in test mode, reads from that file.
     If the server was started with --account, fetches live from GitHub.
     Otherwise returns an empty response.
     """
@@ -251,6 +248,11 @@ async def get_repo_notifications(
 
     # Option 1: Read from fixture file
     if fixture:
+        if os.environ.get("GHINBOX_TEST_MODE") != "1":
+            raise HTTPException(
+                status_code=403,
+                detail="fixture query parameter is only available in test mode",
+            )
         fixture_path = Path(fixture)
         if not fixture_path.exists():
             raise HTTPException(
@@ -289,41 +291,6 @@ async def get_repo_notifications(
         repo=repo,
         source_url=source_url,
         local_state_key=repo_key(owner, repo),
-    )
-
-
-@router.get(
-    "/parse",
-    response_model=NotificationsResponse,
-    summary="Parse HTML from fixture file",
-    description="Parse an HTML fixture file directly and return structured data.",
-)
-async def parse_fixture(
-    fixture: Annotated[str, Query(description="Path to HTML fixture file")],
-    owner: Annotated[
-        str, Query(description="Repository owner (for response metadata)")
-    ] = "unknown",
-    repo: Annotated[
-        str, Query(description="Repository name (for response metadata)")
-    ] = "unknown",
-) -> NotificationsResponse:
-    """
-    Parse an HTML fixture file and return notifications data.
-
-    This is useful for testing the parser with arbitrary HTML files.
-    """
-    fixture_path = Path(fixture)
-    if not fixture_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Fixture file not found: {fixture}",
-        )
-
-    html = fixture_path.read_text()
-    return parse_notifications_html(
-        html=html,
-        owner=owner,
-        repo=repo,
     )
 
 

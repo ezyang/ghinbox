@@ -20,7 +20,6 @@ from ghinbox.api.notification_shapes import (
 from ghinbox.api.repo_keys import repo_key
 from ghinbox.api.snapshot_store import (
     apply_local_state,
-    clear_snapshot_store,
     get_snapshot,
     get_sync_state,
     list_snapshot_repos,
@@ -431,14 +430,3 @@ async def get_notification_snapshot_sync(owner: str, repo: str) -> dict:
         "sync": get_sync_state(full_repo_name),
         "snapshot": get_snapshot(full_repo_name),
     }
-
-
-@router.delete("/all")
-async def delete_all_snapshots() -> dict:
-    """Clear snapshot data. Only available in test mode."""
-    import os
-
-    if os.environ.get("GHINBOX_TEST_MODE") != "1":
-        raise HTTPException(status_code=403, detail="Only available in test mode")
-    clear_snapshot_store()
-    return {"status": "ok"}

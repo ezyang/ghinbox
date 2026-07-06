@@ -104,7 +104,7 @@ app = FastAPI(
     The main endpoint is `GET /notifications/html/repo/{owner}/{repo}` which
     parses notifications HTML and returns structured JSON.
 
-    For testing, you can provide a `fixture` query parameter pointing to an
+    In test mode, tests can provide a `fixture` query parameter pointing to an
     HTML file on disk.
     """,
     version="0.1.0",
