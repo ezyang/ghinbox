@@ -1,4 +1,10 @@
 // Pure comment-interest, mention, reply, and uninteresting-comment helpers.
+//
+// Routing rules:
+// - A current user's own comment acts as a per-thread read watermark.
+// - Closed or merged items are directed only by comments after the close event.
+// - Delegated claude[bot] completions that mention the user go to Replies.
+// - Bot-authored or bot-command comments do not direct notifications.
 // Browser code passes state-derived values in; Node tests import this file.
 (function (root, factory) {
     const api = factory();
@@ -386,6 +392,25 @@
         });
     }
 
+    function shouldShowMoveToFeed(notification, options = {}) {
+        if (
+            options.view !== 'pr-notifications' ||
+            notification?.ui?.replies_muted
+        ) {
+            return false;
+        }
+        const directedAtCurrentUser = options.directedAtCurrentUser === undefined
+            ? isNotificationDirectedAtCurrentUser(notification, options)
+            : Boolean(options.directedAtCurrentUser);
+        if (!directedAtCurrentUser) {
+            return false;
+        }
+        return !isNotificationDirectedAtCurrentUser(notification, {
+            ...options,
+            suppressParticipationReplies: true,
+        });
+    }
+
     function isRevertRelated(body) {
         return /\brevert(ed|ing)?\b/i.test(body) || /\brollback\b/i.test(body);
     }
@@ -585,6 +610,7 @@
         isNotificationForCurrentUser,
         isNotificationUninteresting,
         isRevertRelated,
+        shouldShowMoveToFeed,
         isUninterestingComment,
         mentionsCurrentUser,
         normalizeLogin,
