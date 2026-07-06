@@ -391,153 +391,6 @@
             elements.keyboardShortcutsOverlay.classList.remove('visible');
         }
 
-        // Get appropriate empty state message
-        function getEmptyStateMessage() {
-            if (state.view === 'cleaned' && state.trashNotifications.length === 0) {
-                return {
-                    title: 'No cleaned notifications',
-                    message: 'Cleaned low-priority notifications will appear here until the next sync.',
-                };
-            }
-
-            if (state.notifications.length === 0 && state.trashNotifications.length === 0) {
-                return {
-                    title: 'No notifications',
-                    message: 'Enter a repository and click Quick Sync to load notifications.',
-                };
-            }
-
-            const viewLabels = {
-                'issues': 'feed',
-                'my-prs': 'PR',
-                'pr-notifications': 'reply',
-                'others-prs': 'review',
-                'cleaned': 'cleaned',
-            };
-            const viewLabel = viewLabels[state.view];
-            const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-            const stateFilter = viewFilters.state || 'all';
-            const authorFilter = viewFilters.author || 'all';
-            const audienceFilter = viewFilters.audience || 'all';
-
-            // Check if view has no notifications at all
-            const viewCounts = getViewCounts();
-            const viewCount = state.view === 'issues' ? viewCounts.issues :
-                              state.view === 'my-prs' ? viewCounts.myPrs :
-                              state.view === 'pr-notifications' ? viewCounts.prNotifications :
-                              state.view === 'cleaned' ? viewCounts.trash :
-                              viewCounts.othersPrs;
-
-            if (viewCount === 0) {
-                if (state.view === 'issues') {
-                    return {
-                        title: 'No feed notifications',
-                        message: 'No awareness notifications in this repository.',
-                    };
-                }
-                if (state.view === 'my-prs') {
-                    return {
-                        title: 'No notifications for your PRs',
-                        message: 'No notifications for pull requests you authored.',
-                    };
-                }
-                if (state.view === 'others-prs') {
-                    return {
-                        title: 'No reviews',
-                        message: 'No pull requests need your review right now.',
-                    };
-                }
-                if (state.view === 'pr-notifications') {
-                    return {
-                        title: 'No replies',
-                        message: 'No notifications look like someone is talking to you.',
-                    };
-                }
-                if (state.view === 'cleaned') {
-                    return {
-                        title: 'No cleaned notifications',
-                        message: 'Cleaned low-priority notifications will appear here until the next sync.',
-                    };
-                }
-            }
-
-            // Have notifications but subfilter shows none
-            if (stateFilter === 'open') {
-                return {
-                    title: `No open ${viewLabel} notifications`,
-                    message: `All ${viewLabel} notifications in this view are closed or merged.`,
-                };
-            }
-
-            if (stateFilter === 'closed') {
-                return {
-                    title: `No closed ${viewLabel} notifications`,
-                    message: `All ${viewLabel} notifications in this view are still open.`,
-                };
-            }
-
-            if (stateFilter === 'draft') {
-                return {
-                    title: `No draft ${viewLabel} notifications`,
-                    message: `All ${viewLabel} notifications in this view are ready for review.`,
-                };
-            }
-
-            if (stateFilter === 'needs-review') {
-                return {
-                    title: 'No PRs need review',
-                    message: 'No PRs need your review right now.',
-                };
-            }
-
-            if (stateFilter === 'approved') {
-                return {
-                    title: 'No approved PRs',
-                    message: 'No approved PR notifications are pending.',
-                };
-            }
-
-            if (authorFilter === 'committer') {
-                return {
-                    title: 'No committer PRs',
-                    message: 'No pull requests from repository committers match this view.',
-                };
-            }
-
-            if (authorFilter === 'ai') {
-                return {
-                    title: 'No AI PRs',
-                    message: 'No pull requests from AI authors match this view.',
-                };
-            }
-
-            if (authorFilter === 'external') {
-                return {
-                    title: 'No external PRs',
-                    message: 'No pull requests from external contributors match this view.',
-                };
-            }
-
-            if (audienceFilter === 'for-you') {
-                return {
-                    title: 'No replies',
-                    message: 'No notifications look like someone is talking to you.',
-                };
-            }
-
-            if (audienceFilter === 'for-others') {
-                return {
-                    title: 'No PR notifications for others',
-                    message: 'All matching pull request notifications are for you.',
-                };
-            }
-
-            return {
-                title: 'No notifications',
-                message: 'No notifications match the current filter.',
-            };
-        }
-
         // Check authentication status
         async function checkAuth() {
             try {
@@ -659,17 +512,15 @@
                     return;
                 }
             }
-            const previousMatchMap =
-                syncMode === 'incremental' &&
-                sources.length === 1 &&
-                previousNotifications.length > 0 &&
-                (
-                    state.lastSyncedRepo === profileSignature ||
-                    state.lastSyncedRepo === sources[0].fullName ||
-                    state.lastSyncedRepo === sources[0].value
-                )
-                    ? buildPreviousMatchMap(previousNotifications)
-                    : null;
+            const previousMatchMap = canUseIncrementalOverlapMerge({
+                syncMode,
+                sources,
+                previousNotifications,
+                lastSyncedRepo: state.lastSyncedRepo,
+                profileSignature,
+            })
+                ? buildPreviousMatchMap(previousNotifications)
+                : null;
             state.loading = true;
             state.error = null;
             state.notifications = [];
@@ -760,20 +611,7 @@
                     );
                 }
 
-                const dedupedNotifications = [];
-                const seenNotificationIds = new Set();
-                mergedNotifications.forEach((notification) => {
-                    const key = getNotificationKey(notification);
-                    if (seenNotificationIds.has(key)) {
-                        return;
-                    }
-                    seenNotificationIds.add(key);
-                    dedupedNotifications.push(notification);
-                });
-
-                const sortedNotifications = dedupedNotifications.sort((a, b) =>
-                    new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-                );
+                const sortedNotifications = dedupAndSortNotifications(mergedNotifications);
 
                 const restLookupKeys =
                     syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
@@ -851,42 +689,32 @@
             }
         }
 
-        const DEFAULT_FLASH_DURATION_MS = 500;
-        const DEFAULT_AUTO_DISMISS_MS = 1500;
+        function getStatusBarState() {
+            return {
+                statusState: state.statusState,
+                lastPersistentStatus: state.lastPersistentStatus,
+                statusFlashId: state.statusFlashId,
+                statusAutoDismissId: state.statusAutoDismissId,
+            };
+        }
+
+        function commitStatusBarState(nextState) {
+            state.statusState = nextState.statusState;
+            state.lastPersistentStatus = nextState.lastPersistentStatus;
+            state.statusFlashId = nextState.statusFlashId;
+            state.statusAutoDismissId = nextState.statusAutoDismissId;
+        }
 
         function clearStatusAutoDismiss() {
-            if (state.statusAutoDismissTimer) {
-                clearTimeout(state.statusAutoDismissTimer);
-                state.statusAutoDismissTimer = null;
-            }
-            elements.statusBar.classList.remove('auto-dismiss');
-            elements.statusBar.style.removeProperty('--status-dismiss-duration');
+            applyStatusBarTransition(GhinboxStatusBar.clearAutoDismiss(getStatusBarState()));
         }
 
         function freezeStatusAutoDismiss() {
-            if (state.statusAutoDismissTimer) {
-                clearTimeout(state.statusAutoDismissTimer);
-                state.statusAutoDismissTimer = null;
-            }
-            if (state.statusState) {
-                state.statusState.autoDismiss = false;
-            }
-            elements.statusBar.classList.remove('auto-dismiss');
-            elements.statusBar.style.removeProperty('--status-dismiss-duration');
-            elements.statusBar.classList.add('status-pinned');
+            applyStatusBarTransition(GhinboxStatusBar.freezeAutoDismiss(getStatusBarState()));
         }
 
         function clearStatusBar() {
-            if (state.statusTimer) {
-                clearTimeout(state.statusTimer);
-                state.statusTimer = null;
-            }
-            clearStatusAutoDismiss();
-            elements.statusBar.classList.remove('status-pinned');
-            elements.statusBar.replaceChildren();
-            elements.statusBar.className = 'status-bar';
-            state.statusState = null;
-            state.lastPersistentStatus = null;
+            applyStatusBarTransition(GhinboxStatusBar.clearStatus(getStatusBarState()));
         }
 
         elements.statusBar.addEventListener('click', (event) => {
@@ -931,94 +759,89 @@
             return messageElement;
         }
 
+        function applyStatusBarTransition(transition) {
+            commitStatusBarState(transition.state);
+            transition.effects.forEach((effect) => {
+                if (effect.type === 'cancelAutoDismissTimer') {
+                    if (state.statusAutoDismissTimer) {
+                        clearTimeout(state.statusAutoDismissTimer);
+                        state.statusAutoDismissTimer = null;
+                    }
+                    return;
+                }
+                if (effect.type === 'cancelFlashTimer') {
+                    if (state.statusTimer) {
+                        clearTimeout(state.statusTimer);
+                        state.statusTimer = null;
+                    }
+                    return;
+                }
+                if (effect.type === 'clearAutoDismissVisual') {
+                    elements.statusBar.classList.remove('auto-dismiss');
+                    elements.statusBar.style.removeProperty('--status-dismiss-duration');
+                    return;
+                }
+                if (effect.type === 'setAutoDismissVisual') {
+                    elements.statusBar.classList.remove('status-pinned');
+                    elements.statusBar.classList.add('auto-dismiss');
+                    elements.statusBar.style.setProperty(
+                        '--status-dismiss-duration',
+                        `${effect.durationMs}ms`
+                    );
+                    return;
+                }
+                if (effect.type === 'setPinnedVisual') {
+                    elements.statusBar.classList.add('status-pinned');
+                    return;
+                }
+                if (effect.type === 'clearPinnedVisual') {
+                    elements.statusBar.classList.remove('status-pinned');
+                    return;
+                }
+                if (effect.type === 'setStatus') {
+                    const messageElement = buildStatusMessageElement(effect.status.message);
+
+                    const closeButton = document.createElement('button');
+                    closeButton.type = 'button';
+                    closeButton.className = 'status-close-btn';
+                    closeButton.setAttribute('aria-label', 'Dismiss status');
+                    closeButton.textContent = 'X';
+
+                    elements.statusBar.replaceChildren(messageElement, closeButton);
+                    elements.statusBar.className = `status-bar visible ${effect.status.type}`;
+                    return;
+                }
+                if (effect.type === 'clearStatus') {
+                    elements.statusBar.replaceChildren();
+                    elements.statusBar.className = 'status-bar';
+                    return;
+                }
+                if (effect.type === 'scheduleAutoDismiss') {
+                    state.statusAutoDismissTimer = setTimeout(() => {
+                        applyStatusBarTransition(GhinboxStatusBar.autoDismissTimerFired(
+                            getStatusBarState(),
+                            effect.autoDismissId
+                        ));
+                    }, effect.durationMs);
+                    return;
+                }
+                if (effect.type === 'scheduleFlashClear') {
+                    state.statusTimer = setTimeout(() => {
+                        applyStatusBarTransition(GhinboxStatusBar.flashTimerFired(
+                            getStatusBarState(),
+                            effect.flashId
+                        ));
+                    }, effect.durationMs);
+                }
+            });
+        }
+
         // Show status message
         function showStatus(message, type, options) {
-            const settings = options || {};
-            const flash = Boolean(settings.flash);
-            const autoDismiss = Boolean(settings.autoDismiss) && !flash;
-            const flashDurationMs = Number.isFinite(settings.durationMs)
-                ? settings.durationMs
-                : DEFAULT_FLASH_DURATION_MS;
-            const autoDismissDurationMs = Number.isFinite(settings.autoDismissMs)
-                ? settings.autoDismissMs
-                : (Number.isFinite(settings.durationMs)
-                    ? settings.durationMs
-                    : DEFAULT_AUTO_DISMISS_MS);
-
-            if (
-                flash &&
-                state.statusState &&
-                !state.statusState.isFlash &&
-                state.statusState.type !== 'info'
-            ) {
-                return;
-            }
-
-            clearStatusAutoDismiss();
-            if (state.statusTimer) {
-                clearTimeout(state.statusTimer);
-                state.statusTimer = null;
-            }
-
-            function applyStatus(nextMessage, nextType, isFlash, flashId) {
-                const messageElement = buildStatusMessageElement(nextMessage);
-
-                const closeButton = document.createElement('button');
-                closeButton.type = 'button';
-                closeButton.className = 'status-close-btn';
-                closeButton.setAttribute('aria-label', 'Dismiss status');
-                closeButton.textContent = 'X';
-
-                elements.statusBar.replaceChildren(messageElement, closeButton);
-                elements.statusBar.className = `status-bar visible ${nextType}`;
-                state.statusState = {
-                    message: nextMessage,
-                    type: nextType,
-                    isFlash,
-                    flashId,
-                    autoDismiss: false,
-                };
-            }
-
-            const flashId = flash ? (state.statusFlashId += 1) : null;
-            applyStatus(message, type, flash, flashId);
-
-            if (!flash && !autoDismiss) {
-                state.lastPersistentStatus = { message, type };
-                return;
-            }
-            if (autoDismiss) {
-                state.lastPersistentStatus = null;
-                if (state.statusState) {
-                    state.statusState.autoDismiss = true;
-                }
-                const autoDismissId = (state.statusAutoDismissId += 1);
-                elements.statusBar.classList.remove('status-pinned');
-                elements.statusBar.classList.add('auto-dismiss');
-                elements.statusBar.style.setProperty(
-                    '--status-dismiss-duration',
-                    `${autoDismissDurationMs}ms`
-                );
-                state.statusAutoDismissTimer = setTimeout(() => {
-                    if (!state.statusState || state.statusAutoDismissId !== autoDismissId) {
-                        return;
-                    }
-                    clearStatusBar();
-                }, autoDismissDurationMs);
-                return;
-            }
-
-            state.statusTimer = setTimeout(() => {
-                if (!state.statusState || state.statusState.flashId !== flashId) {
-                    return;
-                }
-                const last = state.lastPersistentStatus;
-                if (last) {
-                    applyStatus(last.message, last.type, false, null);
-                    return;
-                }
-                clearStatusBar();
-            }, flashDurationMs);
+            applyStatusBarTransition(GhinboxStatusBar.showStatus(
+                getStatusBarState(),
+                { message, type, options }
+            ));
         }
 
         // SVG Icons
@@ -1400,9 +1223,16 @@
             const showEmpty =
                 !state.loading &&
                 filteredNotifications.length === 0;
+            const viewCounts = getViewCounts();
             elements.emptyState.style.display = showEmpty ? 'block' : 'none';
             if (showEmpty) {
-                const emptyMsg = getEmptyStateMessage();
+                const emptyMsg = GhinboxEmptyState.getEmptyStateMessage({
+                    view: state.view,
+                    viewFilters: state.viewFilters,
+                    viewCounts,
+                    notificationCount: state.notifications.length,
+                    trashNotificationCount: state.trashNotifications.length,
+                });
                 elements.emptyState.innerHTML = `
                     <h3>${emptyMsg.title}</h3>
                     <p>${emptyMsg.message}</p>
@@ -1410,7 +1240,6 @@
             }
 
             // Update view tab counts and active state
-            const viewCounts = getViewCounts();
             elements.viewTabs.forEach(tab => {
                 const view = tab.dataset.view;
                 const isActive = view === state.view;

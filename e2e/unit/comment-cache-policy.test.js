@@ -2,9 +2,12 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   DEFAULT_COMMENT_CACHE_TTL_MS,
+  buildAuthorPermissionCacheEntry,
   buildCommentErrorCacheEntry,
   buildCommentSuccessCacheEntry,
   buildMissingIssueCommentCacheEntry,
+  buildReviewMetadataCacheEntry,
+  buildSearchMetadataCacheEntry,
   getPendingReviewMetadataNotifications,
   getPreservedCommentMetadata,
   getReviewMetadataNeeds,
@@ -359,6 +362,216 @@ test('review metadata prefetch selects only PRs with missing requested metadata'
     }).map((item) => item.id),
     ['fresh-pr']
   );
+});
+
+[
+  {
+    name: 'default GraphQL decode keeps original label strings and diffstat',
+    entry: {
+      reviewDecision: 'REVIEW_REQUIRED',
+      authorAssociation: 'MEMBER',
+      author: { login: 'alice' },
+      labels: {
+        nodes: [
+          { name: 'Needs Review' },
+          { name: null },
+          {},
+          { name: '' },
+        ],
+      },
+      additions: 12,
+      deletions: 3,
+      changedFiles: 4,
+    },
+    options: { includeAuthorAssociation: true, fetchedAt: freshIso },
+    expected: {
+      reviewDecision: 'REVIEW_REQUIRED',
+      authorAssociation: 'MEMBER',
+      authorLogin: 'alice',
+      labelNames: ['Needs Review', ''],
+      additions: 12,
+      deletions: 3,
+      changedFiles: 4,
+    },
+  },
+  {
+    name: 'sync GraphQL decode lowercases labels without filtering empty names',
+    entry: {
+      reviewDecision: 'APPROVED',
+      authorAssociation: 'CONTRIBUTOR',
+      author: { login: 'bob' },
+      labels: {
+        nodes: [
+          { name: 'MergeDog' },
+          { name: null },
+          {},
+        ],
+      },
+      additions: 0,
+      deletions: 0,
+      changedFiles: 1,
+    },
+    options: {
+      includeAuthorAssociation: true,
+      lowercaseLabelNames: true,
+      fetchedAt: freshIso,
+    },
+    expected: {
+      reviewDecision: 'APPROVED',
+      authorAssociation: 'CONTRIBUTOR',
+      authorLogin: 'bob',
+      labelNames: ['mergedog', '', ''],
+      additions: 0,
+      deletions: 0,
+      changedFiles: 1,
+    },
+  },
+  {
+    name: 'missing GraphQL fields become nulls while absent association is preserved',
+    existing: cached({
+      authorAssociation: 'MEMBER',
+      authorAssociationFetchedAt: '2026-05-14T09:00:00Z',
+      labelNames: ['old'],
+      additions: 5,
+      deletions: 6,
+      changedFiles: 7,
+    }),
+    entry: {},
+    options: { includeAuthorAssociation: true, fetchedAt: freshIso },
+    expected: {
+      reviewDecision: null,
+      authorAssociation: 'MEMBER',
+      authorAssociationFetchedAt: '2026-05-14T09:00:00Z',
+      authorLogin: null,
+      labelNames: [],
+      additions: null,
+      deletions: null,
+      changedFiles: null,
+    },
+  },
+  {
+    name: 'direct setter mode preserves label and diffstat fields when not supplied',
+    existing: cached({
+      labelNames: ['existing'],
+      additions: 5,
+      deletions: 6,
+      changedFiles: 7,
+      diffstatFetchedAt: '2026-05-14T09:01:00Z',
+    }),
+    entry: {
+      reviewDecision: undefined,
+      authorAssociation: null,
+      authorLogin: undefined,
+      labelNames: undefined,
+    },
+    options: {
+      includeAuthorAssociation: true,
+      includeDiffstatFields: false,
+      preserveUndefinedReviewDecision: true,
+      preserveLabelNamesWhenMissing: true,
+      fetchedAt: freshIso,
+    },
+    expected: {
+      reviewDecision: undefined,
+      authorLogin: undefined,
+      labelNames: ['existing'],
+      additions: 5,
+      deletions: 6,
+      changedFiles: 7,
+      diffstatFetchedAt: freshIso,
+    },
+  },
+].forEach((entry) => {
+  test(`review metadata cache entry builder: ${entry.name}`, () => {
+    const result = buildReviewMetadataCacheEntry(
+      notification('pr', { subject: { type: 'PullRequest' } }),
+      entry.existing || cached(),
+      entry.entry,
+      entry.options
+    );
+
+    Object.entries(entry.expected).forEach(([key, value]) => {
+      assert.deepEqual(result[key], value);
+    });
+    assert.equal(result.notificationUpdatedAt, '2026-05-14T11:00:00Z');
+    assert.equal(result.reviewDecisionFetchedAt, freshIso);
+    assert.equal(result.authorLoginFetchedAt, freshIso);
+    assert.equal(result.labelNamesFetchedAt, freshIso);
+    assert.equal(result.diffstatFetchedAt, entry.expected.diffstatFetchedAt || freshIso);
+  });
+});
+
+[
+  {
+    name: 'author permission stamps permission freshness only',
+    builder: () =>
+      buildAuthorPermissionCacheEntry(
+        notification('permission'),
+        cached({ authorPermission: 'read' }),
+        'write',
+        { fetchedAt: freshIso }
+      ),
+    expected: {
+      authorPermission: 'write',
+      authorPermissionFetchedAt: freshIso,
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+    },
+  },
+  {
+    name: 'search metadata seeds actor, association, and trimmed labels',
+    builder: () =>
+      buildSearchMetadataCacheEntry(
+        notification('search', {
+          actors: [{ login: 'carol' }],
+          author_association: 'OWNER',
+          labels: [
+            { name: 'bug' },
+            { name: ' ' },
+            { name: null },
+          ],
+        }),
+        cached({ labelNames: ['old'] }),
+        { fetchedAt: freshIso }
+      ),
+    expected: {
+      authorLogin: 'carol',
+      authorLoginFetchedAt: freshIso,
+      authorAssociation: 'OWNER',
+      authorAssociationFetchedAt: freshIso,
+      labelNames: ['bug'],
+      labelNamesFetchedAt: freshIso,
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+    },
+  },
+  {
+    name: 'search metadata leaves absent optional fields untouched',
+    builder: () =>
+      buildSearchMetadataCacheEntry(
+        notification('search-empty'),
+        cached({
+          authorLogin: 'old-author',
+          labelNames: ['old-label'],
+        }),
+        { fetchedAt: freshIso }
+      ),
+    expected: {
+      authorLogin: 'old-author',
+      labelNames: ['old-label'],
+      notificationUpdatedAt: '2026-05-14T11:00:00Z',
+    },
+    absent: ['authorLoginFetchedAt', 'labelNamesFetchedAt'],
+  },
+].forEach((entry) => {
+  test(`metadata cache policy builder: ${entry.name}`, () => {
+    const result = entry.builder();
+
+    Object.entries(entry.expected).forEach(([key, value]) => {
+      assert.deepEqual(result[key], value);
+    });
+    (entry.absent || []).forEach((key) => {
+      assert.equal(Object.prototype.hasOwnProperty.call(result, key), false);
+    });
+  });
 });
 
 test('preserved comment metadata keeps review, author, permission, and diffstat fields', () => {

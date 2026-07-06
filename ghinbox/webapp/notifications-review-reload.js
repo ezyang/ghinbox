@@ -120,31 +120,11 @@
         }
         const threadId = getNotificationKey(notification);
         const existing = state.commentCache.threads[threadId] || {};
-        const nowIso = new Date().toISOString();
-        const authorLogin = notification?.actors?.[0]?.login;
-        const hasLabels = Array.isArray(notification?.labels);
-        const labelNames = hasLabels
-            ? notification.labels
-                .map((label) => label?.name)
-                .filter((name) => typeof name === 'string' && name.trim())
-            : [];
-        const next = {
-            ...existing,
-            notificationUpdatedAt: notification.updated_at || existing.notificationUpdatedAt,
-        };
-        if (authorLogin) {
-            next.authorLogin = authorLogin;
-            next.authorLoginFetchedAt = nowIso;
-        }
-        if (notification?.author_association !== undefined && notification?.author_association !== null) {
-            next.authorAssociation = notification.author_association;
-            next.authorAssociationFetchedAt = nowIso;
-        }
-        if (hasLabels) {
-            next.labelNames = labelNames;
-            next.labelNamesFetchedAt = nowIso;
-        }
-        state.commentCache.threads[threadId] = next;
+        state.commentCache.threads[threadId] =
+            GhinboxCommentCachePolicy.buildSearchMetadataCacheEntry(
+                notification,
+                existing
+            );
     }
 
     async function fetchStreamingReviewRequestNotifications(source) {
@@ -160,76 +140,26 @@
     }
 
     async function refreshPullRequestStatesIncrementally(repo, repoInfo, matchKeys, syncLabel) {
-        const targets = state.notifications.filter((notif) => {
-            if (notif.subject?.type !== 'PullRequest') {
-                return false;
-            }
-            if (typeof notif.subject?.number !== 'number') {
-                return false;
-            }
-            return matchKeys.has(getNotificationMatchKeyForRepo(notif, repoInfo));
-        });
-        const uniqueNumbers = Array.from(
-            new Set(targets.map((notif) => getIssueNumber(notif)).filter(Boolean))
-        );
-        if (!uniqueNumbers.length) {
-            return;
-        }
-
-        const batchSize = 25;
-        for (let i = 0; i < uniqueNumbers.length; i += batchSize) {
-            const batch = uniqueNumbers.slice(i, i + batchSize);
-            showStatus(
-                `${syncLabel}: checking PR state ${Math.min(i + batch.length, uniqueNumbers.length)}/${uniqueNumbers.length}`,
-                'info',
-                { flash: true }
-            );
-            const data = await fetchGraphqlForSync(buildPullRequestStateQuery(batch), {
-                owner: repoInfo.owner,
-                name: repoInfo.repo,
-            });
-            const repoData = data?.repository || {};
-            const updates = new Map();
-            batch.forEach((issueNumber) => {
-                const entry = repoData[`pr${issueNumber}`];
-                if (!entry) {
-                    return;
-                }
-                const nextState = normalizePullRequestState(entry.state, entry.isDraft);
-                if (nextState) {
-                    updates.set(issueNumber, nextState);
-                }
-            });
-            if (updates.size) {
-                const notifications = state.notifications.map((notif) => {
-                    const number = getIssueNumber(notif);
-                    if (!number || !updates.has(number)) {
-                        return notif;
-                    }
-                    if (!matchKeys.has(getNotificationMatchKeyForRepo(notif, repoInfo))) {
-                        return notif;
-                    }
-                    const nextState = updates.get(number);
-                    if (notif.subject?.state === nextState) {
-                        return notif;
-                    }
-                    return {
-                        ...notif,
-                        subject: {
-                            ...notif.subject,
-                            state: nextState,
-                        },
-                    };
-                });
+        await refreshPullRequestStates(repoInfo, state.notifications, {
+            syncLabel,
+            matchKeys,
+            queryRepo: repoInfo,
+            matchRepo: repoInfo,
+            statusMode: 'batch',
+            commitEachBatch: true,
+            onNotificationsUpdated: (notifications) => {
                 commitReloadedReviewNotifications(notifications, repo);
-            }
-        }
+            },
+            clearGraphqlRateLimitErrorOnSuccess: false,
+            catchErrors: false,
+            requirePullRequestOnRewrite: false,
+        });
     }
 
     async function refreshReviewMetadataIncrementally(repo, repoInfo, notifications, syncLabel) {
         if (typeof buildReviewDecisionQuery !== 'function' ||
             typeof fetchGraphql !== 'function' ||
-            typeof setReviewDecisionCache !== 'function') {
+            typeof setReviewMetadataCacheEntry !== 'function') {
             return;
         }
         const issueNumbers = notifications
@@ -261,26 +191,9 @@
                     return;
                 }
                 const entry = repoData[`pr${issueNumber}`] || {};
-                const labelNames = Array.isArray(entry?.labels?.nodes)
-                    ? entry.labels.nodes
-                        .map((label) => label?.name)
-                        .filter((name) => typeof name === 'string')
-                    : [];
-                setReviewDecisionCache(
-                    notif,
-                    entry?.reviewDecision ?? null,
-                    entry?.authorAssociation ?? null,
-                    entry?.author?.login ?? null,
-                    labelNames,
-                    { includeAuthorAssociation: true }
-                );
-                const threadId = getNotificationKey(notif);
-                state.commentCache.threads[threadId] = {
-                    ...state.commentCache.threads[threadId],
-                    additions: entry?.additions ?? null,
-                    deletions: entry?.deletions ?? null,
-                    changedFiles: entry?.changedFiles ?? null,
-                };
+                setReviewMetadataCacheEntry(notif, entry, {
+                    includeAuthorAssociation: true,
+                });
             });
             if (typeof saveCommentCache === 'function') {
                 saveCommentCache();
