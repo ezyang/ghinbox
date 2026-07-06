@@ -109,6 +109,13 @@ test.describe('PR responsibility queue @classification @mutation', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
+
+    // Auto-clean defaults on and would archive the closed/merged fixture
+    // notifications immediately after sync; disable it so counts are stable.
+    const autoCleanToggle = page.locator('#auto-clean-low-priority-toggle');
+    if (await autoCleanToggle.isChecked()) {
+      await autoCleanToggle.uncheck();
+    }
   });
 
   test('keeps notification-backed review requests clearable in Reviews', async ({
