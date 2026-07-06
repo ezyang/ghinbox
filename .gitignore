@@ -3,6 +3,9 @@
 .DS_Store
 # Generic Python stuff
 __pycache__
+.venv/
+.pytest_cache/
+.ruff_cache/
 # Generic coding agent stuff
 .aider*
 .specstory
