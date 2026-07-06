@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { addAuthCacheInitScript, clearAppStorage } from './storage-utils';
+import { mockDefaultApiRoutes } from './app-fixture';
+import { clearAppStorage } from './storage-utils';
 
 const notificationsResponse = {
   source_url: 'https://github.com/notifications?query=repo:test/repo',
@@ -52,38 +53,7 @@ const notificationsResponse = {
 
 test.describe('Bookmark @mutation', () => {
   test.beforeEach(async ({ page }) => {
-    await addAuthCacheInitScript(page);
-
-    await page.route('**/github/rest/user', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ login: 'testuser' }),
-      });
-    });
-    await page.route('**/github/rest/rate_limit', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ resources: { core: { limit: 5000, remaining: 4999, reset: 0 } } }),
-      });
-    });
-    await page.route('**/github/graphql', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {} }) });
-    });
-    await page.route('**/github/rest/repos/**/issues/*/comments**', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-    });
-    await page.route('**/github/rest/repos/**/issues/*', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
-      });
-    });
-    await page.route('**/api/snapshots/test/repo', (route) => {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ snapshot: null }) });
-    });
+    await mockDefaultApiRoutes(page, { notifications: notificationsResponse });
   });
 
   test('moves a feed notification between New and Bookmarked without marking done', async ({ page }) => {
