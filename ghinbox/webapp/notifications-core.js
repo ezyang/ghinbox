@@ -873,19 +873,7 @@
                 }
             });
             if (elements.orderSelect) {
-                elements.orderSelect.addEventListener('change', (event) => {
-                    const nextOrder = event.target.value;
-                    if (!VALID_ORDERS.has(nextOrder)) {
-                        return;
-                    }
-                    state.orderBy = nextOrder;
-                    state.viewOrders[state.view] = nextOrder;
-                    localStorage.setItem(ORDER_BY_VIEW_KEY, JSON.stringify(state.viewOrders));
-                    if (nextOrder === 'size' && state.view !== 'issues') {
-                        maybePrefetchReviewMetadata();
-                    }
-                    render();
-                });
+                elements.orderSelect.addEventListener('change', handleOrderChange);
             }
 
             // View tab click handlers
@@ -978,7 +966,7 @@
                 elements.mobileFilterSelect.addEventListener('change', handleMobileFilterChange);
             }
             if (elements.mobileOrderSelect) {
-                elements.mobileOrderSelect.addEventListener('change', handleMobileOrderChange);
+                elements.mobileOrderSelect.addEventListener('change', handleOrderChange);
             }
             if (elements.mobileAuthorSelect) {
                 elements.mobileAuthorSelect.addEventListener('change', handleMobileAuthorChange);
@@ -1147,7 +1135,7 @@
             render();
         }
 
-        function handleMobileOrderChange(event) {
+        function handleOrderChange(event) {
             const nextOrder = event.target.value;
             if (!VALID_ORDERS.has(nextOrder)) {
                 return;
@@ -1155,8 +1143,11 @@
             state.orderBy = nextOrder;
             state.viewOrders[state.view] = nextOrder;
             localStorage.setItem(ORDER_BY_VIEW_KEY, JSON.stringify(state.viewOrders));
-            if (elements.orderSelect) {
+            if (elements.orderSelect && elements.orderSelect !== event.target) {
                 elements.orderSelect.value = nextOrder;
+            }
+            if (elements.mobileOrderSelect && elements.mobileOrderSelect !== event.target) {
+                elements.mobileOrderSelect.value = nextOrder;
             }
             if (nextOrder === 'size' && state.view !== 'issues') {
                 maybePrefetchReviewMetadata();
@@ -1240,8 +1231,7 @@
             if (notification?.subject?.type !== 'PullRequest') {
                 return null;
             }
-            const number = notification.subject?.number;
-            return typeof number === 'number' ? number : null;
+            return GhinboxNotificationIdentity.getIssueNumber(notification);
         }
 
         function getNeedsReviewFeedDuplicates(notifications, options = {}) {

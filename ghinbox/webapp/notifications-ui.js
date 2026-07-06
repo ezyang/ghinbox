@@ -603,7 +603,9 @@
                     errors: reviewRequestErrors,
                 } = await reviewRequestsPromise;
                 showReviewRequestSyncErrors(reviewRequestErrors, syncLabel);
-                for (const group of groupReviewRequestsByRepo(reviewRequests)) {
+                for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
+                    reviewRequests
+                )) {
                     mergedNotifications = mergeReviewRequestNotifications(
                         mergedNotifications,
                         group.notifications,
@@ -639,7 +641,9 @@
                 }
 
                 const needsReviewPrNumbers = new Set();
-                for (const group of groupReviewRequestsByRepo(reviewRequests)) {
+                for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
+                    reviewRequests
+                )) {
                     const repoNeedsReview = await getReviewRequestNeedsReviewNumbers(
                         group.repoInfo,
                         group.notifications,
@@ -731,27 +735,16 @@
             event.stopPropagation();
         });
 
-        const EXPIRED_BROWSER_SESSION_MESSAGE_PARTS = [
-            'github redirected notifications request to login',
-            'stored browser session is expired',
-            'browser session is expired',
-        ];
-
-        function isExpiredBrowserSessionMessage(message) {
-            const normalized = String(message || '').toLowerCase();
-            return EXPIRED_BROWSER_SESSION_MESSAGE_PARTS.some(part => normalized.includes(part));
-        }
-
         function buildStatusMessageElement(message) {
             const messageElement = document.createElement('span');
             messageElement.className = 'status-message';
             messageElement.textContent = message;
 
-            if (isExpiredBrowserSessionMessage(message)) {
+            if (GhinboxHttp.isExpiredBrowserSessionMessage(message)) {
                 messageElement.append(' ');
                 const loginLink = document.createElement('a');
                 loginLink.className = 'status-login-link';
-                loginLink.href = 'login.html?session_refresh=1';
+                loginLink.href = GhinboxHttp.SESSION_REFRESH_URL;
                 loginLink.textContent = 'Log in again';
                 messageElement.append(loginLink);
             }

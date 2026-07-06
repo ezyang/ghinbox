@@ -57,46 +57,137 @@
             }
         }
 
-        const LOGIN_REFRESH_URL = '/app/login.html?session_refresh=1';
-
-        async function readNotificationActionError(response) {
-            let message = `HTTP ${response.status} ${response.statusText}`;
-            let sessionExpired = false;
-            const responseText = await response.text();
-            if (responseText) {
-                try {
-                    const parsed = JSON.parse(responseText);
-                    const detail = parsed?.detail;
-                    if (typeof detail === 'string') {
-                        message = detail;
-                    } else if (detail && typeof detail === 'object') {
-                        if (detail.message) {
-                            message = String(detail.message);
-                        }
-                        sessionExpired =
-                            response.status === 401 && detail.error === 'session_expired';
-                    } else if (parsed?.message) {
-                        message = String(parsed.message);
-                    } else {
-                        message = JSON.stringify(parsed);
-                    }
-                } catch (error) {
-                    message = responseText;
+        function buildNotificationActionLookup(notifIds, notificationLookup = null) {
+            const lookup =
+                notificationLookup instanceof Map ? new Map(notificationLookup) : new Map();
+            notifIds.forEach((notifId) => {
+                if (lookup.has(notifId)) {
+                    return;
                 }
-            }
-            return { message, sessionExpired };
+                const notification = state.notifications.find(n => n.id === notifId);
+                if (notification) {
+                    lookup.set(notifId, notification);
+                }
+            });
+            return lookup;
         }
 
-        function showActionSessionExpired(message) {
-            const statusMessage = `${message || 'Stored browser session is expired.'} Redirecting to login...`;
-            showStatus(statusMessage, 'error');
-            if (state.loginRedirectScheduled) {
-                return;
+        function getNotificationActionToken(action, notifIds, notificationLookup) {
+            const firstNotification = notifIds
+                .map(id => notificationLookup.get(id))
+                .find(Boolean);
+            return firstNotification?.ui?.action_tokens?.[action] || state.authenticity_token;
+        }
+
+        function readRetryAfterDelay(response) {
+            const retryAfter = response.headers.get('Retry-After');
+            return retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000;
+        }
+
+        async function postNotificationHtmlAction({
+            action,
+            notifIds,
+            notificationLookup = null,
+            persistWatermarks = false,
+            parsedError = true,
+            logLabel = null,
+            successTarget = null,
+        }) {
+            const lookup = buildNotificationActionLookup(notifIds, notificationLookup);
+            const authenticityToken = getNotificationActionToken(action, notifIds, lookup);
+
+            if (!authenticityToken) {
+                const error = `No authenticity token available for ${action} action`;
+                if (logLabel) {
+                    console.error(`[${logLabel}] ${error}`);
+                }
+                return { success: false, error };
             }
-            state.loginRedirectScheduled = true;
-            setTimeout(() => {
-                window.location.href = LOGIN_REFRESH_URL;
-            }, 1500);
+
+            const url = '/notifications/html/action';
+            if (logLabel) {
+                console.log(`[${logLabel}] HTML action request: POST ${url}`);
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action,
+                        notification_ids: notifIds,
+                        authenticity_token: authenticityToken,
+                    }),
+                });
+
+                if (logLabel) {
+                    console.log(
+                        `[${logLabel}] HTML action response status: ${response.status} ${response.statusText}`
+                    );
+                }
+
+                if (response.status === 429) {
+                    const retryAfter = response.headers.get('Retry-After');
+                    if (logLabel) {
+                        console.warn(`[${logLabel}] Rate limited, retry after: ${retryAfter}s`);
+                    }
+                    return {
+                        success: false,
+                        rateLimited: true,
+                        retryAfter: readRetryAfterDelay(response),
+                    };
+                }
+
+                if (!response.ok) {
+                    const actionError = await GhinboxHttp.readErrorDetail(response);
+                    if (parsedError) {
+                        if (logLabel) {
+                            console.error(`[${logLabel}] ${actionError.message}`);
+                        }
+                        return {
+                            success: false,
+                            error: actionError.message,
+                            status: response.status,
+                            sessionExpired: actionError.sessionExpired,
+                        };
+                    }
+                    const error = `HTTP ${response.status} ${response.statusText}`;
+                    if (logLabel) {
+                        console.error(`[${logLabel}] ${error}`, actionError.responseText);
+                    }
+                    return {
+                        success: false,
+                        error,
+                        status: response.status,
+                        responseBody: actionError.responseText,
+                    };
+                }
+
+                const result = await response.json();
+                if (result.status !== 'ok') {
+                    const error = result.error || 'Unknown error from server';
+                    if (logLabel) {
+                        console.error(`[${logLabel}] Server error: ${error}`);
+                    }
+                    return { success: false, error };
+                }
+
+                if (persistWatermarks) {
+                    await persistReadCommentWatermarks(notifIds, lookup);
+                }
+                if (logLabel) {
+                    console.log(`[${logLabel}] HTML action success for ${successTarget || notifIds.length}`);
+                }
+                return { success: true };
+            } catch (e) {
+                const error = e.message || String(e);
+                if (logLabel) {
+                    console.error(`[${logLabel}] Exception:`, e);
+                }
+                return { success: false, error };
+            }
         }
 
         // Apply a selection state across a range of notifications (for shift-click)
@@ -238,7 +329,12 @@
         function showFinalQueueStatus() {
             if (doneQueue.sessionExpired) {
                 const firstError = doneQueue.failedResults[0]?.error;
-                showActionSessionExpired(firstError);
+                GhinboxHttp.handleSessionExpired({
+                    message: firstError || 'Stored browser session is expired.',
+                    scheduleOnly: true,
+                    state,
+                    throwError: false,
+                });
                 return;
             }
             const status = GhinboxDoneQueue.getFinalStatus(doneQueue);
@@ -304,67 +400,13 @@
         }
 
         async function markNotificationsDoneBatch(notifIds, notificationLookup) {
-            const firstNotification = notifIds
-                .map(id => notificationLookup.get(id))
-                .find(Boolean);
-            const archiveToken =
-                firstNotification?.ui?.action_tokens?.archive || state.authenticity_token;
-
-            if (!archiveToken) {
-                return {
-                    success: false,
-                    error: 'No authenticity token available for archive action',
-                };
-            }
-
-            try {
-                const response = await fetch('/notifications/html/action', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'archive',
-                        notification_ids: notifIds,
-                        authenticity_token: archiveToken,
-                    }),
-                });
-
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After');
-                    return {
-                        success: false,
-                        rateLimited: true,
-                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000,
-                    };
-                }
-
-                if (!response.ok) {
-                    const actionError = await readNotificationActionError(response);
-                    return {
-                        success: false,
-                        error: actionError.message,
-                        status: response.status,
-                        sessionExpired: actionError.sessionExpired,
-                    };
-                }
-
-                const result = await response.json();
-                if (result.status !== 'ok') {
-                    return {
-                        success: false,
-                        error: result.error || 'Unknown error from server',
-                    };
-                }
-
-                await persistReadCommentWatermarks(notifIds, notificationLookup);
-                return { success: true };
-            } catch (e) {
-                return {
-                    success: false,
-                    error: e.message || String(e),
-                };
-            }
+            return postNotificationHtmlAction({
+                action: 'archive',
+                notifIds,
+                notificationLookup,
+                persistWatermarks: true,
+                parsedError: true,
+            });
         }
 
         async function persistReadCommentWatermarks(notifIds, notificationLookup) {
@@ -882,139 +924,40 @@
         async function markNotificationDone(notifId, notification = null) {
             console.log(`[MarkDone] Attempting to mark notification: ${notifId}`);
 
-            // Get the notification to access its archive token
-            // Use provided notification or fall back to state lookup
             const notif = notification || state.notifications.find(n => n.id === notifId);
-            const archiveToken = notif?.ui?.action_tokens?.archive || state.authenticity_token;
-
-            if (!archiveToken) {
-                const error = 'No authenticity token available for archive action';
-                console.error(`[MarkDone] ${error}`);
-                return { success: false, error };
+            const notificationLookup = new Map();
+            if (notif) {
+                notificationLookup.set(notifId, notif);
             }
-
-            // Use HTML action endpoint with the notification's node ID directly
-            const url = '/notifications/html/action';
-            console.log(`[MarkDone] HTML action request: POST ${url}`);
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'archive',
-                        notification_ids: [notifId],
-                        authenticity_token: archiveToken,
-                    }),
-                });
-
-                console.log(`[MarkDone] HTML action response status: ${response.status} ${response.statusText}`);
-
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After');
-                    console.warn(`[MarkDone] Rate limited, retry after: ${retryAfter}s`);
-                    return {
-                        success: false,
-                        rateLimited: true,
-                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000
-                    };
-                }
-
-                if (!response.ok) {
-                    const actionError = await readNotificationActionError(response);
-                    console.error(`[MarkDone] ${actionError.message}`);
-                    return {
-                        success: false,
-                        error: actionError.message,
-                        status: response.status,
-                        sessionExpired: actionError.sessionExpired,
-                    };
-                }
-
-                const result = await response.json();
-                if (result.status !== 'ok') {
-                    const error = result.error || 'Unknown error from server';
-                    console.error(`[MarkDone] Server error: ${error}`);
-                    return { success: false, error };
-                }
-
-                await persistReadCommentWatermarks([notifId], new Map([[notifId, notif]]));
-                console.log(`[MarkDone] HTML action success for ${notifId}`);
-                return { success: true };
-            } catch (e) {
-                const error = e.message || String(e);
-                console.error(`[MarkDone] Exception:`, e);
-                return { success: false, error };
-            }
+            return postNotificationHtmlAction({
+                action: 'archive',
+                notifIds: [notifId],
+                notificationLookup,
+                persistWatermarks: true,
+                parsedError: true,
+                logLabel: 'MarkDone',
+                successTarget: notifId,
+            });
         }
 
         // notification parameter is optional - if provided, use it; otherwise look up from state
         async function unsubscribeNotification(notifId, notification = null) {
             console.log(`[Unsubscribe] Attempting to unsubscribe: ${notifId}`);
 
-            // Get the notification to access its unsubscribe token
-            // Use provided notification or fall back to state lookup
             const notif = notification || state.notifications.find(n => n.id === notifId);
-            const unsubscribeToken = notif?.ui?.action_tokens?.unsubscribe || state.authenticity_token;
-
-            if (!unsubscribeToken) {
-                const error = 'No authenticity token available for unsubscribe action';
-                console.error(`[Unsubscribe] ${error}`);
-                return { success: false, error };
+            const notificationLookup = new Map();
+            if (notif) {
+                notificationLookup.set(notifId, notif);
             }
-
-            // Use HTML action endpoint with the notification's node ID directly
-            const url = '/notifications/html/action';
-            console.log(`[Unsubscribe] HTML action request: POST ${url}`);
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'unsubscribe',
-                        notification_ids: [notifId],
-                        authenticity_token: unsubscribeToken,
-                    }),
-                });
-
-                console.log(`[Unsubscribe] HTML action response status: ${response.status} ${response.statusText}`);
-
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After');
-                    console.warn(`[Unsubscribe] Rate limited, retry after: ${retryAfter}s`);
-                    return {
-                        success: false,
-                        rateLimited: true,
-                        retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000,
-                    };
-                }
-
-                if (!response.ok) {
-                    const responseText = await response.text();
-                    const error = `HTTP ${response.status} ${response.statusText}`;
-                    console.error(`[Unsubscribe] ${error}`, responseText);
-                    return { success: false, error, status: response.status, responseBody: responseText };
-                }
-
-                const result = await response.json();
-                if (result.status !== 'ok') {
-                    const error = result.error || 'Unknown error from server';
-                    console.error(`[Unsubscribe] Server error: ${error}`);
-                    return { success: false, error };
-                }
-
-                console.log(`[Unsubscribe] HTML action success for ${notifId}`);
-                return { success: true };
-            } catch (e) {
-                const error = e.message || String(e);
-                console.error(`[Unsubscribe] Exception:`, e);
-                return { success: false, error };
-            }
+            return postNotificationHtmlAction({
+                action: 'unsubscribe',
+                notifIds: [notifId],
+                notificationLookup,
+                persistWatermarks: false,
+                parsedError: false,
+                logLabel: 'Unsubscribe',
+                successTarget: notifId,
+            });
         }
 
         // Helper function to extract PR info from notification
@@ -1117,7 +1060,12 @@
                     }
                     removeUndoEntry(undoEntry);
                     button.disabled = false;
-                    showActionSessionExpired(failed.error);
+                    GhinboxHttp.handleSessionExpired({
+                        message: failed.error || 'Stored browser session is expired.',
+                        scheduleOnly: true,
+                        state,
+                        throwError: false,
+                    });
                     return;
                 }
                 showStatus(`Failed to mark notification: ${failed.error}`, 'error');
