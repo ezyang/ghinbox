@@ -209,12 +209,10 @@ def setup_default_account(headed: bool = False) -> tuple[bool, str | None]:
     if not has_valid_auth(DEFAULT_ACCOUNT):
         print("Step 1: GitHub Login")
         print("-" * 40)
-        result = login_interactive(DEFAULT_ACCOUNT, save_username_flag=True)
-        if isinstance(result, tuple):
-            success, username = result
-        else:
-            success = result
-            username = load_username(DEFAULT_ACCOUNT)
+        success, username = login_interactive(
+            DEFAULT_ACCOUNT,
+            save_username_flag=True,
+        )
 
         if not success:
             print("ERROR: Login failed")
@@ -457,13 +455,9 @@ def main() -> int:
                         if args.headed_login:
                             # Use headed browser for re-auth
                             print("Browser auth is also invalid. Re-authenticating...")
-                            result = login_interactive(
+                            success, _ = login_interactive(
                                 account, force=True, save_username_flag=True
                             )
-                            if isinstance(result, tuple):
-                                success, _ = result
-                            else:
-                                success = result
                             if not success:
                                 print("ERROR: Browser re-authentication failed")
                                 return 1

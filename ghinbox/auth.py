@@ -63,7 +63,7 @@ def has_valid_auth(account: str) -> bool:
 
 def login_interactive(
     account: str, force: bool = False, save_username_flag: bool = False
-) -> bool | tuple[bool, str | None]:
+) -> tuple[bool, str | None]:
     """
     Perform interactive login for a GitHub account.
 
@@ -73,17 +73,15 @@ def login_interactive(
         save_username_flag: If True, extract and save the username after login
 
     Returns:
-        If save_username_flag is False: True if login was successful, False otherwise
-        If save_username_flag is True: Tuple of (success, username)
+        Tuple of (success, username). The username is None unless it was
+        extracted or already stored.
     """
     auth_path = get_auth_state_path(account)
 
     if auth_path.exists() and not force:
         print(f"Auth state already exists for '{account}' at {auth_path}")
         print("Use --force to re-login")
-        if save_username_flag:
-            return True, load_username(account)
-        return True
+        return True, load_username(account)
 
     print(f"\n{'=' * 60}")
     print(f"GitHub Login for account: {account}")
@@ -115,9 +113,7 @@ def login_interactive(
             if not wait_for_login(page):
                 print("Login failed or timed out.")
                 browser.close()
-                if save_username_flag:
-                    return False, None
-                return False
+                return False, None
 
         print("Login successful!")
 
@@ -138,9 +134,7 @@ def login_interactive(
 
         browser.close()
 
-    if save_username_flag:
-        return True, username
-    return True
+    return True, username
 
 
 def create_authenticated_context(
@@ -256,7 +250,7 @@ def main():
         success = verify_auth(args.account)
         return 0 if success else 1
 
-    success = login_interactive(args.account, force=args.force)
+    success, _ = login_interactive(args.account, force=args.force)
     return 0 if success else 1
 
 

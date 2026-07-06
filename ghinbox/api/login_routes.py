@@ -443,44 +443,6 @@ async def wait_for_mobile_2fa(request: LoginMobileWaitRequest) -> LoginResponse:
         return _error_response(request.session_id, f"Error during mobile 2FA: {e}")
 
 
-@router.get(
-    "/login/status/{session_id}",
-    response_model=LoginResponse,
-    summary="Check login status",
-    description="Get the current status of a login session.",
-)
-async def get_login_status(session_id: str) -> LoginResponse:
-    """Get the current status of a login session."""
-    manager = get_session_manager()
-    session = manager.get_session(session_id)
-
-    if session is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Session not found or expired",
-        )
-
-    # Map session state to response status
-    status_map = {
-        LoginState.INITIALIZED: "initialized",
-        LoginState.SUBMITTING_CREDENTIALS: "submitting",
-        LoginState.WAITING_2FA: "waiting_2fa",
-        LoginState.WAITING_MOBILE: "waiting_mobile",
-        LoginState.SUBMITTING_2FA: "submitting",
-        LoginState.SUCCESS: "success",
-        LoginState.ERROR: "error",
-        LoginState.CAPTCHA: "captcha",
-    }
-
-    return LoginResponse(
-        session_id=session.session_id,
-        status=status_map.get(session.state, "error"),
-        error=session.error_message,
-        username=session.username,
-        twofa_method=session.twofa_method if session.requires_2fa else None,
-    )
-
-
 @router.post(
     "/login/cancel",
     response_model=LoginResponse,

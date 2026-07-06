@@ -78,9 +78,11 @@ test.describe('Login API Endpoints', () => {
     expect(data.status).toBe('initialized');
   });
 
-  test('GET /auth/login/status returns 404 for invalid session', async ({ request }) => {
+  test('GET /auth/login/status route is not registered', async ({ request }) => {
     const response = await request.get('/auth/login/status/invalid-session-id');
     expect(response.status()).toBe(404);
+    await expect(response).not.toBeOK();
+    expect(await response.json()).toEqual({ detail: 'Not Found' });
   });
 
   test('POST /auth/login/credentials returns 404 for invalid session', async ({ request }) => {

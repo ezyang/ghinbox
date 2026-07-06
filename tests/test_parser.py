@@ -74,6 +74,35 @@ class TestParseNotificationsHtml:
         assert first.subject.state == "open"
         assert first.subject.number is not None
 
+    def test_uses_supplied_repository_metadata(
+        self, pagination_page1_html: str
+    ) -> None:
+        """Test fixture parsing with caller-provided repository metadata."""
+        result = parse_notifications_html(
+            html=pagination_page1_html,
+            owner="customowner",
+            repo="customrepo",
+        )
+
+        assert len(result.notifications) == 25
+        assert result.repository.owner == "customowner"
+        assert result.repository.name == "customrepo"
+        assert result.repository.full_name == "customowner/customrepo"
+
+    def test_accepts_unknown_repository_metadata(
+        self, pagination_page1_html: str
+    ) -> None:
+        """Test fixture parsing when callers pass unknown metadata."""
+        result = parse_notifications_html(
+            html=pagination_page1_html,
+            owner="unknown",
+            repo="unknown",
+        )
+
+        assert len(result.notifications) == 25
+        assert result.repository.owner == "unknown"
+        assert result.repository.name == "unknown"
+
     def test_parses_pagination_cursors(self, pagination_page1_html: str) -> None:
         """Test that pagination cursors are extracted correctly."""
         result = parse_notifications_html(

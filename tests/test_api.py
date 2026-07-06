@@ -34,6 +34,12 @@ def pagination_page2_path() -> str:
     return str(FIXTURES_DIR / "pagination_page2.html")
 
 
+@pytest.fixture
+def fixture_file_test_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enable the fixture file query parameter for tests that need it."""
+    monkeypatch.setenv("GHINBOX_TEST_MODE", "1")
+
+
 class TestHealthEndpoint:
     """Tests for the health check endpoint."""
 
@@ -136,6 +142,19 @@ class TestGetRepoNotifications:
         assert data["repository"]["name"] == "testrepo"
         assert data["notifications"] == []
 
+    def test_fixture_param_requires_test_mode(
+        self, client: TestClient, pagination_page1_path: str
+    ) -> None:
+        """Test fixture file parsing is not exposed outside test mode."""
+        response = client.get(
+            "/notifications/html/repo/ezyang0/ghsim-test-20251225075653",
+            params={"fixture": pagination_page1_path},
+        )
+
+        assert response.status_code == 403
+        assert "test mode" in response.json()["detail"]
+
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_parses_fixture_file(
         self, client: TestClient, pagination_page1_path: str
     ) -> None:
@@ -152,6 +171,7 @@ class TestGetRepoNotifications:
         assert data["repository"]["owner"] == "ezyang0"
         assert data["repository"]["name"] == "ghsim-test-20251225075653"
 
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_returns_404_for_missing_fixture(self, client: TestClient) -> None:
         """Test that missing fixture returns 404."""
         response = client.get(
@@ -162,6 +182,7 @@ class TestGetRepoNotifications:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_pagination_cursors_in_response(
         self, client: TestClient, pagination_page1_path: str
     ) -> None:
@@ -178,6 +199,7 @@ class TestGetRepoNotifications:
         assert data["pagination"]["has_previous"] is False
         assert data["pagination"]["after_cursor"] is not None
 
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_notification_fields(
         self, client: TestClient, pagination_page1_path: str
     ) -> None:
@@ -212,6 +234,7 @@ class TestGetRepoNotifications:
         assert "saved" in ui
         assert "done" in ui
 
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_source_url_includes_pagination_params(
         self, client: TestClient, pagination_page1_path: str
     ) -> None:
@@ -999,58 +1022,6 @@ class TestLoginRefresh:
         ]
 
 
-class TestParseEndpoint:
-    """Tests for GET /notifications/html/parse."""
-
-    def test_parses_fixture_directly(
-        self, client: TestClient, pagination_page1_path: str
-    ) -> None:
-        """Test parsing fixture via /parse endpoint."""
-        response = client.get(
-            "/notifications/html/parse",
-            params={"fixture": pagination_page1_path},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert len(data["notifications"]) == 25
-
-    def test_uses_provided_owner_repo(
-        self, client: TestClient, pagination_page1_path: str
-    ) -> None:
-        """Test that owner/repo params are used in response."""
-        response = client.get(
-            "/notifications/html/parse",
-            params={
-                "fixture": pagination_page1_path,
-                "owner": "customowner",
-                "repo": "customrepo",
-            },
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["repository"]["owner"] == "customowner"
-        assert data["repository"]["name"] == "customrepo"
-
-    def test_defaults_to_unknown(
-        self, client: TestClient, pagination_page1_path: str
-    ) -> None:
-        """Test that owner/repo default to 'unknown'."""
-        response = client.get(
-            "/notifications/html/parse",
-            params={"fixture": pagination_page1_path},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert data["repository"]["owner"] == "unknown"
-        assert data["repository"]["name"] == "unknown"
-
-
 class TestOpenAPISpec:
     """Tests for OpenAPI specification."""
 
@@ -1074,7 +1045,7 @@ class TestOpenAPISpec:
 
         paths = data["paths"]
         assert "/notifications/html/repo/{owner}/{repo}" in paths
-        assert "/notifications/html/parse" in paths
+        assert "/notifications/html/parse" not in paths
 
     def test_openapi_has_schemas(self, client: TestClient) -> None:
         """Test that OpenAPI includes response schemas."""
@@ -1094,6 +1065,7 @@ class TestOpenAPISpec:
 class TestResponseSchema:
     """Tests for response schema validation."""
 
+    @pytest.mark.usefixtures("fixture_file_test_mode")
     def test_response_matches_spec(
         self, client: TestClient, pagination_page1_path: str
     ) -> None:
