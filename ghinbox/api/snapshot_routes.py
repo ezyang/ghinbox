@@ -17,6 +17,7 @@ from ghinbox.api.notification_shapes import (
     build_comment_cache_entry as _build_comment_cache_entry,
     notification_to_bulk_comment_item as _notification_to_bulk_comment_item,
 )
+from ghinbox.api.repo_keys import repo_key
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     clear_snapshot_store,
@@ -37,10 +38,6 @@ _periodic_task: asyncio.Task | None = None
 
 class StartSyncRequest(BaseModel):
     mode: Literal["full"] = "full"
-
-
-def _repo_key(owner: str, repo: str) -> str:
-    return f"{owner}/{repo}"
 
 
 def _now() -> str:
@@ -129,7 +126,7 @@ async def _cancel_background_task(task: asyncio.Task[Any] | None) -> None:
 
 
 async def _fetch_snapshot(owner: str, repo: str) -> None:
-    repo_key = _repo_key(owner, repo)
+    full_repo_name = repo_key(owner, repo)
     started_at = _now()
     all_notifications: list[dict] = []
     authenticity_token: str | None = None
@@ -143,7 +140,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
     review_requests_task: asyncio.Task[list[dict]] | None = None
 
     set_sync_state(
-        repo_key,
+        full_repo_name,
         status="running",
         mode="full",
         phase=phase,
@@ -196,7 +193,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             generated_at = parsed.generated_at.isoformat()
 
             set_sync_state(
-                repo_key,
+                full_repo_name,
                 status="running",
                 mode="full",
                 phase=phase,
@@ -213,7 +210,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
 
         phase = "reviews"
         set_sync_state(
-            repo_key,
+            full_repo_name,
             status="running",
             mode="full",
             phase=phase,
@@ -232,14 +229,16 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             reverse=True,
         )
         save_snapshot(
-            repo_key,
+            full_repo_name,
             all_notifications,
             preserve_comment_cache=True,
             authenticity_token=authenticity_token,
             source_url=source_url,
             generated_at=generated_at,
         )
-        notifications_for_comment_cache = apply_local_state(repo_key, all_notifications)
+        notifications_for_comment_cache = apply_local_state(
+            full_repo_name, all_notifications
+        )
         comments_total = sum(
             1
             for notification in notifications_for_comment_cache
@@ -247,7 +246,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
         )
         phase = "comments" if comments_total else "complete"
         set_sync_state(
-            repo_key,
+            full_repo_name,
             status="running",
             mode="full",
             phase=phase,
@@ -266,7 +265,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             if payload.get("error"):
                 comments_failed += 1
             set_sync_state(
-                repo_key,
+                full_repo_name,
                 status="running",
                 mode="full",
                 phase="comments",
@@ -285,7 +284,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             on_progress=on_comment_progress,
         )
         save_snapshot(
-            repo_key,
+            full_repo_name,
             all_notifications,
             comment_cache=comment_cache,
             authenticity_token=authenticity_token,
@@ -293,7 +292,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             generated_at=generated_at,
         )
         set_sync_state(
-            repo_key,
+            full_repo_name,
             status="success",
             mode="full",
             phase="complete",
@@ -308,7 +307,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
     except SessionExpiredError as error:
         await _cancel_background_task(review_requests_task)
         set_sync_state(
-            repo_key,
+            full_repo_name,
             status="error",
             mode="full",
             phase=phase,
@@ -325,7 +324,7 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
     except Exception as error:
         await _cancel_background_task(review_requests_task)
         set_sync_state(
-            repo_key,
+            full_repo_name,
             status="error",
             mode="full",
             phase=phase,
@@ -339,15 +338,15 @@ async def _fetch_snapshot(owner: str, repo: str) -> None:
             comments_failed=comments_failed,
         )
     finally:
-        _running_tasks.pop(repo_key, None)
+        _running_tasks.pop(full_repo_name, None)
 
 
 def _start_sync_task(owner: str, repo: str) -> None:
-    repo_key = _repo_key(owner, repo)
-    task = _running_tasks.get(repo_key)
+    full_repo_name = repo_key(owner, repo)
+    task = _running_tasks.get(full_repo_name)
     if task and not task.done():
         return
-    _running_tasks[repo_key] = asyncio.create_task(_fetch_snapshot(owner, repo))
+    _running_tasks[full_repo_name] = asyncio.create_task(_fetch_snapshot(owner, repo))
 
 
 async def _periodic_snapshot_sync(interval_seconds: int) -> None:
@@ -355,8 +354,8 @@ async def _periodic_snapshot_sync(interval_seconds: int) -> None:
         await asyncio.sleep(interval_seconds)
         if get_fetcher() is None:
             continue
-        for repo_key in list_snapshot_repos():
-            owner, sep, repo = repo_key.partition("/")
+        for snapshot_repo_key in list_snapshot_repos():
+            owner, sep, repo = snapshot_repo_key.partition("/")
             if not sep or not owner or not repo:
                 continue
             _start_sync_task(owner, repo)
@@ -383,15 +382,15 @@ def stop_periodic_snapshot_sync() -> None:
 
 @router.get("/{owner}/{repo}")
 async def get_notification_snapshot(owner: str, repo: str) -> dict:
-    repo_key = _repo_key(owner, repo)
+    full_repo_name = repo_key(owner, repo)
     return {
         "repository": {
             "owner": owner,
             "name": repo,
-            "full_name": repo_key,
+            "full_name": full_repo_name,
         },
-        "snapshot": get_snapshot(repo_key),
-        "sync": get_sync_state(repo_key),
+        "snapshot": get_snapshot(full_repo_name),
+        "sync": get_sync_state(full_repo_name),
     }
 
 
@@ -408,29 +407,29 @@ async def start_notification_snapshot_sync(
             status_code=503,
             detail="No GitHub fetcher configured. Start server with --account.",
         )
-    repo_key = _repo_key(owner, repo)
+    full_repo_name = repo_key(owner, repo)
     _start_sync_task(owner, repo)
     return {
         "repository": {
             "owner": owner,
             "name": repo,
-            "full_name": repo_key,
+            "full_name": full_repo_name,
         },
-        "sync": get_sync_state(repo_key),
+        "sync": get_sync_state(full_repo_name),
     }
 
 
 @router.get("/{owner}/{repo}/sync")
 async def get_notification_snapshot_sync(owner: str, repo: str) -> dict:
-    repo_key = _repo_key(owner, repo)
+    full_repo_name = repo_key(owner, repo)
     return {
         "repository": {
             "owner": owner,
             "name": repo,
-            "full_name": repo_key,
+            "full_name": full_repo_name,
         },
-        "sync": get_sync_state(repo_key),
-        "snapshot": get_snapshot(repo_key),
+        "sync": get_sync_state(full_repo_name),
+        "snapshot": get_snapshot(full_repo_name),
     }
 
 

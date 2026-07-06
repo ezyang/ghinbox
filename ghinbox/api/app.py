@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ghinbox.api.routes import router as notifications_router
 from ghinbox.api.github_proxy import router as github_proxy_router
+from ghinbox.api.local_state_routes import router as local_state_router
 from ghinbox.api.login_routes import router as login_router
 from ghinbox.api.observability import (
     ObservabilityMiddleware,
@@ -113,6 +114,7 @@ app = FastAPI(
 )
 
 app.include_router(notifications_router)
+app.include_router(local_state_router)
 app.include_router(github_proxy_router)
 app.include_router(login_router)
 app.include_router(site_auth_router)

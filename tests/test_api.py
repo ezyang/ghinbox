@@ -307,12 +307,12 @@ class TestNotificationActions:
         monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
         monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_token",
+            "ghinbox.api.archive_api.get_token",
             lambda: "api-token",
             raising=False,
         )
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_client",
+            "ghinbox.api.archive_api.get_client",
             lambda: FakeClient(),
             raising=False,
         )
@@ -371,10 +371,10 @@ class TestNotificationActions:
         monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
         monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_token", lambda: "api-token", raising=False
+            "ghinbox.api.archive_api.get_token", lambda: "api-token", raising=False
         )
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_client", lambda: FakeClient(), raising=False
+            "ghinbox.api.archive_api.get_client", lambda: FakeClient(), raising=False
         )
 
         response = client.post(
@@ -452,13 +452,14 @@ class TestNotificationActions:
 
         monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
         monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
-        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
-        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
         monkeypatch.setattr(
-            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+            "ghinbox.api.archive_api.list_snapshot_repos",
+            lambda: ["pytorch/pytorch"],
         )
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_snapshot",
+            "ghinbox.api.archive_api.get_snapshot",
             lambda repo: {
                 "notifications": [
                     {
@@ -576,13 +577,14 @@ class TestNotificationActions:
 
         monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
         monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
-        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
-        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
         monkeypatch.setattr(
-            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+            "ghinbox.api.archive_api.list_snapshot_repos",
+            lambda: ["pytorch/pytorch"],
         )
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_snapshot",
+            "ghinbox.api.archive_api.get_snapshot",
             lambda repo: {
                 "notifications": [
                     {
@@ -708,15 +710,16 @@ class TestNotificationActions:
                 return ActionResult(status="ok", github_status_code=200)
 
         monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
-        monkeypatch.setattr("ghinbox.api.routes.MAX_REST_THREAD_LOOKUP_PAGES", 2)
+        monkeypatch.setattr("ghinbox.api.archive_api.MAX_REST_THREAD_LOOKUP_PAGES", 2)
         monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
-        monkeypatch.setattr("ghinbox.api.routes.get_token", lambda: "api-token")
-        monkeypatch.setattr("ghinbox.api.routes.get_client", lambda: FakeClient())
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
         monkeypatch.setattr(
-            "ghinbox.api.routes.list_snapshot_repos", lambda: ["pytorch/pytorch"]
+            "ghinbox.api.archive_api.list_snapshot_repos",
+            lambda: ["pytorch/pytorch"],
         )
         monkeypatch.setattr(
-            "ghinbox.api.routes.get_snapshot",
+            "ghinbox.api.archive_api.get_snapshot",
             lambda repo: {
                 "notifications": [
                     {
