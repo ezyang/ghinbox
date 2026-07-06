@@ -301,7 +301,8 @@
             return getCommentTimestampMs(comment) > latestCloseEventMs;
         };
         const isInterestingUnreadComment = (comment) => isUnread(comment) &&
-            !isUninterestingComment(comment) &&
+            (isDelegatedTaskCompletion(comment, currentUser) ||
+                !isUninterestingComment(comment)) &&
             isAfterCloseEvent(comment);
 
         if (
@@ -387,6 +388,19 @@
             'dependabot-preview',
         ]);
         return knownBots.has(normalized);
+    }
+
+    function isDelegatedTaskCompletion(comment, currentUserLogin) {
+        // Claude runs delegated tasks on the user's behalf and posts the result
+        // as claude[bot] (e.g. "Claude finished @user's task ..."). That comment
+        // @-mentions the user and IS directed at them, so it must not be treated
+        // as generic bot noise. Restricted to the claude bot + an explicit
+        // mention so ordinary bot pings (pytorchmergebot, etc.) stay filtered.
+        const author = normalizeLogin(comment?.user?.login);
+        if (author !== 'claude[bot]') {
+            return false;
+        }
+        return mentionsCurrentUser(comment?.body || '', currentUserLogin);
     }
 
     function isBotInteractionComment(body) {
@@ -540,6 +554,7 @@
         isClosedOrMergedNotification,
         isClosingStateEvent,
         isCurrentUserCcLine,
+        isDelegatedTaskCompletion,
         isMainThreadComment,
         isNotificationDirectedAtCurrentUser,
         isNotificationForCurrentUser,

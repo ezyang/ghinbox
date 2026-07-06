@@ -276,6 +276,18 @@ def _get_direct_review_thread_replies(comments: list[dict], login: str) -> list[
     return replies
 
 
+def _is_delegated_task_completion(comment: dict, login: str) -> bool:
+    """Claude runs delegated tasks as claude[bot] and @-mentions the user in the
+    result ("Claude finished @user's task ..."). That comment IS directed at the
+    user, so it must not be filtered as generic bot noise. Mirrors the webapp's
+    isDelegatedTaskCompletion. Restricted to claude[bot] + explicit mention so
+    ordinary bot pings stay filtered."""
+    author = ((comment.get("user") or {}).get("login") or "").strip().lower()
+    if author != "claude[bot]":
+        return False
+    return _mentions_user(comment.get("body") or "", login)
+
+
 def _is_directed_at_current_user(
     notification: dict,
     comments: list[dict],
@@ -317,7 +329,14 @@ def _is_directed_at_current_user(
         return _comment_timestamp_ms(c) > latest_close_ms
 
     def is_interesting_unread(c: dict) -> bool:
-        return is_unread(c) and not _is_uninteresting_comment(c) and is_after_close(c)
+        return (
+            is_unread(c)
+            and (
+                _is_delegated_task_completion(c, login)
+                or not _is_uninteresting_comment(c)
+            )
+            and is_after_close(c)
+        )
 
     # Check 1: direct review thread replies to user's review comments
     if any(

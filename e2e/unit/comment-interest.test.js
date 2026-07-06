@@ -145,6 +145,65 @@ test('authored PR comments from other users are directed at the current user', (
   );
 });
 
+test('delegated claude[bot] task-completion mentions are directed at the current user', () => {
+  // ezyang asked @claude to do something, and claude[bot] replied @-mentioning
+  // ezyang with the finished work. This should route to Replies, not Feed.
+  const comments = [
+    comment(1, 'testuser', '@claude Answer the outstanding comments on PR'),
+    comment(
+      6,
+      'claude[bot]',
+      "**Claude finished @testuser's task** — Answers to outstanding review comments...",
+    ),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest', 'mention'), {
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: null,
+    }),
+    true
+  );
+});
+
+test('generic claude[bot] review that does not mention the user is not directed', () => {
+  // A claude[bot] auto-review of someone else's PR that does not @-mention the
+  // user must stay filtered as bot noise (Feed), not leak into Replies.
+  const comments = [
+    comment(1, 'alice', 'Please review.'),
+    comment(6, 'claude[bot]', '**Claude finished** — general review notes, no mention here.'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest', 'mention'), {
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: null,
+    }),
+    false
+  );
+});
+
+test('bot merge/command comments that mention the user stay filtered', () => {
+  // pytorchmergebot etc. routinely @-mention the author ("@testuser your PR has
+  // been merged"); these are not delegated-task completions and must remain
+  // Feed noise. (A revert notice is deliberately surfaced elsewhere.)
+  const comments = [
+    comment(1, 'testuser', 'Landing this.'),
+    comment(6, 'pytorchmergebot', '@testuser your PR has been successfully merged.'),
+  ];
+
+  assert.equal(
+    isNotificationDirectedAtCurrentUser(notification('PullRequest', 'mention'), {
+      comments,
+      currentUserLogin: 'testuser',
+      lastReadAt: null,
+    }),
+    false
+  );
+});
+
 test('closed notifications are directed only by comments after the close event', () => {
   const stateEvents = [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }];
   assert.equal(
