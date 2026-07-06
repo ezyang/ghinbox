@@ -50,6 +50,75 @@ test('readErrorDetail parses object detail messages and session expiry', async (
   assert.equal(detail.sessionExpired, true);
 });
 
+test('readErrorDetail appends governor reset time to object detail messages', async () => {
+  const body = JSON.stringify({
+    detail: {
+      error: 'github_rate_governor_denied',
+      message: 'GitHub API rate governor denied interactive call for core.',
+      reason: 'remaining_below_floor',
+      pool: 'core',
+      remaining: 50,
+      floor: 100,
+      reset_at: '2100-01-01T00:00:00Z',
+    },
+  });
+  const detail = await Http.readErrorDetail(response({
+    status: 429,
+    statusText: 'Too Many Requests',
+    body,
+  }));
+
+  assert.equal(detail.detail, body);
+  assert.equal(
+    detail.message,
+    'GitHub API rate governor denied interactive call for core. Resets at 2100-01-01T00:00:00Z.'
+  );
+  assert.equal(detail.responseText, body);
+  assert.equal(detail.sessionExpired, false);
+});
+
+test('fetchJson throws readable governor messages for status bars', async () => {
+  const originalFetch = globalThis.fetch;
+  const body = JSON.stringify({
+    detail: {
+      error: 'github_rate_governor_denied',
+      message: 'GitHub API request budget exceeded.',
+      reason: 'request_budget_exceeded',
+      pool: 'core',
+      remaining: 1000,
+      floor: 500,
+      reset_at: '2100-01-01T00:00:00Z',
+    },
+  });
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 429,
+    statusText: 'Too Many Requests',
+    text: async () => body,
+  });
+
+  try {
+    await assert.rejects(
+      () => Http.fetchJson('/github/rest/user'),
+      (error) => {
+        assert.equal(error.status, 429);
+        assert.equal(error.detail, body);
+        assert.equal(
+          error.responseMessage,
+          'GitHub API request budget exceeded. Resets at 2100-01-01T00:00:00Z.'
+        );
+        assert.equal(
+          error.message,
+          'Request failed: /github/rest/user (429) GitHub API request budget exceeded. Resets at 2100-01-01T00:00:00Z.'
+        );
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('readErrorDetail falls back to parsed message, JSON, empty body, and raw text', async () => {
   assert.deepEqual(
     await Http.readErrorDetail(response({

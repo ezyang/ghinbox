@@ -12,8 +12,10 @@ from ghinbox.api.github_proxy import (
     GITHUB_API_BASE,
     _github_get_json_with_headers,
     _next_link_url,
+    check_github_rate_governor,
     get_client,
     get_token,
+    update_github_rate_governor_from_headers,
 )
 from ghinbox.api.observability import emit_github_api_call_audit
 from ghinbox.api.snapshot_store import (
@@ -146,6 +148,7 @@ async def _rest_thread_ids_by_subject_key(
                 params,
                 source="archive.thread_lookup",
                 request_id=request_id,
+                call_class="interactive",
             )
             pages_fetched += 1
             if status >= 400:
@@ -272,6 +275,14 @@ async def _submit_archive_with_github_api(
     headers = github_rest_headers(token)
     for thread_id in thread_ids:
         url = f"{GITHUB_API_BASE}/notifications/threads/{thread_id}"
+        check_github_rate_governor(
+            request_id=request_id,
+            source="archive.thread_delete",
+            method="DELETE",
+            url=url,
+            call_class="interactive",
+            pool="core",
+        )
         started = time.perf_counter()
         try:
             response = await client.request(
@@ -299,6 +310,7 @@ async def _submit_archive_with_github_api(
             duration_ms=(time.perf_counter() - started) * 1000,
             response_headers=getattr(response, "headers", None),
         )
+        update_github_rate_governor_from_headers(getattr(response, "headers", None))
         last_status_code = response.status_code
         if response.status_code >= 400:
             return ActionResult(

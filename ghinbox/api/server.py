@@ -31,6 +31,14 @@ from ghinbox.auth import (
     load_username,
     DEFAULT_ACCOUNT,
 )
+from ghinbox.api.rate_governor import (
+    DEFAULT_RATE_FLOOR_BACKGROUND,
+    DEFAULT_RATE_FLOOR_INTERACTIVE,
+    DEFAULT_RATE_REQUEST_BUDGET,
+    ENV_RATE_FLOOR_BACKGROUND,
+    ENV_RATE_FLOOR_INTERACTIVE,
+    ENV_RATE_REQUEST_BUDGET,
+)
 from ghinbox.token import has_token, provision_token, verify_token
 
 DEFAULT_DEBUG_SOCKET_PATH = Path("auth_state") / "ghinbox-debug.sock"
@@ -79,6 +87,20 @@ def _load_env_file(path: Path) -> None:
                 f"Invalid environment file entry at {path}:{line_number}"
             )
         os.environ.setdefault(key, value)
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
 
 
 def _iter_reload_files(reload_dirs: list[Path]) -> list[Path]:
@@ -336,6 +358,33 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--rate-floor-background",
+        type=_non_negative_int,
+        default=None,
+        help=(
+            "Minimum GitHub API remaining quota reserved before background "
+            f"calls are denied (default: {DEFAULT_RATE_FLOOR_BACKGROUND})."
+        ),
+    )
+    parser.add_argument(
+        "--rate-floor-interactive",
+        type=_non_negative_int,
+        default=None,
+        help=(
+            "Minimum GitHub API remaining quota reserved before interactive "
+            f"calls are denied (default: {DEFAULT_RATE_FLOOR_INTERACTIVE})."
+        ),
+    )
+    parser.add_argument(
+        "--rate-request-budget",
+        type=_positive_int,
+        default=None,
+        help=(
+            "Maximum outbound GitHub API calls allowed for one inbound request "
+            f"(default: {DEFAULT_RATE_REQUEST_BUDGET})."
+        ),
+    )
+    parser.add_argument(
         "--debug-socket",
         default=str(DEFAULT_DEBUG_SOCKET_PATH),
         help=(
@@ -364,6 +413,12 @@ def main() -> int:
     if args.snapshot_sync_interval_minutes > 0:
         interval_seconds = int(args.snapshot_sync_interval_minutes * 60)
         os.environ["GHINBOX_SNAPSHOT_SYNC_INTERVAL_SECONDS"] = str(interval_seconds)
+    if args.rate_floor_background is not None:
+        os.environ[ENV_RATE_FLOOR_BACKGROUND] = str(args.rate_floor_background)
+    if args.rate_floor_interactive is not None:
+        os.environ[ENV_RATE_FLOOR_INTERACTIVE] = str(args.rate_floor_interactive)
+    if args.rate_request_budget is not None:
+        os.environ[ENV_RATE_REQUEST_BUDGET] = str(args.rate_request_budget)
     if args.no_request_log:
         os.environ["GHINBOX_REQUEST_LOG_ENABLED"] = "0"
     else:

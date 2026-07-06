@@ -42,6 +42,11 @@ label, duration, and any GitHub `x-ratelimit-*` response headers. Query values,
 request bodies, response bodies, authorization headers, and tokens are not
 logged.
 
+When the local GitHub API rate governor denies a call before it is issued, the
+same audit stream records `status_code: 429`, `error: "rate_governor_denied"`,
+and a `governor_denial` object with the reason, pool, remaining count, floor,
+reset time, call class, and request budget counters.
+
 Use `--log-file` to choose another file:
 
 ```bash
@@ -97,6 +102,25 @@ curl -sS --unix-socket auth_state/ghinbox-debug.sock \
 ```
 
 `POST /debug/github-api-calls/clear` clears that in-memory buffer.
+
+`GET /debug/rate-governor` reports the current local GitHub API governor state:
+per-pool remaining/reset data learned from GitHub `x-ratelimit-*` headers,
+configured floors, the per-request outbound call budget, active request
+counters, and recent governor denials:
+
+```bash
+curl -sS --unix-socket auth_state/ghinbox-debug.sock \
+  http://ghinbox/debug/rate-governor
+```
+
+The default floors are 500 remaining calls for background work and 100 for
+interactive work. The default per-request outbound budget is 300 calls. These
+can be changed with `--rate-floor-background`, `--rate-floor-interactive`, and
+`--rate-request-budget`.
+
+When `GHINBOX_TEST_MODE=1`, the governor is disabled unless a test explicitly
+sets `GHINBOX_RATE_GOVERNOR_TEST_ENABLE=1`; Playwright route mocks usually do
+not include real GitHub rate-limit headers.
 
 `GET /debug/deployments` reports signed webhook deployment decisions without
 recording request bodies or secrets. It includes GitHub delivery and request

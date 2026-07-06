@@ -159,6 +159,9 @@ Options:
   --no-request-log       Disable JSONL request logging. Recent in-memory requests remain enabled.
   --snapshot-db-path SNAPSHOT_DB_PATH  Path to SQLite database for server-side notification snapshots.
   --snapshot-sync-interval-minutes SNAPSHOT_SYNC_INTERVAL_MINUTES  Periodically refresh repos with existing server snapshots. Disabled by default.
+  --rate-floor-background RATE_FLOOR_BACKGROUND  Minimum GitHub API remaining quota reserved before background calls are denied (default: 500).
+  --rate-floor-interactive RATE_FLOOR_INTERACTIVE  Minimum GitHub API remaining quota reserved before interactive calls are denied (default: 100).
+  --rate-request-budget RATE_REQUEST_BUDGET  Maximum outbound GitHub API calls allowed for one inbound request (default: 300).
   --debug-socket DEBUG_SOCKET  Unix domain socket for local shell/agent HTTP access that bypasses the site password gate (default: auth_state/ghinbox-debug.sock).
   --no-debug-socket      Disable the local debug Unix socket.
 ```

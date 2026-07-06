@@ -5,13 +5,15 @@ E2E tests for the FastAPI notifications API.
 from pathlib import Path
 import asyncio
 import os
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ghinbox.api.app import app
 from ghinbox.api.fetcher import ActionResult, FetchResult
-from ghinbox.api import login_routes
+from ghinbox.api import github_proxy, login_routes
+from ghinbox.api.rate_governor import get_rate_governor
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -116,6 +118,174 @@ class TestDebugEndpoints:
             == health_response.headers["x-ghinbox-request-id"]
         )
         assert "duration_ms" in health_entries[-1]
+
+    def test_debug_rate_governor_returns_non_secret_state(
+        self,
+        client: TestClient,
+    ) -> None:
+        """Test the rate-governor debug surface exposes current pool state."""
+        get_rate_governor().update_from_headers(
+            {
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "4500",
+                "x-ratelimit-used": "500",
+                "x-ratelimit-reset": "4102444800",
+                "x-ratelimit-resource": "core",
+            },
+            observed_at=datetime(2026, 7, 6, 12, 0, tzinfo=UTC),
+        )
+
+        response = client.get("/debug/rate-governor")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["floors"] == {"background": 500, "interactive": 100}
+        assert data["request_budget"] == 300
+        assert data["pools"]["core"]["remaining"] == 4500
+        assert data["recent_denials"] == []
+
+
+class TestRateGovernorEndpoints:
+    """Tests for GitHub API governor enforcement at HTTP boundaries."""
+
+    def test_rest_proxy_governor_denial_returns_429_and_audit(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test REST proxy denials are structured and diagnosable."""
+
+        class FakeClient:
+            async def request(self, *args, **kwargs):
+                raise AssertionError("governor should deny before GitHub request")
+
+        monkeypatch.delenv("GHINBOX_TEST_MODE", raising=False)
+        monkeypatch.setattr(github_proxy, "get_token", lambda: "api-token")
+        monkeypatch.setattr(github_proxy, "get_client", lambda: FakeClient())
+        get_rate_governor().update_from_headers(
+            {
+                "x-ratelimit-limit": "5000",
+                "x-ratelimit-remaining": "50",
+                "x-ratelimit-used": "4950",
+                "x-ratelimit-reset": "4102444800",
+                "x-ratelimit-resource": "core",
+            },
+            observed_at=datetime(2026, 7, 6, 12, 0, tzinfo=UTC),
+        )
+
+        clear_response = client.post("/debug/github-api-calls/clear")
+        assert clear_response.status_code == 200
+
+        response = client.get("/github/rest/user")
+
+        assert response.status_code == 429
+        request_id = response.headers["x-ghinbox-request-id"]
+        detail = response.json()["detail"]
+        assert detail["error"] == "github_rate_governor_denied"
+        assert detail["reason"] == "remaining_below_floor"
+        assert detail["pool"] == "core"
+        assert detail["remaining"] == 50
+        assert detail["floor"] == 100
+        assert detail["reset_at"] == "2100-01-01T00:00:00Z"
+        assert detail["request_id"] == request_id
+
+        audit_response = client.get("/debug/github-api-calls")
+        assert audit_response.status_code == 200
+        calls = audit_response.json()["calls"]
+        assert calls == [
+            {
+                "timestamp": calls[0]["timestamp"],
+                "event": "github_api_call",
+                "request_id": request_id,
+                "source": "rest_proxy",
+                "method": "GET",
+                "endpoint": "/user",
+                "status_code": 429,
+                "duration_ms": 0,
+                "error": "rate_governor_denied",
+                "governor_denial": {
+                    "error": "github_rate_governor_denied",
+                    "message": detail["message"],
+                    "reason": "remaining_below_floor",
+                    "pool": "core",
+                    "remaining": 50,
+                    "floor": 100,
+                    "reset_at": "2100-01-01T00:00:00Z",
+                    "call_class": "interactive",
+                    "request_id": request_id,
+                    "request_count": 0,
+                    "request_budget": 300,
+                },
+            }
+        ]
+
+        governor_response = client.get("/debug/rate-governor")
+        assert governor_response.status_code == 200
+        denials = governor_response.json()["recent_denials"]
+        assert denials[-1]["request_id"] == request_id
+        assert denials[-1]["source"] == "rest_proxy"
+        assert denials[-1]["reason"] == "remaining_below_floor"
+
+    def test_bulk_comments_returns_partial_results_when_rate_limited(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test bulk comment fetches surface partial results on governor denial."""
+
+        async def fake_fetch_bulk_comment_results(
+            token: str,
+            items: list[dict],
+            on_progress=None,
+            request_id: str | None = None,
+        ) -> github_proxy.BulkCommentFetchResults:
+            assert token == "api-token"
+            assert items == [{"key": "one"}, {"key": "two"}]
+            assert request_id
+            return github_proxy.BulkCommentFetchResults(
+                [("one", {"comments": [{"id": 1}]})],
+                rate_limited=True,
+                denial={
+                    "error": "github_rate_governor_denied",
+                    "reason": "request_budget_exceeded",
+                    "pool": "core",
+                    "remaining": 1000,
+                    "floor": 500,
+                    "reset_at": "2100-01-01T00:00:00Z",
+                    "call_class": "background",
+                    "request_budget": 300,
+                    "request_count": 300,
+                },
+            )
+
+        monkeypatch.setattr(github_proxy, "get_token", lambda: "api-token")
+        monkeypatch.setattr(
+            github_proxy,
+            "fetch_bulk_comment_results",
+            fake_fetch_bulk_comment_results,
+        )
+
+        response = client.post(
+            "/github/rest/comments/bulk",
+            json={"items": [{"key": "one"}, {"key": "two"}]},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "threads": {"one": {"comments": [{"id": 1}]}},
+            "rate_limited": True,
+            "rate_limit": {
+                "error": "github_rate_governor_denied",
+                "reason": "request_budget_exceeded",
+                "pool": "core",
+                "remaining": 1000,
+                "floor": 500,
+                "reset_at": "2100-01-01T00:00:00Z",
+                "call_class": "background",
+                "request_budget": 300,
+                "request_count": 300,
+            },
+        }
 
 
 class TestRootEndpoint:

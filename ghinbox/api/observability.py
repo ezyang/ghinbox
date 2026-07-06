@@ -26,6 +26,7 @@ from urllib.parse import parse_qsl, urlparse
 from fastapi import APIRouter
 
 from ghinbox.api.fetcher import get_fetcher
+from ghinbox.api.rate_governor import get_rate_governor
 
 MAX_RECENT_REQUESTS = 200
 REQUEST_ID_HEADER = b"x-ghinbox-request-id"
@@ -145,6 +146,7 @@ class ObservabilityMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
+            get_rate_governor().finish_request(request_id)
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             entry = {
                 "timestamp": started_at,
@@ -285,6 +287,7 @@ def emit_github_api_call_audit(
     duration_ms: float,
     response_headers: Mapping[str, str] | None = None,
     error: str | None = None,
+    governor_denial: Mapping[str, Any] | None = None,
 ) -> None:
     """Record a sanitized outbound GitHub API call audit event."""
     endpoint, query_keys = _github_endpoint_from_url(url)
@@ -302,6 +305,8 @@ def emit_github_api_call_audit(
         entry["query_keys"] = query_keys
     if error is not None:
         entry["error"] = error
+    if governor_denial is not None:
+        entry["governor_denial"] = dict(governor_denial)
     rate_limit = _github_rate_limit_from_headers(response_headers)
     if rate_limit is not None:
         entry["rate_limit"] = rate_limit
@@ -358,6 +363,13 @@ async def clear_debug_github_api_calls() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/rate-governor")
+async def debug_rate_governor(limit: int = 20) -> dict[str, Any]:
+    """Return GitHub API rate-governor state and recent denials."""
+    bounded_limit = max(1, min(limit, MAX_RECENT_REQUESTS))
+    return get_rate_governor().snapshot(denial_limit=bounded_limit)
+
+
 @router.get("/deployments")
 async def debug_deployments(limit: int = 50) -> dict[str, Any]:
     """Return recent sanitized webhook deployment audit events."""
@@ -398,4 +410,5 @@ async def debug_state() -> dict[str, Any]:
         "request_log_enabled": os.environ.get("GHINBOX_REQUEST_LOG_ENABLED", "1")
         == "1",
         "request_log_file": log_file,
+        "rate_governor": get_rate_governor().snapshot(denial_limit=5),
     }
