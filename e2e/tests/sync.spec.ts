@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { makeCommentCache, makeCommentThread, makeNotification } from './app-fixture';
 import {
+  APP_STORAGE_KEYS,
   clearAppStorage,
   readCommentCache,
   readNotificationsCache,
@@ -1248,6 +1250,236 @@ test.describe('Sync Functionality @slow @sync', () => {
     await expect(page.locator('[data-id="server-1"]')).toBeVisible();
     expect(syncStarted).toBe(true);
     expect(htmlFetchCalled).toBe(false);
+  });
+
+  test('full sync prunes orphaned comment-cache threads from returned server snapshot', async ({ page }) => {
+    const staleNotification = makeNotification({
+      id: 'full-sync-orphan-stale-1',
+      updated_at: '2024-12-26T12:00:00Z',
+      subject: {
+        title: 'Stale local notification',
+        type: 'Issue',
+        number: 41,
+      },
+    });
+    const snapshotNotification = makeNotification({
+      id: 'full-sync-current-1',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: {
+        title: 'Current server snapshot notification',
+        type: 'Issue',
+        number: 42,
+      },
+    });
+    let syncStarted = false;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: null,
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      if (route.request().method() === 'POST') {
+        syncStarted = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: { status: 'running', mode: 'full' },
+          }),
+        });
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: 'success',
+            mode: 'full',
+            phase: 'complete',
+            pages_fetched: 1,
+            notifications_count: 1,
+          },
+          snapshot: {
+            notifications: [snapshotNotification],
+            comment_cache: makeCommentCache({
+              'full-sync-current-1': makeCommentThread({
+                notificationUpdatedAt: snapshotNotification.updated_at,
+                comments: [],
+                allComments: true,
+                fetchedAt: new Date().toISOString(),
+              }),
+            }),
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+        }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await seedNotificationsCache(page, [staleNotification]);
+    await seedCommentCache(page, makeCommentCache({
+      'full-sync-orphan-stale-1': makeCommentThread({
+        notificationUpdatedAt: staleNotification.updated_at,
+        comments: [{ id: 501, body: 'Orphan comment for stale notification' }],
+        allComments: true,
+        fetchedAt: '2024-12-26T12:00:05Z',
+      }),
+    }));
+    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
+    await page.reload();
+    await expect(page.locator('[data-id="full-sync-orphan-stale-1"]')).toBeVisible();
+    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('[data-id="full-sync-current-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="full-sync-orphan-stale-1"]')).toHaveCount(0);
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect
+      .poll(async () => {
+        const cache = (await readCommentCache(page)) as {
+          threads?: Record<string, unknown>;
+        } | null;
+        return [
+          Boolean(cache?.threads?.['full-sync-orphan-stale-1']),
+          Boolean(cache?.threads?.['full-sync-current-1']),
+        ].join(',');
+      })
+      .toBe('false,true');
+    expect(syncStarted).toBe(true);
+  });
+
+  test('full sync recovers a rendered list from trashed local state', async ({ page }) => {
+    const recoveredNotification = makeNotification({
+      id: 'full-sync-recovered-1',
+      updated_at: '2024-12-28T12:00:00Z',
+      subject: {
+        title: 'Recovered upstream notification',
+        type: 'Issue',
+        number: 43,
+      },
+    });
+    let syncStarted = false;
+
+    await page.route('**/api/snapshots/test/repo', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          snapshot: null,
+          sync: { status: 'idle', mode: 'full' },
+        }),
+      });
+    });
+    await page.route('**/api/snapshots/test/repo/sync', (route) => {
+      if (route.request().method() === 'POST') {
+        syncStarted = true;
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+            sync: { status: 'running', mode: 'full' },
+          }),
+        });
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          repository: { owner: 'test', name: 'repo', full_name: 'test/repo' },
+          sync: {
+            status: 'success',
+            mode: 'full',
+            phase: 'complete',
+            pages_fetched: 1,
+            notifications_count: 1,
+          },
+          snapshot: {
+            notifications: [recoveredNotification],
+            comment_cache: makeCommentCache({
+              'full-sync-recovered-1': makeCommentThread({
+                notificationUpdatedAt: recoveredNotification.updated_at,
+                comments: [],
+                allComments: true,
+                fetchedAt: new Date().toISOString(),
+              }),
+            }),
+            authenticity_token: 'server-token',
+            synced_at: '2024-12-28T12:01:00+00:00',
+          },
+        }),
+      });
+    });
+    await page.route('**/github/rest/repos/test/repo/issues/43**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.evaluate((keys) => {
+      localStorage.setItem(keys.repo, 'test/repo');
+      localStorage.setItem(keys.lastSyncedRepo, 'test/repo');
+      localStorage.setItem('ghnotif_profile_id', 'custom');
+      localStorage.setItem('ghnotif_profiles', '{"not valid json"');
+      localStorage.setItem('ghnotif_view_orders', '{"issues":');
+      localStorage.setItem('ghnotif_view_filters', '{"issues":');
+      localStorage.setItem('ghnotif_notifications', '{"notifications":');
+      localStorage.setItem('ghnotif_bulk_comment_cache_v1', '{"threads":');
+      localStorage.setItem('ghnotif_view', 'issues');
+    }, APP_STORAGE_KEYS);
+    await seedNotificationsCache(page, { not: 'an array' });
+    await seedCommentCache(page, { version: 1, threads: 'not a thread map' });
+    await page.reload();
+
+    await expect(page.locator('#sync-btn')).toBeEnabled();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('[data-id="full-sync-recovered-1"]')).toBeVisible();
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('#notification-count')).toContainText('1 notification');
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect
+      .poll(async () => {
+        const cached = await readNotificationsCache(page);
+        return Array.isArray(cached) ? cached.map((item) => item?.id).join(',') : 'not-array';
+      })
+      .toBe('full-sync-recovered-1');
+    await expect
+      .poll(async () => {
+        const cache = (await readCommentCache(page)) as {
+          threads?: Record<string, unknown>;
+        } | null;
+        return [
+          cache?.threads && typeof cache.threads === 'object',
+          Boolean(cache?.threads?.['full-sync-recovered-1']),
+        ].join(',');
+      })
+      .toBe('true,true');
+    expect(syncStarted).toBe(true);
   });
 
   test('quick sync runs on server for a single repo when available', async ({ page }) => {
