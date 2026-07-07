@@ -755,20 +755,6 @@
             applyActiveProfileToInput();
             saveProfiles();
 
-            try {
-                state.commentCache = await loadCommentCache();
-            } catch (error) {
-                console.error('Failed to load comment cache:', error);
-            }
-            // Prefer the current server-owned snapshot; fall back to the local cache offline.
-            // Comment cache must be available first so startup snapshot hydration can skip
-            // fresh threads instead of immediately refetching them.
-            await loadInitialNotifications();
-            state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
-            const savedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
-            if (savedAuthToken) {
-                state.authenticity_token = savedAuthToken;
-            }
 
             // Load saved view from localStorage
             const savedView = localStorage.getItem(VIEW_KEY);
@@ -970,6 +956,25 @@
             }
             if (elements.mobileAuthorSelect) {
                 elements.mobileAuthorSelect.addEventListener('change', handleMobileAuthorChange);
+            }
+
+            // Load caches and the server snapshot only after all event
+            // listeners are registered: the snapshot fetch is a network
+            // round-trip, and blocking on it left early user input (e.g.
+            // toggling auto-clean) silently dropped.
+            try {
+                state.commentCache = await loadCommentCache();
+            } catch (error) {
+                console.error('Failed to load comment cache:', error);
+            }
+            // Prefer the current server-owned snapshot; fall back to the local cache offline.
+            // Comment cache must be available first so startup snapshot hydration can skip
+            // fresh threads instead of immediately refetching them.
+            await loadInitialNotifications();
+            state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
+            const savedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
+            if (savedAuthToken) {
+                state.authenticity_token = savedAuthToken;
             }
 
             // Check auth status (uses cached value if available)
