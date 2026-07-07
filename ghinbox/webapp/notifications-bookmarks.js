@@ -15,10 +15,12 @@
 
     async function putNotificationLocalState(notificationId, path, body) {
         const notification = state.notifications.find((item) => item.id === notificationId);
-        const repo = getNotificationRepoInfo(notification) ||
-            parseRepoInput(state.repo || elements.repoInput.value.trim());
+        if (!notification) {
+            throw new Error('Notification not found');
+        }
+        const repo = getNotificationRepoInfo(notification);
         if (!repo) {
-            throw new Error('Invalid repository');
+            throw new Error('Notification repository not found');
         }
         return fetchJson(
             `/notifications/html/repo/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.repo)}/${path}/${encodeURIComponent(notificationId)}`,

@@ -352,6 +352,26 @@ export async function mockDefaultApiRoutes(page: Page, options: {
   await mockServerSnapshotSyncUnavailable(page, repo);
 }
 
+export async function mockQueryNotifications(
+  page: Page,
+  responsesByQuery: Record<string, JsonBody>
+) {
+  const seenQueries: string[] = [];
+  await page.route('**/notifications/html/query**', (route) => {
+    const url = new URL(route.request().url());
+    const query = url.searchParams.get('query') || '';
+    seenQueries.push(query);
+    const response =
+      Object.prototype.hasOwnProperty.call(responsesByQuery, query)
+        ? responsesByQuery[query]
+        : makeNotificationsResponse([], {
+            authenticity_token: TEST_ACTION_TOKENS.archive,
+          });
+    return fulfillJson(route, response);
+  });
+  return seenQueries;
+}
+
 export async function mockServerSnapshotSyncUnavailable(
   page: Page,
   repo: string = DEFAULT_REPO

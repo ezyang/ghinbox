@@ -414,9 +414,11 @@
             const results = await Promise.allSettled(
                 notifIds.map(async (notifId) => {
                     const notification = notificationLookup?.get(notifId);
-                    const repo = getNotificationRepoInfo(notification) ||
-                        parseRepoInput(state.repo || state.lastSyncedRepo || '');
+                    const repo = getNotificationRepoInfo(notification);
                     if (!repo) {
+                        console.warn(
+                            `[MarkDone] Skipping read comment watermark for ${notifId}: missing notification repository.`
+                        );
                         return;
                     }
                     if (notification) {
