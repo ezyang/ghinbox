@@ -102,7 +102,9 @@ def test_snapshot_sync_merges_review_request_search_results(
             status="ok",
         )
 
-    async def fake_review_requests(owner: str, repo: str) -> list[dict]:
+    async def fake_review_requests(
+        owner: str, repo: str, query: str | None = None
+    ) -> list[dict]:
         assert owner == "test"
         assert repo == "repo"
         return [
@@ -135,14 +137,14 @@ def test_snapshot_sync_merges_review_request_search_results(
     captured_comment_cache_notifications: list[dict] = []
 
     async def fake_fetch_snapshot_comment_cache(
-        owner: str,
-        repo: str,
+        owner: str | None,
+        repo: str | None,
         notifications: list[dict],
         *,
         on_progress=None,
     ) -> dict:
-        assert owner == "test"
-        assert repo == "repo"
+        assert owner is None
+        assert repo is None
         captured_comment_cache_notifications.extend(notifications)
         intermediate_snapshot = get_snapshot("test/repo", db_path)
         assert intermediate_snapshot is not None
@@ -167,7 +169,11 @@ def test_snapshot_sync_merges_review_request_search_results(
         fake_fetch_snapshot_comment_cache,
     )
 
-    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+    asyncio.run(
+        snapshot_routes._fetch_snapshot(
+            "test/repo", [snapshot_routes._entry_for_repo("test", "repo")]
+        )
+    )
 
     snapshot = get_snapshot("test/repo", db_path)
     assert snapshot is not None
@@ -272,20 +278,22 @@ def test_full_snapshot_sync_replaces_stale_stored_notifications(
             status="ok",
         )
 
-    async def fake_review_requests(owner: str, repo: str) -> list[dict]:
+    async def fake_review_requests(
+        owner: str, repo: str, query: str | None = None
+    ) -> list[dict]:
         assert owner == "test"
         assert repo == "repo"
         return [fresh_notification]
 
     async def fake_fetch_snapshot_comment_cache(
-        owner: str,
-        repo: str,
+        owner: str | None,
+        repo: str | None,
         notifications: list[dict],
         *,
         on_progress=None,
     ) -> dict:
-        assert owner == "test"
-        assert repo == "repo"
+        assert owner is None
+        assert repo is None
         assert [notification["id"] for notification in notifications] == ["fresh-id"]
         if on_progress is not None:
             on_progress(("fresh-id", {"comments": []}))
@@ -313,7 +321,11 @@ def test_full_snapshot_sync_replaces_stale_stored_notifications(
         fake_fetch_snapshot_comment_cache,
     )
 
-    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+    asyncio.run(
+        snapshot_routes._fetch_snapshot(
+            "test/repo", [snapshot_routes._entry_for_repo("test", "repo")]
+        )
+    )
 
     snapshot = get_snapshot("test/repo", db_path)
     assert snapshot is not None
@@ -351,15 +363,17 @@ def test_snapshot_sync_starts_review_request_search_during_notification_fetch(
             status="ok",
         )
 
-    async def fake_review_requests(owner: str, repo: str) -> list[dict]:
+    async def fake_review_requests(
+        owner: str, repo: str, query: str | None = None
+    ) -> list[dict]:
         assert owner == "test"
         assert repo == "repo"
         events.append("reviews-start")
         return []
 
     async def fake_fetch_snapshot_comment_cache(
-        owner: str,
-        repo: str,
+        owner: str | None,
+        repo: str | None,
         notifications: list[dict],
         *,
         on_progress=None,
@@ -382,7 +396,11 @@ def test_snapshot_sync_starts_review_request_search_during_notification_fetch(
         fake_fetch_snapshot_comment_cache,
     )
 
-    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+    asyncio.run(
+        snapshot_routes._fetch_snapshot(
+            "test/repo", [snapshot_routes._entry_for_repo("test", "repo")]
+        )
+    )
 
     assert events.index("reviews-start") < events.index("notifications-finish")
 
@@ -502,9 +520,109 @@ def test_snapshot_sync_marks_auth_needed_on_session_expiry(
     monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
     monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
 
-    asyncio.run(snapshot_routes._fetch_snapshot("test", "repo"))
+    asyncio.run(
+        snapshot_routes._fetch_snapshot(
+            "test/repo", [snapshot_routes._entry_for_repo("test", "repo")]
+        )
+    )
 
     state = snapshot_routes.get_sync_state("test/repo")
     assert state["status"] == "error"
     assert "redirected notifications request to login" in state["error"]
     assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"
+
+
+def test_profile_snapshot_syncs_multiple_query_entries(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A profile of two org: queries fetches each, scopes review-request search
+    to each query, merges into one snapshot keyed by the profile."""
+
+    class FakeFetcher:
+        def fetch_repo_notifications(self, *args, **kwargs) -> FetchResult:
+            raise AssertionError("query entries should not hit repo fetch")
+
+        def fetch_notifications_query(self, *args, **kwargs) -> FetchResult:
+            raise AssertionError("run_fetcher_call should invoke this through the shim")
+
+    seen_queries: list[str] = []
+
+    async def fake_run_fetcher_call(func, /, **kwargs) -> FetchResult:
+        # Only query entries are used in this profile.
+        seen_queries.append(kwargs["query"])
+        return FetchResult(
+            html="<html></html>",
+            url=f"https://github.com/notifications?query={kwargs['query']}",
+            status="ok",
+        )
+
+    review_queries: list[str | None] = []
+
+    async def fake_review_requests(
+        owner: str | None, repo: str | None, query: str | None = None
+    ) -> list[dict]:
+        review_queries.append(query)
+        number = 1 if query == "org:pytorch" else 2
+        return [
+            {
+                "id": f"review-request:{query}#{number}",
+                "unread": False,
+                "reason": "review_requested",
+                "responsibility_source": "review-requested",
+                "updated_at": "2025-01-05T12:00:00Z",
+                "last_read_at": None,
+                "subject": {
+                    "title": "Needs review",
+                    "url": "https://github.com/x/y/pull/1",
+                    "type": "PullRequest",
+                    "number": number,
+                    "state": "open",
+                    "state_reason": None,
+                },
+                "actors": [],
+                "ui": {"saved": False, "done": False, "action_tokens": {}},
+            }
+        ]
+
+    async def fake_fetch_snapshot_comment_cache(
+        owner: str | None,
+        repo: str | None,
+        notifications: list[dict],
+        *,
+        on_progress=None,
+    ) -> dict:
+        assert owner is None
+        assert repo is None
+        return {"version": 1, "threads": {}}
+
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
+    monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
+    monkeypatch.setattr(
+        snapshot_routes, "fetch_review_request_notifications", fake_review_requests
+    )
+    monkeypatch.setattr(
+        snapshot_routes,
+        "_fetch_snapshot_comment_cache",
+        fake_fetch_snapshot_comment_cache,
+    )
+
+    entries = [
+        snapshot_routes.SnapshotEntry(kind="query", query="org:pytorch"),
+        snapshot_routes.SnapshotEntry(kind="query", query="org:meta-pytorch"),
+    ]
+    asyncio.run(snapshot_routes._fetch_snapshot("profile:test-profile", entries))
+
+    assert seen_queries == ["org:pytorch", "org:meta-pytorch"]
+    assert review_queries == ["org:pytorch", "org:meta-pytorch"]
+
+    snapshot = get_snapshot("profile:test-profile", db_path)
+    assert snapshot is not None
+    ids = {n["id"] for n in snapshot["notifications"]}
+    assert ids == {
+        "review-request:org:pytorch#1",
+        "review-request:org:meta-pytorch#2",
+    }
+    state = get_sync_state("profile:test-profile", db_path)
+    assert state["status"] == "success"
+    assert state["notifications_count"] == 2
