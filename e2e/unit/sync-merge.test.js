@@ -7,8 +7,12 @@ const {
   canUseIncrementalOverlapMerge,
   dedupAndSortNotifications,
   findIncrementalOverlapIndex,
+  getServerSnapshotLastSyncedRepo,
+  getServerSnapshotSourceKey,
   getUpdatedAtSignature,
+  mergeServerSnapshotNotifications,
   mergeIncrementalNotifications,
+  shouldApplyServerSnapshotBundle,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
 const {
   getNotificationDedupKey,
@@ -319,6 +323,139 @@ test('dedupAndSortNotifications keeps NT and synthetic review-request rows for s
   assert.deepEqual(
     result.map((n) => n.id),
     ['NT_pr_10', 'review-request:owner/repo#10']
+  );
+});
+
+test('getServerSnapshotSourceKey builds canonical repo and query snapshot keys', () => {
+  const cases = [
+    {
+      source: {
+        kind: 'repo',
+        owner: 'owner',
+        repo: 'repo',
+        fullName: 'owner/repo',
+        value: 'repo:owner/repo',
+      },
+      expected: 'owner/repo',
+    },
+    {
+      source: {
+        kind: 'query',
+        query: ' org:pytorch ',
+        value: 'org:pytorch',
+      },
+      expected: 'query:org:pytorch',
+    },
+    {
+      source: { kind: 'invalid', value: 'not-a-repo' },
+      expected: '',
+    },
+  ];
+
+  cases.forEach(({ source, expected }) => {
+    assert.equal(getServerSnapshotSourceKey(source), expected);
+  });
+});
+
+test('getServerSnapshotLastSyncedRepo matches profile reload target convention', () => {
+  const repoSource = {
+    kind: 'repo',
+    value: 'repo:owner/repo',
+    fullName: 'owner/repo',
+  };
+  const querySource = {
+    kind: 'query',
+    value: 'org:pytorch',
+    query: 'org:pytorch',
+  };
+
+  assert.equal(
+    getServerSnapshotLastSyncedRepo([repoSource], 'custom:repo:owner/repo'),
+    'owner/repo'
+  );
+  assert.equal(
+    getServerSnapshotLastSyncedRepo([querySource], 'pytorch:org:pytorch'),
+    'pytorch:org:pytorch'
+  );
+  assert.equal(
+    getServerSnapshotLastSyncedRepo(
+      [querySource, { ...querySource, value: 'org:meta-pytorch', query: 'org:meta-pytorch' }],
+      'pytorch:org:pytorch\norg:meta-pytorch'
+    ),
+    'pytorch:org:pytorch\norg:meta-pytorch'
+  );
+});
+
+test('mergeServerSnapshotNotifications dedups by notification match key and sorts newest first', () => {
+  const firstIssue = notif('first-source-old-id', 1, '2025-01-02T00:00:00Z');
+  const duplicateIssue = notif('second-source-new-id', 1, '2025-01-05T00:00:00Z');
+  const otherIssue = notif('second-source-other', 2, '2025-01-04T00:00:00Z');
+
+  const result = mergeServerSnapshotNotifications([
+    { snapshot: { notifications: [firstIssue] } },
+    { snapshot: { notifications: [duplicateIssue, otherIssue] } },
+  ]);
+
+  assert.deepEqual(
+    result.map((n) => n.id),
+    ['second-source-other', 'first-source-old-id']
+  );
+});
+
+test('shouldApplyServerSnapshotBundle keeps per-source synced_at guard behavior', () => {
+  const currentSnapshot = {
+    snapshotKey: 'query:org:pytorch',
+    localSyncedAt: '2025-01-02T00:00:00Z',
+    snapshot: {
+      synced_at: '2025-01-02T00:00:00Z',
+      notifications: [notif('a', 1, '2025-01-02T00:00:00Z')],
+    },
+  };
+  const changedSnapshot = {
+    snapshotKey: 'query:org:meta-pytorch',
+    localSyncedAt: '2025-01-01T00:00:00Z',
+    snapshot: {
+      synced_at: '2025-01-03T00:00:00Z',
+      notifications: [notif('b', 2, '2025-01-03T00:00:00Z')],
+    },
+  };
+
+  assert.equal(
+    shouldApplyServerSnapshotBundle({
+      currentNotificationCount: 2,
+      snapshotItems: [currentSnapshot],
+    }),
+    false
+  );
+  assert.equal(
+    shouldApplyServerSnapshotBundle({
+      currentNotificationCount: 2,
+      snapshotItems: [currentSnapshot, changedSnapshot],
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyServerSnapshotBundle({
+      currentNotificationCount: 0,
+      snapshotItems: [currentSnapshot],
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyServerSnapshotBundle({
+      forceApply: true,
+      currentNotificationCount: 2,
+      snapshotItems: [currentSnapshot],
+    }),
+    true
+  );
+  assert.equal(
+    shouldApplyServerSnapshotBundle({
+      forceApply: true,
+      currentNotificationCount: 0,
+      snapshotItems: [{ snapshot: null }],
+    }),
+    false
   );
 });
 

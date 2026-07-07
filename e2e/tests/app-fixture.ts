@@ -125,6 +125,21 @@ export function makeServerSnapshotPayload(
   };
 }
 
+export function makeQueryServerSnapshotPayload(
+  query: string,
+  options: {
+    snapshot?: JsonBody;
+    sync?: JsonBody;
+  } = {}
+) {
+  return {
+    repository: null,
+    query,
+    sync: options.sync ?? { status: 'idle', mode: 'full' },
+    snapshot: options.snapshot ?? null,
+  };
+}
+
 export type MockServerSnapshotState = {
   repo: string;
   owner: string;
@@ -222,6 +237,124 @@ export async function mockServerSnapshot(
         return;
       }
       await fulfillServerSnapshotReply(route, pollReply, state);
+    });
+  }
+
+  return state;
+}
+
+export type MockQuerySnapshotState = {
+  query: string;
+  method: string;
+  url: string;
+  getCount: number;
+  postCount: number;
+  pollCount: number;
+};
+
+type MockQuerySnapshotReply =
+  | JsonBody
+  | { status?: number; json: JsonBody }
+  | ((
+      state: MockQuerySnapshotState
+    ) =>
+      | JsonBody
+      | { status?: number; json: JsonBody }
+      | Promise<JsonBody | { status?: number; json: JsonBody }>);
+
+async function fulfillQuerySnapshotReply(
+  route: Route,
+  reply: MockQuerySnapshotReply,
+  state: MockQuerySnapshotState
+) {
+  const resolved = typeof reply === 'function' ? await reply({ ...state }) : reply;
+  const status =
+    resolved && typeof resolved === 'object' && 'json' in resolved
+      ? resolved.status ?? 200
+      : 200;
+  const body =
+    resolved && typeof resolved === 'object' && 'json' in resolved
+      ? resolved.json
+      : resolved;
+  return fulfillJson(route, body, status);
+}
+
+export async function mockQuerySnapshot(
+  page: Page,
+  options: {
+    query: string;
+    get?: MockQuerySnapshotReply | false;
+    syncPost?: MockQuerySnapshotReply | false;
+    syncPoll?: MockQuerySnapshotReply | false;
+    syncPolls?: MockQuerySnapshotReply[];
+  }
+) {
+  const state: MockQuerySnapshotState = {
+    query: options.query,
+    method: 'GET',
+    url: '',
+    getCount: 0,
+    postCount: 0,
+    pollCount: 0,
+  };
+
+  if (options.get !== false) {
+    await page.route('**/api/snapshots/query**', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        url.pathname !== '/api/snapshots/query' ||
+        url.searchParams.get('query') !== options.query
+      ) {
+        await route.fallback();
+        return;
+      }
+      state.getCount += 1;
+      state.method = route.request().method();
+      state.url = route.request().url();
+      await fulfillQuerySnapshotReply(
+        route,
+        options.get ?? makeQueryServerSnapshotPayload(options.query),
+        state
+      );
+    });
+  }
+
+  if (
+    options.syncPost !== undefined ||
+    options.syncPoll !== undefined ||
+    options.syncPolls !== undefined
+  ) {
+    await page.route('**/api/snapshots/query/sync**', async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        url.pathname !== '/api/snapshots/query/sync' ||
+        url.searchParams.get('query') !== options.query
+      ) {
+        await route.fallback();
+        return;
+      }
+      state.method = route.request().method();
+      state.url = route.request().url();
+      if (state.method === 'POST') {
+        state.postCount += 1;
+        const postReply =
+          options.syncPost === false || options.syncPost === undefined
+            ? makeQueryServerSnapshotPayload(options.query)
+            : options.syncPost;
+        await fulfillQuerySnapshotReply(route, postReply, state);
+        return;
+      }
+
+      state.pollCount += 1;
+      const pollReply =
+        options.syncPolls?.[state.pollCount - 1] ??
+        options.syncPoll ??
+        makeQueryServerSnapshotPayload(options.query);
+      if (pollReply === false) {
+        await route.fallback();
+        return;
+      }
+      await fulfillQuerySnapshotReply(route, pollReply, state);
     });
   }
 
@@ -348,8 +481,22 @@ export async function mockDefaultApiRoutes(page: Page, options: {
     }
     return fulfillJson(route, { id: 1, body: '', user: { login } });
   });
-  await page.route(`**/api/snapshots/${owner}/${name}`, (route) => fulfillJson(route, { snapshot: null }));
+  await page.route(`**/api/snapshots/${owner}/${name}`, (route) =>
+    fulfillJson(route, { snapshot: null })
+  );
+  await page.route('**/api/snapshots/query**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== '/api/snapshots/query') {
+      return route.fallback();
+    }
+    return fulfillJson(route, {
+      repository: null,
+      query: url.searchParams.get('query'),
+      snapshot: null,
+    });
+  });
   await mockServerSnapshotSyncUnavailable(page, repo);
+  await mockQuerySnapshotSyncUnavailable(page);
 }
 
 export async function mockServerSnapshotSyncUnavailable(
@@ -358,6 +505,16 @@ export async function mockServerSnapshotSyncUnavailable(
 ) {
   const [owner, name] = repo.split('/');
   await page.route(`**/api/snapshots/${owner}/${name}/sync`, (route) =>
+    fulfillJson(
+      route,
+      { detail: 'No GitHub fetcher configured. Start server with --account.' },
+      503
+    )
+  );
+}
+
+export async function mockQuerySnapshotSyncUnavailable(page: Page) {
+  await page.route('**/api/snapshots/query/sync**', (route) =>
     fulfillJson(
       route,
       { detail: 'No GitHub fetcher configured. Start server with --account.' },

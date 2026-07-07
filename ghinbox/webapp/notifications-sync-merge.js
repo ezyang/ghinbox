@@ -150,6 +150,87 @@
         );
     }
 
+    function getServerSnapshotSourceKey(source) {
+        if (!source || typeof source !== 'object') {
+            return '';
+        }
+        if (source.kind === 'repo') {
+            const fullName = String(
+                source.fullName ||
+                    (source.owner && source.repo
+                        ? `${source.owner}/${source.repo}`
+                        : source.value || '')
+            ).trim();
+            return fullName;
+        }
+        if (source.kind === 'query') {
+            const query = String(source.query || source.value || '').trim();
+            return query ? `query:${query}` : '';
+        }
+        return '';
+    }
+
+    function getServerSnapshotLastSyncedRepo(sources, profileSignature) {
+        const profileValue = String(profileSignature || '').trim();
+        if (!Array.isArray(sources) || sources.length !== 1) {
+            return profileValue;
+        }
+        const source = sources[0] || {};
+        if (source.kind === 'repo') {
+            return String(source.fullName || source.value || profileValue).trim();
+        }
+        return profileValue;
+    }
+
+    function mergeServerSnapshotNotifications(snapshotItems) {
+        const merged = [];
+        const seenKeys = new Set();
+        (Array.isArray(snapshotItems) ? snapshotItems : []).forEach((item) => {
+            const snapshot = item?.snapshot || item;
+            const notifications = Array.isArray(snapshot?.notifications)
+                ? snapshot.notifications
+                : [];
+            notifications.forEach((notification) => {
+                const key =
+                    getNotificationDedupKey(notification) ||
+                    getNotificationKey(notification);
+                if (key && seenKeys.has(key)) {
+                    return;
+                }
+                if (key) {
+                    seenKeys.add(key);
+                }
+                merged.push(notification);
+            });
+        });
+        return merged.sort((a, b) =>
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        );
+    }
+
+    function shouldApplyServerSnapshotBundle({
+        forceApply = false,
+        currentNotificationCount = 0,
+        snapshotItems = [],
+    } = {}) {
+        const available = (Array.isArray(snapshotItems) ? snapshotItems : []).filter((item) =>
+            Array.isArray(item?.snapshot?.notifications)
+        );
+        if (!available.length) {
+            return false;
+        }
+        if (forceApply) {
+            return true;
+        }
+        if (currentNotificationCount === 0) {
+            return true;
+        }
+        return available.some((item) => {
+            const syncedAt = item?.snapshot?.synced_at;
+            return syncedAt && syncedAt !== item.localSyncedAt;
+        });
+    }
+
     return {
         buildIncrementalRestLookupKeys,
         buildNotificationMatchKeySet,
@@ -157,7 +238,11 @@
         canUseIncrementalOverlapMerge,
         dedupAndSortNotifications,
         findIncrementalOverlapIndex,
+        getServerSnapshotLastSyncedRepo,
+        getServerSnapshotSourceKey,
         getUpdatedAtSignature,
+        mergeServerSnapshotNotifications,
         mergeIncrementalNotifications,
+        shouldApplyServerSnapshotBundle,
     };
 });
