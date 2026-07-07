@@ -565,9 +565,12 @@ function scheduleReviewDecisionPrefetch(notifications, options = {}) {
     }
     const byRepo = new Map();
     pending.forEach((notification) => {
-        const repo = getNotificationRepoInfo(notification) ||
-            parseRepoInput(state.repo || state.lastSyncedRepo || '');
+        const repo = getNotificationRepoInfo(notification);
         if (!repo) {
+            console.warn(
+                'Skipping review metadata prefetch for notification with no repository:',
+                getNotificationKey(notification)
+            );
             return;
         }
         const key = `${repo.owner}/${repo.repo}`;

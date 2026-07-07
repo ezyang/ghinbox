@@ -4,7 +4,10 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
+
+from ghinbox.api.notification_shapes import get_notification_repo
+from ghinbox.api.repo_keys import repo_key
 
 SyncStatus = Literal["idle", "running", "success", "error"]
 _BOOL_LOCAL_STATE_FIELDS = {"bookmarked", "replies_muted"}
@@ -120,49 +123,110 @@ def init_snapshot_db(db_path: str | None = None) -> None:
         conn.close()
 
 
-def apply_local_state(
-    repo: str,
-    notifications: list[dict],
+def _notification_repo_key(notification: dict[str, Any]) -> str | None:
+    repo_info = get_notification_repo(notification)
+    if repo_info is None:
+        return None
+    return repo_key(repo_info["owner"], repo_info["repo"])
+
+
+def _load_local_state(
+    keys: list[str],
     db_path: str | None = None,
-) -> list[dict]:
-    """Overlay server-owned local state onto notification payloads."""
+) -> dict[str, dict[str, dict[str, bool | str | None]]]:
+    unique_keys = list(dict.fromkeys(key for key in keys if key))
+    if not unique_keys:
+        return {}
+
+    placeholders = ", ".join("?" for _ in unique_keys)
     conn = _connect(db_path)
     try:
         rows = conn.execute(
-            """
-            SELECT notification_id, bookmarked, replies_muted, read_comment_watermark_at
+            f"""
+            SELECT repo, notification_id, bookmarked, replies_muted, read_comment_watermark_at
             FROM notification_local_state
-            WHERE repo = ?
+            WHERE repo IN ({placeholders})
             """,
-            (repo,),
+            unique_keys,
         ).fetchall()
-        bookmarked = {row["notification_id"] for row in rows if bool(row["bookmarked"])}
-        replies_muted = {
-            row["notification_id"] for row in rows if bool(row["replies_muted"])
-        }
-        read_comment_watermarks = {
-            row["notification_id"]: row["read_comment_watermark_at"]
-            for row in rows
-            if row["read_comment_watermark_at"]
-        }
     finally:
         conn.close()
 
-    if not bookmarked and not replies_muted and not read_comment_watermarks:
+    state_by_key: dict[str, dict[str, dict[str, bool | str | None]]] = {}
+    for row in rows:
+        state_by_key.setdefault(row["repo"], {})[str(row["notification_id"])] = {
+            "bookmarked": bool(row["bookmarked"]),
+            "replies_muted": bool(row["replies_muted"]),
+            "read_comment_watermark_at": row["read_comment_watermark_at"],
+        }
+    return state_by_key
+
+
+def _apply_local_state_values(
+    ui: dict[str, Any],
+    state: dict[str, bool | str | None] | None,
+) -> None:
+    if state is None:
+        return
+    ui["bookmarked"] = bool(state["bookmarked"])
+    ui["replies_muted"] = bool(state["replies_muted"])
+    watermark = state.get("read_comment_watermark_at")
+    if watermark:
+        ui["read_comment_watermark_at"] = watermark
+
+
+def apply_local_state(
+    snapshot_key: str,
+    notifications: list[dict],
+    db_path: str | None = None,
+) -> list[dict]:
+    """Overlay server-owned local state onto notification payloads.
+
+    Local state written through the repo-keyed endpoints must also surface in
+    profile snapshots, whose notifications span many repos. State stored under
+    each notification's own ``owner/repo`` key wins over state stored under
+    the snapshot's own key.
+    """
+    repo_keys_by_notification_id: dict[str, str] = {}
+    local_state_keys = [snapshot_key]
+
+    if snapshot_key.startswith("profile:"):
+        for notification in notifications:
+            notification_id = str(notification.get("id") or "")
+            if not notification_id:
+                continue
+            notification_repo_key = _notification_repo_key(notification)
+            if notification_repo_key is None:
+                continue
+            repo_keys_by_notification_id[notification_id] = notification_repo_key
+            local_state_keys.append(notification_repo_key)
+
+    state_by_key = _load_local_state(local_state_keys, db_path)
+    if not state_by_key:
         return notifications
 
     result = []
+    changed = False
     for notification in notifications:
+        notification_id = str(notification.get("id") or "")
+        snapshot_state = state_by_key.get(snapshot_key, {}).get(notification_id)
+        repo_state = state_by_key.get(
+            repo_keys_by_notification_id.get(notification_id, ""),
+            {},
+        ).get(notification_id)
+        if snapshot_state is None and repo_state is None:
+            result.append(notification)
+            continue
+
         item = dict(notification)
         ui = dict(item.get("ui") or {})
-        notification_id = str(item.get("id"))
-        ui["bookmarked"] = notification_id in bookmarked
-        ui["replies_muted"] = notification_id in replies_muted
-        if notification_id in read_comment_watermarks:
-            ui["read_comment_watermark_at"] = read_comment_watermarks[notification_id]
+        _apply_local_state_values(ui, snapshot_state)
+        _apply_local_state_values(ui, repo_state)
         item["ui"] = ui
         result.append(item)
-    return result
+        changed = True
+
+    return result if changed else notifications
 
 
 def get_snapshot(repo: str, db_path: str | None = None) -> dict | None:

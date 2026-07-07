@@ -63,6 +63,39 @@ def test_evaluate_applies_call_class_floors(
         assert decision.reason == "remaining_below_floor"
 
 
+def test_evaluate_caps_floor_at_half_small_pool_limit() -> None:
+    """GitHub's search pool caps at 30/min, far below the 500 background floor.
+    A flat floor would permanently block search; the effective floor must be
+    capped at half the pool's own limit so small pools stay usable."""
+    search_pool = RateLimitPoolState(
+        resource="search",
+        remaining=29,
+        reset_at=NOW + timedelta(minutes=1),
+        limit=30,
+        used=1,
+        updated_at=NOW,
+    )
+
+    decision = evaluate(search_pool, "background", NOW)
+
+    assert decision.floor == 15
+    assert decision.allowed is True
+    assert decision.reason is None
+
+    exhausted = RateLimitPoolState(
+        resource="search",
+        remaining=10,
+        reset_at=NOW + timedelta(minutes=1),
+        limit=30,
+        used=20,
+        updated_at=NOW,
+    )
+    denied = evaluate(exhausted, "background", NOW)
+    assert denied.floor == 15
+    assert denied.allowed is False
+    assert denied.reason == "remaining_below_floor"
+
+
 def test_evaluate_allows_unknown_pool_until_headers_are_seen() -> None:
     decision = evaluate(None, "background", NOW, pool="core")
 

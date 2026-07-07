@@ -37,9 +37,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,10 +56,21 @@ DEFAULT_CURRENT_USER = "ezyang"
 DEFAULT_REPORT_PATH = "/tmp/feed-report.html"
 CLASSIFIER_SCRIPT = Path(__file__).with_name("feed_digest_classify.js")
 
+# The default target is the "PyTorch" profile (mirrors the webapp's default
+# profile in notifications-core.js): the two orgs the user actually watches.
+# The server snapshots a profile as one keyed unit; single repos remain
+# addressable via --repo for ad-hoc digests.
+DEFAULT_PROFILE = "pytorch"
+DEFAULT_PROFILE_ENTRIES = ["org:pytorch", "org:meta-pytorch"]
+
 # A snapshot older than this is likely to have drifted from GitHub (new
 # notifications never entered it). Periodic sync is often off, so the digest
 # warns rather than silently reporting a stale feed.
 STALE_SNAPSHOT_SECONDS = 6 * 3600
+
+# How long to wait for a server-side profile sync to finish before giving up.
+SYNC_POLL_TIMEOUT_SECONDS = 300
+SYNC_POLL_INTERVAL_SECONDS = 2
 
 
 class FeedDigestError(RuntimeError):
@@ -75,16 +88,47 @@ def _debug_client(socket_path: str = DEFAULT_SOCKET_PATH) -> httpx.Client:
     return httpx.Client(transport=transport, base_url=BASE_URL, timeout=60)
 
 
+def _entry_to_payload(entry: str) -> dict:
+    """Classify a profile entry string into a server SnapshotEntry payload.
+
+    Mirrors the webapp's classifyProfileEntry: a bare ``owner/repo`` or
+    ``repo:owner/repo`` becomes a repo entry; anything else (``org:...``,
+    free-form search) becomes a query entry.
+    """
+    value = entry.strip()
+    if not value:
+        raise FeedDigestError("Empty profile entry")
+    repo_match = re.fullmatch(r"(?:repo:)?([^/\s:]+)/([^/\s:]+)", value)
+    if repo_match:
+        return {
+            "kind": "repo",
+            "owner": repo_match.group(1),
+            "repo": repo_match.group(2),
+        }
+    return {"kind": "query", "query": value}
+
+
+def _normalize_snapshot(payload: dict, missing_msg: str) -> dict:
+    snapshot = payload.get("snapshot")
+    if not snapshot:
+        raise FeedDigestError(missing_msg)
+    return {
+        "snapshot": {
+            "notifications": snapshot.get("notifications", []),
+            "comment_cache": snapshot.get("comment_cache") or {},
+            "authenticity_token": snapshot.get("authenticity_token") or "",
+            "generated_at": snapshot.get("generated_at"),
+            "synced_at": snapshot.get("synced_at"),
+        },
+        "sync": payload.get("sync") or {},
+    }
+
+
 def fetch_snapshot(
     repo: str = DEFAULT_REPO,
     socket_path: str = DEFAULT_SOCKET_PATH,
 ) -> dict:
-    """Fetch the server-owned snapshot over the debug socket.
-
-    Returns the same shape the rest of this module expects
-    (``{"snapshot": {...}}``) plus a ``sync`` block so callers can reason
-    about freshness/truncation.
-    """
+    """Fetch a single-repo server snapshot over the debug socket."""
     owner, _, name = repo.partition("/")
     if not owner or not name:
         raise FeedDigestError(f"Invalid repo {repo!r}; expected owner/name")
@@ -100,20 +144,86 @@ def fetch_snapshot(
             "Is the server running with a debug socket?"
         ) from exc
 
-    snapshot = payload.get("snapshot")
-    if not snapshot:
-        raise FeedDigestError(f"Server has no snapshot for {repo}; run a sync first.")
+    return _normalize_snapshot(
+        payload, f"Server has no snapshot for {repo}; run a sync first."
+    )
 
-    return {
-        "snapshot": {
-            "notifications": snapshot.get("notifications", []),
-            "comment_cache": snapshot.get("comment_cache") or {},
-            "authenticity_token": snapshot.get("authenticity_token") or "",
-            "generated_at": snapshot.get("generated_at"),
-            "synced_at": snapshot.get("synced_at"),
-        },
-        "sync": payload.get("sync") or {},
-    }
+
+def fetch_profile_snapshot(
+    profile: str = DEFAULT_PROFILE,
+    socket_path: str = DEFAULT_SOCKET_PATH,
+) -> dict:
+    """Fetch a profile server snapshot over the debug socket."""
+    try:
+        with _debug_client(socket_path) as client:
+            resp = client.get(f"/api/snapshots/profile/{profile}")
+            resp.raise_for_status()
+            payload = resp.json()
+    except httpx.HTTPError as exc:
+        raise FeedDigestError(
+            f"Unable to reach ghinbox server at {socket_path!r}: {exc}. "
+            "Is the server running with a debug socket?"
+        ) from exc
+
+    return _normalize_snapshot(
+        payload,
+        f"Server has no snapshot for profile {profile!r}; "
+        "run `--sync` first to build it.",
+    )
+
+
+def sync_profile_snapshot(
+    profile: str = DEFAULT_PROFILE,
+    entries: list[str] | None = None,
+    socket_path: str = DEFAULT_SOCKET_PATH,
+) -> dict:
+    """Trigger a server-side profile sync and poll until it finishes.
+
+    This is a live GitHub sync; only run it when the caller explicitly asks
+    (the --sync flag). Returns the final sync state dict.
+    """
+    entry_payloads = [
+        _entry_to_payload(e) for e in (entries or DEFAULT_PROFILE_ENTRIES)
+    ]
+    try:
+        with _debug_client(socket_path) as client:
+            resp = client.post(
+                f"/api/snapshots/profile/{profile}/sync",
+                json={"mode": "full", "entries": entry_payloads},
+            )
+            resp.raise_for_status()
+
+            waited = 0.0
+            while True:
+                sync_resp = client.get(f"/api/snapshots/profile/{profile}/sync")
+                sync_resp.raise_for_status()
+                sync = sync_resp.json().get("sync") or {}
+                status = sync.get("status")
+                if status == "success":
+                    return sync
+                if status == "error":
+                    raise FeedDigestError(
+                        f"Profile sync failed: {sync.get('error') or 'unknown error'}"
+                    )
+                if waited >= SYNC_POLL_TIMEOUT_SECONDS:
+                    raise FeedDigestError(
+                        f"Profile sync did not finish within "
+                        f"{SYNC_POLL_TIMEOUT_SECONDS}s (status={status})."
+                    )
+                phase = sync.get("phase", "?")
+                count = sync.get("notifications_count", 0)
+                print(
+                    f"  syncing… phase={phase} notifications={count} "
+                    f"pages={sync.get('pages_fetched', 0)}",
+                    file=sys.stderr,
+                )
+                time.sleep(SYNC_POLL_INTERVAL_SECONDS)
+                waited += SYNC_POLL_INTERVAL_SECONDS
+    except httpx.HTTPError as exc:
+        raise FeedDigestError(
+            f"Unable to reach ghinbox server at {socket_path!r}: {exc}. "
+            "Is the server running with a debug socket?"
+        ) from exc
 
 
 def classify_notifications(
@@ -179,6 +289,27 @@ def classify_feed(
     ]
 
 
+def _classify_mention(body: str, user_lower: str) -> str | None:
+    """Classify how ``user_lower`` is @-mentioned in a comment body.
+
+    Returns "direct" (a targeted mention), "broadcast" (buried in a large
+    cc/@-list — weak signal), or None (not mentioned). A ``cc @a @b @c ...``
+    line naming many maintainers is a broadcast: it means "this touches your
+    area", not "I'm asking you specifically", so the digest should down-weight
+    it rather than treat it like a direct ping.
+    """
+    lowered = body.lower()
+    if f"@{user_lower}" not in lowered:
+        return None
+    mentions = re.findall(r"@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", lowered)
+    unique_mentions = set(mentions)
+    # A comment that @-mentions many distinct people is a broadcast cc, even if
+    # it doesn't literally start with "cc". Threshold kept low: 2 others + you.
+    if len(unique_mentions) >= 4:
+        return "broadcast"
+    return "direct"
+
+
 def find_reply_nature_in_feed(
     feed_notifications: list[dict],
     comment_threads: dict,
@@ -190,7 +321,7 @@ def find_reply_nature_in_feed(
     the Replies queue.
 
     Catches:
-    - Someone @-mentioned the user in a comment body
+    - Someone @-mentioned the user in a comment body (direct vs. broadcast cc)
     - The user commented and someone (non-bot) replied after their last comment
     """
     reply_nature = []
@@ -202,15 +333,26 @@ def find_reply_nature_in_feed(
 
         reply_signals = []
 
-        # Signal 1: @-mention in comment body
+        # Signal 1: @-mention in comment body. Prefer a direct mention; only
+        # fall back to reporting a broadcast cc if that's all there is, so a
+        # 15-name "cc @ezyang @gchanan ..." list doesn't masquerade as someone
+        # asking the user directly.
+        direct_mention_author: str | None = None
+        broadcast_mention_author: str | None = None
         for c in comments:
             author = (c.get("user", {}).get("login") or "").lower()
             if author == user_lower:
                 continue
-            body = (c.get("body") or "").lower()
-            if f"@{user_lower}" in body:
-                reply_signals.append(f"@-mentioned by {author}")
+            kind = _classify_mention(c.get("body") or "", user_lower)
+            if kind == "direct" and direct_mention_author is None:
+                direct_mention_author = author
                 break
+            if kind == "broadcast" and broadcast_mention_author is None:
+                broadcast_mention_author = author
+        if direct_mention_author is not None:
+            reply_signals.append(f"@-mentioned by {direct_mention_author}")
+        elif broadcast_mention_author is not None:
+            reply_signals.append(f"cc'd (broadcast) by {broadcast_mention_author}")
 
         # Signal 2: user commented and got non-bot replies after
         user_comments = [
@@ -522,19 +664,62 @@ def format_for_llm(
     return "\n\n".join(lines)
 
 
+def _resolve_snapshot(
+    *,
+    profile: str | None,
+    entries: list[str] | None,
+    repo: str | None,
+    socket_path: str,
+    do_sync: bool,
+) -> tuple[dict, str]:
+    """Fetch the snapshot for the requested target (profile or single repo).
+
+    Returns (snapshot_data, target_label). When ``do_sync`` is set, triggers a
+    live server-side rebuild first (profile target only).
+    """
+    if repo:
+        if do_sync:
+            raise FeedDigestError(
+                "--sync is only supported for profile targets, not --repo."
+            )
+        return fetch_snapshot(repo, socket_path), f"repo {repo}"
+
+    target_profile = profile or DEFAULT_PROFILE
+    if do_sync:
+        print(
+            f"Triggering server sync for profile {target_profile!r}…", file=sys.stderr
+        )
+        sync_profile_snapshot(target_profile, entries, socket_path)
+    return fetch_profile_snapshot(target_profile, socket_path), (
+        f"profile {target_profile}"
+    )
+
+
 def do_extract(
-    repo: str = DEFAULT_REPO,
+    *,
+    profile: str | None = None,
+    entries: list[str] | None = None,
+    repo: str | None = None,
     current_user: str = DEFAULT_CURRENT_USER,
     socket_path: str = DEFAULT_SOCKET_PATH,
+    do_sync: bool = False,
 ) -> None:
     """Extract feed data and output JSON to stdout."""
-    output = build_extract_output(
-        fetch_snapshot(repo, socket_path),
-        current_user=current_user,
+    snapshot_data, target_label = _resolve_snapshot(
+        profile=profile,
+        entries=entries,
         repo=repo,
+        socket_path=socket_path,
+        do_sync=do_sync,
+    )
+    output = build_extract_output(
+        snapshot_data,
+        current_user=current_user,
+        repo=repo or DEFAULT_REPO,
     )
 
     health = output["snapshot_health"]
+    print(f"Target: {target_label}", file=sys.stderr)
     print(f"Total notifications: {output['total_count']}", file=sys.stderr)
     print(f"Feed notifications: {output['feed_count']}", file=sys.stderr)
     print(
@@ -554,12 +739,20 @@ def do_extract(
 
 def do_mark_done(
     exclude_ids: list[str] | None = None,
-    repo: str = DEFAULT_REPO,
+    *,
+    profile: str | None = None,
+    repo: str | None = None,
     current_user: str = DEFAULT_CURRENT_USER,
     socket_path: str = DEFAULT_SOCKET_PATH,
 ) -> None:
     """Mark feed notifications as done, excluding specified IDs."""
-    snapshot_data = fetch_snapshot(repo, socket_path)
+    snapshot_data, _ = _resolve_snapshot(
+        profile=profile,
+        entries=None,
+        repo=repo,
+        socket_path=socket_path,
+        do_sync=False,
+    )
     snap = snapshot_data.get("snapshot", {})
     notifications = snap.get("notifications", [])
     comment_cache = snap.get("comment_cache", {})
@@ -631,9 +824,33 @@ def main():
         help=f"ghinbox debug Unix socket path (default: {DEFAULT_SOCKET_PATH})",
     )
     parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Profile snapshot key to target (default: "
+            f"{DEFAULT_PROFILE!r}). Ignored when --repo is given."
+        ),
+    )
+    parser.add_argument(
+        "--entries",
+        default=None,
+        help=(
+            "Comma-separated profile entries to sync (default: "
+            f"{','.join(DEFAULT_PROFILE_ENTRIES)}). Only used with --sync."
+        ),
+    )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help=(
+            "Trigger a live server-side profile sync before extracting "
+            "(profile target only). This hits GitHub."
+        ),
+    )
+    parser.add_argument(
         "--repo",
-        default=DEFAULT_REPO,
-        help=f"Repository snapshot key (default: {DEFAULT_REPO})",
+        default=None,
+        help="Single-repo snapshot key (owner/repo) instead of a profile.",
     )
     parser.add_argument(
         "--current-user",
@@ -643,12 +860,31 @@ def main():
 
     args = parser.parse_args()
 
+    entries = (
+        [e.strip() for e in args.entries.split(",") if e.strip()]
+        if args.entries
+        else None
+    )
+
     try:
         if args.extract:
-            do_extract(args.repo, args.current_user, args.socket_path)
+            do_extract(
+                profile=args.profile,
+                entries=entries,
+                repo=args.repo,
+                current_user=args.current_user,
+                socket_path=args.socket_path,
+                do_sync=args.sync,
+            )
         elif args.mark_done:
             exclude = [x.strip() for x in args.exclude_ids.split(",") if x.strip()]
-            do_mark_done(exclude, args.repo, args.current_user, args.socket_path)
+            do_mark_done(
+                exclude,
+                profile=args.profile,
+                repo=args.repo,
+                current_user=args.current_user,
+                socket_path=args.socket_path,
+            )
     except FeedDigestError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

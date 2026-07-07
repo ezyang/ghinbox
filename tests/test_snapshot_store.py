@@ -208,6 +208,65 @@ def test_remove_notifications_ignores_unknown_ids(db_path) -> None:
     assert [n["id"] for n in snapshot["notifications"]] == ["keep"]
 
 
+def test_profile_snapshot_local_state_overlays_profile_and_repo_keys(db_path) -> None:
+    """Local state written via repo-keyed endpoints surfaces in profile
+    snapshots, and repo-keyed state wins over profile-keyed state."""
+    profile_key = "profile:pytorch"
+    notifications = [
+        {
+            "id": "notif-1",
+            "repository": {
+                "owner": "owner",
+                "name": "repo",
+                "full_name": "owner/repo",
+            },
+            "subject": {"title": "First", "type": "Issue"},
+            "ui": {"saved": False, "done": False, "bookmarked": False},
+        },
+        {
+            "id": "notif-2",
+            "repository": {
+                "owner": "owner",
+                "name": "repo",
+                "full_name": "owner/repo",
+            },
+            "subject": {"title": "Second", "type": "Issue"},
+            "ui": {"saved": False, "done": False, "bookmarked": False},
+        },
+    ]
+    set_notification_bookmark(profile_key, "notif-1", True, db_path=db_path)
+    set_notification_read_comment_watermark(
+        profile_key,
+        "notif-1",
+        "2025-01-05T10:00:00Z",
+        db_path=db_path,
+    )
+    set_notification_read_comment_watermark(
+        profile_key,
+        "notif-2",
+        "2025-01-05T10:30:00Z",
+        db_path=db_path,
+    )
+    set_notification_bookmark("owner/repo", "notif-1", False, db_path=db_path)
+    set_notification_read_comment_watermark(
+        "owner/repo",
+        "notif-1",
+        "2025-01-05T11:00:00Z",
+        db_path=db_path,
+    )
+    set_notification_bookmark("owner/repo", "notif-2", True, db_path=db_path)
+    save_snapshot(profile_key, notifications, db_path=db_path)
+
+    snapshot = get_snapshot(profile_key, db_path)
+
+    assert snapshot is not None
+    first, second = snapshot["notifications"]
+    assert first["ui"]["bookmarked"] is False
+    assert first["ui"]["read_comment_watermark_at"] == "2025-01-05T11:00:00Z"
+    assert second["ui"]["bookmarked"] is True
+    assert second["ui"]["read_comment_watermark_at"] == "2025-01-05T10:30:00Z"
+
+
 def test_local_notification_state_round_trip(db_path) -> None:
     assert get_notification_bookmark("owner/repo", "notif-1", db_path=db_path) is False
     assert (

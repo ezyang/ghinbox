@@ -177,10 +177,72 @@ def test_extract_output_uses_cached_thread_last_read_at() -> None:
     assert output["feed_ids"] == ["read-directed-mention"]
 
 
+def test_classify_mention_direct_vs_broadcast() -> None:
+    # A targeted ask is direct.
+    assert feed_digest._classify_mention("@ezyang can you look?", "ezyang") == "direct"
+    # A small cc (you + one other) is still direct.
+    assert feed_digest._classify_mention("cc @ezyang @albanD", "ezyang") == "direct"
+    # A big cc list naming many maintainers is a broadcast.
+    big_cc = "cc @ezyang @gchanan @kadeng @msaroufim @jeffdaily @sunway513"
+    assert feed_digest._classify_mention(big_cc, "ezyang") == "broadcast"
+    # Not mentioned at all.
+    assert feed_digest._classify_mention("cc @albanD @kadeng", "ezyang") is None
+
+
+def test_reply_nature_labels_broadcast_cc_distinctly() -> None:
+    """A 15-name cc list must not read as 'directly @-mentioned by X'."""
+    feed = [{"id": "broadcast-issue", "subject": {"title": "ROCm import deadlock"}}]
+    threads = {
+        "broadcast-issue": {
+            "comments": [
+                {
+                    "user": {"login": "atalman"},
+                    "created_at": "2026-07-07T12:00:00Z",
+                    "body": (
+                        "Root cause found. cc @ezyang @gchanan @kadeng "
+                        "@msaroufim @jeffdaily @jithunnair-amd @hongxiayang"
+                    ),
+                }
+            ]
+        }
+    }
+
+    result = feed_digest.find_reply_nature_in_feed(feed, threads, "ezyang")
+
+    assert len(result) == 1
+    signals = result[0]["_reply_signals"]
+    assert signals == ["cc'd (broadcast) by atalman"]
+    assert not any(s.startswith("@-mentioned by") for s in signals)
+
+
+def test_reply_nature_prefers_direct_over_broadcast() -> None:
+    """If any comment mentions the user directly, that wins over an earlier
+    broadcast cc in the same thread."""
+    feed = [{"id": "mixed", "subject": {"title": "Mixed thread"}}]
+    threads = {
+        "mixed": {
+            "comments": [
+                {
+                    "user": {"login": "atalman"},
+                    "created_at": "2026-07-07T12:00:00Z",
+                    "body": "cc @ezyang @gchanan @kadeng @msaroufim @jeffdaily",
+                },
+                {
+                    "user": {"login": "malfet"},
+                    "created_at": "2026-07-07T13:00:00Z",
+                    "body": "@ezyang thoughts on the packaging fix?",
+                },
+            ]
+        }
+    }
+
+    result = feed_digest.find_reply_nature_in_feed(feed, threads, "ezyang")
+
+    assert result[0]["_reply_signals"] == ["@-mentioned by malfet"]
+
+
 def _iso_ago(hours: float) -> str:
-    return (
-        datetime.now(timezone.utc) - timedelta(hours=hours)
-    ).isoformat()
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
 def test_snapshot_health_warns_when_stale() -> None:
