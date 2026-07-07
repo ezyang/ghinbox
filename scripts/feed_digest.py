@@ -289,6 +289,27 @@ def classify_feed(
     ]
 
 
+def _classify_mention(body: str, user_lower: str) -> str | None:
+    """Classify how ``user_lower`` is @-mentioned in a comment body.
+
+    Returns "direct" (a targeted mention), "broadcast" (buried in a large
+    cc/@-list — weak signal), or None (not mentioned). A ``cc @a @b @c ...``
+    line naming many maintainers is a broadcast: it means "this touches your
+    area", not "I'm asking you specifically", so the digest should down-weight
+    it rather than treat it like a direct ping.
+    """
+    lowered = body.lower()
+    if f"@{user_lower}" not in lowered:
+        return None
+    mentions = re.findall(r"@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", lowered)
+    unique_mentions = set(mentions)
+    # A comment that @-mentions many distinct people is a broadcast cc, even if
+    # it doesn't literally start with "cc". Threshold kept low: 2 others + you.
+    if len(unique_mentions) >= 4:
+        return "broadcast"
+    return "direct"
+
+
 def find_reply_nature_in_feed(
     feed_notifications: list[dict],
     comment_threads: dict,
@@ -300,7 +321,7 @@ def find_reply_nature_in_feed(
     the Replies queue.
 
     Catches:
-    - Someone @-mentioned the user in a comment body
+    - Someone @-mentioned the user in a comment body (direct vs. broadcast cc)
     - The user commented and someone (non-bot) replied after their last comment
     """
     reply_nature = []
@@ -312,15 +333,26 @@ def find_reply_nature_in_feed(
 
         reply_signals = []
 
-        # Signal 1: @-mention in comment body
+        # Signal 1: @-mention in comment body. Prefer a direct mention; only
+        # fall back to reporting a broadcast cc if that's all there is, so a
+        # 15-name "cc @ezyang @gchanan ..." list doesn't masquerade as someone
+        # asking the user directly.
+        direct_mention_author: str | None = None
+        broadcast_mention_author: str | None = None
         for c in comments:
             author = (c.get("user", {}).get("login") or "").lower()
             if author == user_lower:
                 continue
-            body = (c.get("body") or "").lower()
-            if f"@{user_lower}" in body:
-                reply_signals.append(f"@-mentioned by {author}")
+            kind = _classify_mention(c.get("body") or "", user_lower)
+            if kind == "direct" and direct_mention_author is None:
+                direct_mention_author = author
                 break
+            if kind == "broadcast" and broadcast_mention_author is None:
+                broadcast_mention_author = author
+        if direct_mention_author is not None:
+            reply_signals.append(f"@-mentioned by {direct_mention_author}")
+        elif broadcast_mention_author is not None:
+            reply_signals.append(f"cc'd (broadcast) by {broadcast_mention_author}")
 
         # Signal 2: user commented and got non-bot replies after
         user_comments = [
