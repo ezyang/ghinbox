@@ -47,9 +47,21 @@
     in `docs/PROD_QUERY_RECIPES.md`, or check whether the server was started
     with `--no-debug-socket`.
 - Feed summaries:
-  - When asked to generate a feed summary/digest, extract from the existing
-    local snapshot with `python3 scripts/feed_digest.py --extract >
-    /tmp/feed_data.json`.
+  - When asked to generate a feed summary/digest, extract the server-owned
+    snapshot over the debug socket with `uv run python scripts/feed_digest.py
+    --extract > /tmp/feed_data.json` (use `uv run`; the script needs `httpx`).
+    By default this targets the **`pytorch` profile** (org:pytorch +
+    org:meta-pytorch), which is the user's real feed — not a single repo. Use
+    `--repo owner/repo` only for an ad-hoc single-repo digest.
+  - The extract prints a `snapshot_health` block. If it emits a staleness
+    WARNING (`synced_at` older than 6h), the snapshot has drifted from GitHub;
+    do NOT trust the digest. Re-sync the profile first with
+    `--extract --sync` (this triggers a live server-side GitHub rebuild and
+    polls to completion) — but only run `--sync` when the user has asked for a
+    fresh/full sync, since it hits GitHub. Note the webapp's Full Sync button
+    does NOT refresh the server profile snapshot for org/query profiles (it
+    only writes the browser's IndexedDB), so `--sync` is the way to refresh
+    what the digest reads.
   - Generate an HTML report by default at `/tmp/feed-report.html`; do not stop
     at a chat-only summary. The report is a CURATED digest, NOT an exhaustive
     listing — the user already has ghinbox to page through every notification.
@@ -66,6 +78,20 @@
     vibe" — a few short prose paragraphs characterizing the rest thematically,
     WITHOUT listing the individual PRs/issues behind each theme (at most a couple
     representative links per theme).
+  - Weight the mention signals correctly. In `report_items[].reply_signals`,
+    `"@-mentioned by X"` is a genuine direct ping and `"replied to by X"` is a
+    real reply after the user — these are the high-signal items to surface. But
+    `"cc'd (broadcast) by X"` means the user was one of many names in a large
+    cc list (e.g. a module cc), which is weak "this touches your area" noise,
+    NOT someone asking the user directly — do not surface a broadcast cc as an
+    action item just because it mentions the user. Most of the feed is
+    typically broadcast cc's; the genuinely actionable set (direct mentions +
+    replied-after) is much smaller, and the report's counts should make that
+    split visible rather than implying the whole mention pile needs attention.
+  - Report ONLY what the data supports: badges/labels must come from
+    `report_items[].labels`/`state`/signals, not invented severity tags. Do not
+    call something a "release blocker" (or similar) unless a label or an
+    explicit human statement in the snippets says so.
   - Do NOT enumerate every feed item or create one section per theme with full
     item lists. If more than ~20 items qualify for "Look at these", keep the most
     important and say how many were omitted.
