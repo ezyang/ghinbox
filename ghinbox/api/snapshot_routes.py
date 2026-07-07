@@ -31,6 +31,11 @@ from ghinbox.parser.notifications import SessionExpiredError, parse_notification
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 
+# Hard ceiling on notification pages fetched per profile entry. A cursor walk
+# that never terminates (e.g. a pagination parsing regression) must fail the
+# sync rather than burn the GitHub rate limit.
+MAX_SNAPSHOT_FETCH_PAGES = 50
+
 _running_tasks: dict[str, asyncio.Task] = {}
 _periodic_task: asyncio.Task | None = None
 
@@ -174,7 +179,14 @@ async def _fetch_one_entry_notifications(
     source_url: str | None = None
     generated_at: str | None = None
     after: str | None = None
+    entry_pages = 0
     while True:
+        if entry_pages >= MAX_SNAPSHOT_FETCH_PAGES:
+            raise RuntimeError(
+                f"Snapshot sync exceeded {MAX_SNAPSHOT_FETCH_PAGES} "
+                "notification pages for one entry"
+            )
+        entry_pages += 1
         if entry.kind == "repo":
             result = await run_fetcher_call(
                 fetcher.fetch_repo_notifications,

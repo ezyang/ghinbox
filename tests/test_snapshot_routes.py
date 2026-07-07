@@ -3,6 +3,8 @@
 import asyncio
 import os
 import tempfile
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -530,6 +532,81 @@ def test_snapshot_sync_marks_auth_needed_on_session_expiry(
     assert state["status"] == "error"
     assert "redirected notifications request to login" in state["error"]
     assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"
+
+
+def test_snapshot_sync_errors_when_pagination_exceeds_cap(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cursor walk that never reports has_next=False must fail the sync
+    instead of fetching pages forever and burning the GitHub rate limit."""
+    calls: list[str | None] = []
+
+    class FakeFetcher:
+        def fetch_repo_notifications(
+            self,
+            owner: str,
+            repo: str,
+            before: str | None = None,
+            after: str | None = None,
+        ) -> FetchResult:
+            raise AssertionError("run_fetcher_call should invoke this through the shim")
+
+    async def fake_run_fetcher_call(fetcher_call, **kwargs) -> FetchResult:
+        calls.append(kwargs["after"])
+        return FetchResult(
+            html="<html></html>",
+            url="https://github.com/notifications?query=repo:test/repo",
+            status="ok",
+        )
+
+    async def fake_review_requests(
+        owner: str | None, repo: str | None, query: str | None = None
+    ) -> list[dict]:
+        return []
+
+    def fake_parse_notifications_html(
+        *,
+        html: str,
+        owner: str,
+        repo: str,
+        source_url: str,
+    ):
+        return SimpleNamespace(
+            notifications=[],
+            authenticity_token=None,
+            source_url=source_url,
+            generated_at=datetime(2025, 1, 5, 12, 0, tzinfo=timezone.utc),
+            pagination=SimpleNamespace(
+                has_next=True,
+                after_cursor=f"cursor-{len(calls)}",
+            ),
+        )
+
+    monkeypatch.setattr(snapshot_routes, "MAX_SNAPSHOT_FETCH_PAGES", 2)
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: FakeFetcher())
+    monkeypatch.setattr(snapshot_routes, "run_fetcher_call", fake_run_fetcher_call)
+    monkeypatch.setattr(
+        snapshot_routes,
+        "fetch_review_request_notifications",
+        fake_review_requests,
+    )
+    monkeypatch.setattr(
+        snapshot_routes,
+        "parse_notifications_html",
+        fake_parse_notifications_html,
+    )
+
+    asyncio.run(
+        snapshot_routes._fetch_snapshot(
+            "test/repo", [snapshot_routes._entry_for_repo("test", "repo")]
+        )
+    )
+
+    assert calls == [None, "cursor-1"]
+    sync_state = get_sync_state("test/repo", db_path)
+    assert sync_state["status"] == "error"
+    assert "exceeded 2" in sync_state["error"]
 
 
 def test_profile_snapshot_syncs_multiple_query_entries(
