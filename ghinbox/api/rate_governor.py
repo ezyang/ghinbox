@@ -242,6 +242,15 @@ def evaluate(
     normalized_pool = normalize_resource(pool_state.resource if pool_state else pool)
     now = _coerce_utc(now)
 
+    # The configured floor is sized for the big core/graphql pools (limit
+    # 5000). GitHub's search pool caps at 30/min, so a flat 500 floor can NEVER
+    # be satisfied and would permanently block all search — including the
+    # review-request search that every snapshot sync depends on. Cap the
+    # effective floor at half the pool's own limit so small pools reserve a
+    # proportional headroom instead of an impossible one.
+    if pool_state is not None and pool_state.limit:
+        floor = min(floor, pool_state.limit // 2)
+
     if pool_state is None:
         return RateGovernorDecision(
             allowed=True,
