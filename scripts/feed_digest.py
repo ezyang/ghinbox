@@ -403,12 +403,16 @@ def _notification_url(notification: dict, repo: str = DEFAULT_REPO) -> str:
     if url:
         return str(url)
 
+    # Profile snapshots span many repos; the fallback repo is only for
+    # notifications that carry no repository of their own.
+    notification_repo = (notification.get("repository") or {}).get("full_name")
+    repo_name = notification_repo or repo
     number = subject.get("number")
     if number:
         path = "pull" if subject.get("type") == "PullRequest" else "issues"
-        return f"https://github.com/{repo}/{path}/{number}"
+        return f"https://github.com/{repo_name}/{path}/{number}"
 
-    return f"https://github.com/{repo}"
+    return f"https://github.com/{repo_name}"
 
 
 def _actor_logins(notification: dict) -> list[str]:

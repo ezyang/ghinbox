@@ -177,6 +177,34 @@ def test_extract_output_uses_cached_thread_last_read_at() -> None:
     assert output["feed_ids"] == ["read-directed-mention"]
 
 
+def test_report_items_use_notification_repository_for_url() -> None:
+    """Profile snapshots span repos; URLs must come from each notification's
+    own repository, not the digest's fallback repo."""
+    items = feed_digest.build_report_items(
+        [
+            {
+                "id": "repo-specific",
+                "reason": "mention",
+                "updated_at": "2026-07-01T12:00:00Z",
+                "repository": {"full_name": "pytorch/torchfix"},
+                "subject": {
+                    "title": "Repo-specific PR",
+                    "type": "PullRequest",
+                    "number": 77,
+                    "state": "open",
+                },
+                "actors": [],
+                "labels": [],
+            }
+        ],
+        {},
+        set(),
+        repo="fallback/repo",
+    )
+
+    assert items[0]["url"] == "https://github.com/pytorch/torchfix/pull/77"
+
+
 def test_classify_mention_direct_vs_broadcast() -> None:
     # A targeted ask is direct.
     assert feed_digest._classify_mention("@ezyang can you look?", "ezyang") == "direct"
