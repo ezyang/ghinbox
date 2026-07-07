@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  captureHtmlActions,
   makeNotification,
   makeNotificationsResponse,
   mockDefaultApiRoutes,
@@ -154,6 +155,59 @@ test.describe('Notification Profiles @smoke', () => {
     await expect(page.locator('[data-id="review-request:pytorch/pytorch#7"]')).toBeVisible();
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     expect(reviewRequestQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
+  });
+
+  test('inline mark done works with a multi-query profile', async ({ page }) => {
+    const notification = makeProfileNotification(
+      'notif-multi-done',
+      'pytorch/pytorch',
+      'PyTorch issue',
+      1
+    );
+    await page.route('**/notifications/html/query**', (route) => {
+      const url = new URL(route.request().url());
+      const query = url.searchParams.get('query') || '';
+      const notifications = query === 'org:pytorch' ? [notification] : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(response('pytorch/pytorch', notifications)),
+      });
+    });
+
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+
+    // The sync-before-done reload must target the notification's own repo,
+    // not require a single-repo profile.
+    const reloadedRepos: string[] = [];
+    await page.route('**/notifications/html/repo/**', (route) => {
+      const match = route.request().url().match(/\/notifications\/html\/repo\/([^/]+)\/([^/?]+)/);
+      if (match) {
+        reloadedRepos.push(`${match[1]}/${match[2]}`);
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(response('pytorch/pytorch', [notification])),
+      });
+    });
+    const actions = await captureHtmlActions(page);
+
+    await page
+      .locator('[data-id="notif-multi-done"] .notification-actions-inline .notification-done-btn')
+      .click();
+
+    await expect(page.locator('#status-bar')).toContainText('Marked as done');
+    await expect(page.locator('[data-id="notif-multi-done"]')).toHaveCount(0);
+    expect(actions).toEqual([
+      expect.objectContaining({
+        action: 'archive',
+        notification_ids: ['notif-multi-done'],
+      }),
+    ]);
+    expect(reloadedRepos).toContain('pytorch/pytorch');
   });
 
   test('remembers custom profiles with multiple repositories', async ({ page }) => {

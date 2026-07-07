@@ -738,14 +738,16 @@
             return state.currentUserLogin;
         }
 
-        async function reloadNotificationsFromServer() {
-            const entries = typeof getCurrentProfileEntries === 'function'
-                ? getCurrentProfileEntries()
-                : [state.repo || ''];
-            if (entries.length !== 1) {
-                return { status: 'error', error: 'Reload requires a single repository profile.' };
+        async function reloadNotificationsFromServer(notification = null) {
+            // Prefer the notification's own repo: multi-entry and query
+            // profiles have no single profile-level repo to reload from.
+            let repo = notification ? getNotificationRepoInfo(notification) : null;
+            if (!repo) {
+                const entries = typeof getCurrentProfileEntries === 'function'
+                    ? getCurrentProfileEntries()
+                    : [state.repo || ''];
+                repo = entries.length === 1 ? parseRepoInput(entries[0] || '') : null;
             }
-            const repo = parseRepoInput(entries[0] || '');
             if (!repo) {
                 return { status: 'error', error: 'Missing repository.' };
             }
@@ -770,7 +772,7 @@
             }
             let notifications = options.reloadedNotifications;
             if (!Array.isArray(notifications)) {
-                const result = await reloadNotificationsFromServer();
+                const result = await reloadNotificationsFromServer(notification);
                 if (result.status !== 'ok') {
                     return result;
                 }
