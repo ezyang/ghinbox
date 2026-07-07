@@ -1,4 +1,5 @@
 import importlib.util
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -174,3 +175,80 @@ def test_extract_output_uses_cached_thread_last_read_at() -> None:
 
     assert output["feed_count"] == 1
     assert output["feed_ids"] == ["read-directed-mention"]
+
+
+def _iso_ago(hours: float) -> str:
+    return (
+        datetime.now(timezone.utc) - timedelta(hours=hours)
+    ).isoformat()
+
+
+def test_snapshot_health_warns_when_stale() -> None:
+    snapshot_data = {
+        "snapshot": {
+            "notifications": [{"id": "n1"}],
+            "synced_at": _iso_ago(25),
+        },
+        "sync": {"status": "success", "notifications_count": 1, "pages_fetched": 1},
+    }
+
+    health = feed_digest.build_snapshot_health(
+        snapshot_data, snapshot_data["snapshot"]["notifications"]
+    )
+
+    assert health["age_hours"] is not None and health["age_hours"] >= 24
+    assert any("stale" in warning for warning in health["warnings"])
+
+
+def test_snapshot_health_fresh_snapshot_has_no_warnings() -> None:
+    snapshot_data = {
+        "snapshot": {
+            "notifications": [{"id": "n1"}, {"id": "n2"}],
+            "synced_at": _iso_ago(0.5),
+        },
+        "sync": {"status": "success", "notifications_count": 2, "pages_fetched": 1},
+    }
+
+    health = feed_digest.build_snapshot_health(
+        snapshot_data, snapshot_data["snapshot"]["notifications"]
+    )
+
+    assert health["warnings"] == []
+
+
+def test_snapshot_health_does_not_warn_when_archives_shrank_stored_data() -> None:
+    """A fresh snapshot whose stored count is below the last sync's fetched
+    count is the normal result of archiving after a sync (the archive handler
+    prunes stored ``data`` in place). This must NOT be flagged as truncated."""
+    snapshot_data = {
+        "snapshot": {
+            "notifications": [{"id": f"n{i}"} for i in range(105)],
+            "synced_at": _iso_ago(0.2),
+        },
+        "sync": {"status": "success", "notifications_count": 293, "pages_fetched": 8},
+    }
+
+    health = feed_digest.build_snapshot_health(
+        snapshot_data, snapshot_data["snapshot"]["notifications"]
+    )
+
+    assert health["stored_count"] == 105
+    assert health["synced_count"] == 293
+    assert health["warnings"] == []
+    assert not any("truncat" in warning.lower() for warning in health["warnings"])
+
+
+def test_snapshot_health_warns_on_sync_error() -> None:
+    snapshot_data = {
+        "snapshot": {
+            "notifications": [{"id": "n1"}],
+            "synced_at": _iso_ago(0.1),
+        },
+        "sync": {"status": "error", "error": "GitHub session expired"},
+    }
+
+    health = feed_digest.build_snapshot_health(
+        snapshot_data, snapshot_data["snapshot"]["notifications"]
+    )
+
+    assert any("session expired" in warning for warning in health["warnings"])

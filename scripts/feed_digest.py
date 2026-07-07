@@ -40,6 +40,7 @@ import json
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -52,6 +53,11 @@ DEFAULT_REPO = "pytorch/pytorch"
 DEFAULT_CURRENT_USER = "ezyang"
 DEFAULT_REPORT_PATH = "/tmp/feed-report.html"
 CLASSIFIER_SCRIPT = Path(__file__).with_name("feed_digest_classify.js")
+
+# A snapshot older than this is likely to have drifted from GitHub (new
+# notifications never entered it). Periodic sync is often off, so the digest
+# warns rather than silently reporting a stale feed.
+STALE_SNAPSHOT_SECONDS = 6 * 3600
 
 
 class FeedDigestError(RuntimeError):
@@ -365,36 +371,57 @@ def build_report_instructions(report_path: str = DEFAULT_REPORT_PATH) -> list[st
 
 
 def build_snapshot_health(snapshot_data: dict, notifications: list[dict]) -> dict:
-    """Surface staleness / truncation signals so the digest never silently
-    reports on a bad snapshot.
+    """Surface staleness signals so the digest never silently reports on a
+    stale snapshot.
 
-    The server's sync state records how many notifications the last sync
-    actually fetched (``notifications_count``). If that is materially larger
-    than what we received, the persisted snapshot was truncated and the digest
-    is not seeing everything.
+    Freshness is the reliable signal here. ``synced_at`` is when the server
+    last rebuilt the snapshot from GitHub; if that is old, the feed has drifted
+    from reality (new notifications never entered the snapshot) — re-sync first.
+
+    Note we deliberately do NOT compare the server sync's
+    ``notifications_count`` against the stored count: mark-done/archive prunes
+    the stored ``data`` in place (remove_notifications_from_snapshots) without
+    touching sync state, so a smaller stored count is the normal fingerprint of
+    "archived a batch after the last sync", not a truncated save. That
+    comparison produced false "truncated" warnings on every archive.
     """
     snap = snapshot_data.get("snapshot", {})
     sync = snapshot_data.get("sync", {})
 
     stored = len(notifications)
-    synced_count = sync.get("notifications_count")
+    synced_at = snap.get("synced_at")
+
+    age_seconds: float | None = None
+    if synced_at:
+        try:
+            synced_dt = datetime.fromisoformat(synced_at)
+            if synced_dt.tzinfo is None:
+                synced_dt = synced_dt.replace(tzinfo=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - synced_dt).total_seconds()
+        except ValueError:
+            pass
 
     warnings: list[str] = []
-    if isinstance(synced_count, int) and synced_count > stored:
+    if age_seconds is not None and age_seconds > STALE_SNAPSHOT_SECONDS:
+        hours = age_seconds / 3600
         warnings.append(
-            f"Snapshot truncated: last sync fetched {synced_count} notifications "
-            f"across {sync.get('pages_fetched', '?')} pages but only {stored} are "
-            "stored. The digest is missing items; re-sync before trusting it."
+            f"Snapshot is stale: last synced {hours:.1f}h ago ({synced_at}). "
+            "New notifications since then are not in this digest; trigger a "
+            "full sync (client UI or POST /api/snapshots/{owner}/{repo}/sync) "
+            "before trusting it."
         )
+    elif age_seconds is None:
+        warnings.append("Snapshot has no synced_at timestamp; cannot verify freshness.")
     if sync.get("status") == "error":
         warnings.append(f"Last sync errored: {sync.get('error') or 'unknown error'}")
 
     return {
         "stored_count": stored,
-        "synced_count": synced_count,
+        "synced_count": sync.get("notifications_count"),
         "pages_fetched": sync.get("pages_fetched"),
         "generated_at": snap.get("generated_at"),
-        "synced_at": snap.get("synced_at"),
+        "synced_at": synced_at,
+        "age_hours": round(age_seconds / 3600, 1) if age_seconds is not None else None,
         "sync_status": sync.get("status"),
         "warnings": warnings,
     }
