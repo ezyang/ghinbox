@@ -125,16 +125,15 @@ export function makeServerSnapshotPayload(
   };
 }
 
-export function makeQueryServerSnapshotPayload(
-  query: string,
+export function makeProfileServerSnapshotPayload(
+  profile: string = 'pytorch',
   options: {
     snapshot?: JsonBody;
     sync?: JsonBody;
   } = {}
 ) {
   return {
-    repository: null,
-    query,
+    profile: { name: profile, key: `profile:${profile}` },
     sync: options.sync ?? { status: 'idle', mode: 'full' },
     snapshot: options.snapshot ?? null,
   };
@@ -243,29 +242,30 @@ export async function mockServerSnapshot(
   return state;
 }
 
-export type MockQuerySnapshotState = {
-  query: string;
+export type MockProfileSnapshotState = {
+  profile: string;
   method: string;
   url: string;
   getCount: number;
   postCount: number;
   pollCount: number;
+  postBodies: JsonBody[];
 };
 
-type MockQuerySnapshotReply =
+type MockProfileSnapshotReply =
   | JsonBody
   | { status?: number; json: JsonBody }
   | ((
-      state: MockQuerySnapshotState
+      state: MockProfileSnapshotState
     ) =>
       | JsonBody
       | { status?: number; json: JsonBody }
       | Promise<JsonBody | { status?: number; json: JsonBody }>);
 
-async function fulfillQuerySnapshotReply(
+async function fulfillProfileSnapshotReply(
   route: Route,
-  reply: MockQuerySnapshotReply,
-  state: MockQuerySnapshotState
+  reply: MockProfileSnapshotReply,
+  state: MockProfileSnapshotState
 ) {
   const resolved = typeof reply === 'function' ? await reply({ ...state }) : reply;
   const status =
@@ -279,41 +279,40 @@ async function fulfillQuerySnapshotReply(
   return fulfillJson(route, body, status);
 }
 
-export async function mockQuerySnapshot(
+export async function mockProfileSnapshot(
   page: Page,
   options: {
-    query: string;
-    get?: MockQuerySnapshotReply | false;
-    syncPost?: MockQuerySnapshotReply | false;
-    syncPoll?: MockQuerySnapshotReply | false;
-    syncPolls?: MockQuerySnapshotReply[];
-  }
+    profile?: string;
+    get?: MockProfileSnapshotReply | false;
+    syncPost?: MockProfileSnapshotReply | false;
+    syncPoll?: MockProfileSnapshotReply | false;
+    syncPolls?: MockProfileSnapshotReply[];
+  } = {}
 ) {
-  const state: MockQuerySnapshotState = {
-    query: options.query,
+  const profile = options.profile ?? 'pytorch';
+  const state: MockProfileSnapshotState = {
+    profile,
     method: 'GET',
     url: '',
     getCount: 0,
     postCount: 0,
     pollCount: 0,
+    postBodies: [],
   };
 
   if (options.get !== false) {
-    await page.route('**/api/snapshots/query**', async (route) => {
+    await page.route(`**/api/snapshots/profile/${profile}`, async (route) => {
       const url = new URL(route.request().url());
-      if (
-        url.pathname !== '/api/snapshots/query' ||
-        url.searchParams.get('query') !== options.query
-      ) {
+      if (url.pathname !== `/api/snapshots/profile/${profile}`) {
         await route.fallback();
         return;
       }
       state.getCount += 1;
       state.method = route.request().method();
       state.url = route.request().url();
-      await fulfillQuerySnapshotReply(
+      await fulfillProfileSnapshotReply(
         route,
-        options.get ?? makeQueryServerSnapshotPayload(options.query),
+        options.get ?? makeProfileServerSnapshotPayload(profile),
         state
       );
     });
@@ -324,12 +323,9 @@ export async function mockQuerySnapshot(
     options.syncPoll !== undefined ||
     options.syncPolls !== undefined
   ) {
-    await page.route('**/api/snapshots/query/sync**', async (route) => {
+    await page.route(`**/api/snapshots/profile/${profile}/sync`, async (route) => {
       const url = new URL(route.request().url());
-      if (
-        url.pathname !== '/api/snapshots/query/sync' ||
-        url.searchParams.get('query') !== options.query
-      ) {
+      if (url.pathname !== `/api/snapshots/profile/${profile}/sync`) {
         await route.fallback();
         return;
       }
@@ -337,11 +333,12 @@ export async function mockQuerySnapshot(
       state.url = route.request().url();
       if (state.method === 'POST') {
         state.postCount += 1;
+        state.postBodies.push(route.request().postDataJSON());
         const postReply =
           options.syncPost === false || options.syncPost === undefined
-            ? makeQueryServerSnapshotPayload(options.query)
+            ? makeProfileServerSnapshotPayload(profile)
             : options.syncPost;
-        await fulfillQuerySnapshotReply(route, postReply, state);
+        await fulfillProfileSnapshotReply(route, postReply, state);
         return;
       }
 
@@ -349,12 +346,12 @@ export async function mockQuerySnapshot(
       const pollReply =
         options.syncPolls?.[state.pollCount - 1] ??
         options.syncPoll ??
-        makeQueryServerSnapshotPayload(options.query);
+        makeProfileServerSnapshotPayload(profile);
       if (pollReply === false) {
         await route.fallback();
         return;
       }
-      await fulfillQuerySnapshotReply(route, pollReply, state);
+      await fulfillProfileSnapshotReply(route, pollReply, state);
     });
   }
 
@@ -484,19 +481,21 @@ export async function mockDefaultApiRoutes(page: Page, options: {
   await page.route(`**/api/snapshots/${owner}/${name}`, (route) =>
     fulfillJson(route, { snapshot: null })
   );
-  await page.route('**/api/snapshots/query**', (route) => {
+  await page.route('**/api/snapshots/profile/**', (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname !== '/api/snapshots/query') {
+    const match = url.pathname.match(/^\/api\/snapshots\/profile\/([^/]+)$/);
+    if (!match) {
       return route.fallback();
     }
+    const profileName = decodeURIComponent(match[1]);
     return fulfillJson(route, {
-      repository: null,
-      query: url.searchParams.get('query'),
+      profile: { name: profileName, key: `profile:${profileName}` },
       snapshot: null,
+      sync: { status: 'idle', mode: 'full' },
     });
   });
   await mockServerSnapshotSyncUnavailable(page, repo);
-  await mockQuerySnapshotSyncUnavailable(page);
+  await mockProfileSnapshotSyncUnavailable(page);
 }
 
 export async function mockQueryNotifications(
@@ -533,8 +532,8 @@ export async function mockServerSnapshotSyncUnavailable(
   );
 }
 
-export async function mockQuerySnapshotSyncUnavailable(page: Page) {
-  await page.route('**/api/snapshots/query/sync**', (route) =>
+export async function mockProfileSnapshotSyncUnavailable(page: Page) {
+  await page.route('**/api/snapshots/profile/*/sync', (route) =>
     fulfillJson(
       route,
       { detail: 'No GitHub fetcher configured. Start server with --account.' },

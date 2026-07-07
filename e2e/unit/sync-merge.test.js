@@ -4,15 +4,18 @@ const {
   buildIncrementalRestLookupKeys,
   buildNotificationMatchKeySet,
   buildPreviousMatchMap,
+  buildServerProfileSyncEntries,
   canUseIncrementalOverlapMerge,
   dedupAndSortNotifications,
   findIncrementalOverlapIndex,
+  getServerProfileSnapshotKey,
+  getServerSnapshotKey,
   getServerSnapshotLastSyncedRepo,
   getServerSnapshotSourceKey,
+  getServerSnapshotSyncEntry,
   getUpdatedAtSignature,
-  mergeServerSnapshotNotifications,
   mergeIncrementalNotifications,
-  shouldApplyServerSnapshotBundle,
+  shouldApplyServerSnapshot,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
 const {
   getNotificationDedupKey,
@@ -326,7 +329,33 @@ test('dedupAndSortNotifications keeps NT and synthetic review-request rows for s
   );
 });
 
-test('getServerSnapshotSourceKey builds canonical repo and query snapshot keys', () => {
+test('server snapshot key helpers use repo keys for single repos and profile keys otherwise', () => {
+  const repoSource = {
+    kind: 'repo',
+    owner: 'owner',
+    repo: 'repo',
+    fullName: 'owner/repo',
+    value: 'repo:owner/repo',
+  };
+  const querySource = {
+    kind: 'query',
+    query: 'org:pytorch',
+    value: 'org:pytorch',
+  };
+
+  assert.equal(getServerSnapshotSourceKey(repoSource), 'owner/repo');
+  assert.equal(getServerProfileSnapshotKey('pytorch'), 'profile:pytorch');
+  assert.equal(getServerSnapshotKey([repoSource], 'custom'), 'owner/repo');
+  assert.equal(getServerSnapshotKey([querySource], 'pytorch'), 'profile:pytorch');
+  assert.equal(
+    getServerSnapshotKey([querySource, { ...querySource, query: 'org:meta-pytorch' }], 'pytorch'),
+    'profile:pytorch'
+  );
+  assert.equal(getServerSnapshotSourceKey({ kind: 'invalid', value: 'not-a-repo' }), '');
+  assert.equal(getServerProfileSnapshotKey(''), '');
+});
+
+test('getServerSnapshotSyncEntry maps classified profile entries to profile sync payloads', () => {
   const cases = [
     {
       source: {
@@ -336,7 +365,7 @@ test('getServerSnapshotSourceKey builds canonical repo and query snapshot keys',
         fullName: 'owner/repo',
         value: 'repo:owner/repo',
       },
-      expected: 'owner/repo',
+      expected: { kind: 'repo', owner: 'owner', repo: 'repo' },
     },
     {
       source: {
@@ -344,17 +373,25 @@ test('getServerSnapshotSourceKey builds canonical repo and query snapshot keys',
         query: ' org:pytorch ',
         value: 'org:pytorch',
       },
-      expected: 'query:org:pytorch',
+      expected: { kind: 'query', query: 'org:pytorch' },
     },
     {
       source: { kind: 'invalid', value: 'not-a-repo' },
-      expected: '',
+      expected: null,
     },
   ];
 
   cases.forEach(({ source, expected }) => {
-    assert.equal(getServerSnapshotSourceKey(source), expected);
+    assert.deepEqual(getServerSnapshotSyncEntry(source), expected);
   });
+
+  assert.deepEqual(
+    buildServerProfileSyncEntries(cases.map(({ source }) => source)),
+    [
+      { kind: 'repo', owner: 'owner', repo: 'repo' },
+      { kind: 'query', query: 'org:pytorch' },
+    ]
+  );
 });
 
 test('getServerSnapshotLastSyncedRepo matches profile reload target convention', () => {
@@ -386,74 +423,54 @@ test('getServerSnapshotLastSyncedRepo matches profile reload target convention',
   );
 });
 
-test('mergeServerSnapshotNotifications dedups by notification match key and sorts newest first', () => {
-  const firstIssue = notif('first-source-old-id', 1, '2025-01-02T00:00:00Z');
-  const duplicateIssue = notif('second-source-new-id', 1, '2025-01-05T00:00:00Z');
-  const otherIssue = notif('second-source-other', 2, '2025-01-04T00:00:00Z');
-
-  const result = mergeServerSnapshotNotifications([
-    { snapshot: { notifications: [firstIssue] } },
-    { snapshot: { notifications: [duplicateIssue, otherIssue] } },
-  ]);
-
-  assert.deepEqual(
-    result.map((n) => n.id),
-    ['second-source-other', 'first-source-old-id']
-  );
-});
-
-test('shouldApplyServerSnapshotBundle keeps per-source synced_at guard behavior', () => {
+test('shouldApplyServerSnapshot keeps per-key synced_at guard behavior', () => {
   const currentSnapshot = {
-    snapshotKey: 'query:org:pytorch',
-    localSyncedAt: '2025-01-02T00:00:00Z',
-    snapshot: {
-      synced_at: '2025-01-02T00:00:00Z',
-      notifications: [notif('a', 1, '2025-01-02T00:00:00Z')],
-    },
+    synced_at: '2025-01-02T00:00:00Z',
+    notifications: [notif('a', 1, '2025-01-02T00:00:00Z')],
   };
   const changedSnapshot = {
-    snapshotKey: 'query:org:meta-pytorch',
-    localSyncedAt: '2025-01-01T00:00:00Z',
-    snapshot: {
-      synced_at: '2025-01-03T00:00:00Z',
-      notifications: [notif('b', 2, '2025-01-03T00:00:00Z')],
-    },
+    synced_at: '2025-01-03T00:00:00Z',
+    notifications: [notif('b', 2, '2025-01-03T00:00:00Z')],
   };
 
   assert.equal(
-    shouldApplyServerSnapshotBundle({
+    shouldApplyServerSnapshot({
       currentNotificationCount: 2,
-      snapshotItems: [currentSnapshot],
+      snapshot: currentSnapshot,
+      localSyncedAt: '2025-01-02T00:00:00Z',
     }),
     false
   );
   assert.equal(
-    shouldApplyServerSnapshotBundle({
+    shouldApplyServerSnapshot({
       currentNotificationCount: 2,
-      snapshotItems: [currentSnapshot, changedSnapshot],
+      snapshot: changedSnapshot,
+      localSyncedAt: '2025-01-01T00:00:00Z',
     }),
     true
   );
   assert.equal(
-    shouldApplyServerSnapshotBundle({
+    shouldApplyServerSnapshot({
       currentNotificationCount: 0,
-      snapshotItems: [currentSnapshot],
+      snapshot: currentSnapshot,
+      localSyncedAt: '2025-01-02T00:00:00Z',
     }),
     true
   );
   assert.equal(
-    shouldApplyServerSnapshotBundle({
+    shouldApplyServerSnapshot({
       forceApply: true,
       currentNotificationCount: 2,
-      snapshotItems: [currentSnapshot],
+      snapshot: currentSnapshot,
+      localSyncedAt: '2025-01-02T00:00:00Z',
     }),
     true
   );
   assert.equal(
-    shouldApplyServerSnapshotBundle({
+    shouldApplyServerSnapshot({
       forceApply: true,
       currentNotificationCount: 0,
-      snapshotItems: [{ snapshot: null }],
+      snapshot: null,
     }),
     false
   );

@@ -3,9 +3,10 @@ import {
   makeCommentCache,
   makeCommentThread,
   makeNotification,
-  makeQueryServerSnapshotPayload,
+  makeNotificationsResponse,
+  makeProfileServerSnapshotPayload,
   makeServerSnapshotPayload,
-  mockQuerySnapshot,
+  mockProfileSnapshot,
   mockServerSnapshot,
   openCleanSyncPage,
   syncFixtures,
@@ -41,14 +42,14 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       subject: { title: 'Server snapshot notification', number: 42 },
     });
     let htmlFetchCalled = false;
-    let querySyncCalled = false;
+    let profileSyncCalled = false;
     let finishSync!: () => void;
     const syncCanFinish = new Promise<void>((resolve) => {
       finishSync = resolve;
     });
 
-    await page.route('**/api/snapshots/query/sync**', (route) => {
-      querySyncCalled = true;
+    await page.route('**/api/snapshots/profile/*/sync', (route) => {
+      profileSyncCalled = true;
       route.fallback();
     });
     await page.route('**/notifications/html/repo/test/repo**', (route) => {
@@ -108,29 +109,30 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('[data-id="server-1"]')).toBeVisible();
     expect(server.postCount).toBe(1);
     expect(htmlFetchCalled).toBe(false);
-    expect(querySyncCalled).toBe(false);
+    expect(profileSyncCalled).toBe(false);
   });
 
-  test('full sync on the default query profile syncs both server query snapshots', async ({
+  test('full sync on the default query profile syncs the server profile snapshot', async ({
     page,
   }) => {
     const pytorchNotification = makeIssueNotification({
-      id: 'query-full-pytorch-1',
+      id: 'profile-full-pytorch-1',
       repo: 'pytorch/pytorch',
       repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
       reason: 'mention',
       updated_at: '2025-01-03T12:00:00Z',
-      subject: { title: 'PyTorch query snapshot issue', number: 101 },
+      subject: { title: 'PyTorch profile snapshot issue', number: 101 },
     });
     const metaNotification = makeIssueNotification({
-      id: 'query-full-meta-1',
+      id: 'profile-full-meta-1',
       repo: 'meta-pytorch/test',
       repository: { owner: 'meta-pytorch', name: 'test', full_name: 'meta-pytorch/test' },
       reason: 'mention',
       updated_at: '2025-01-04T12:00:00Z',
-      subject: { title: 'Meta PyTorch query snapshot issue', number: 102 },
+      subject: { title: 'Meta PyTorch profile snapshot issue', number: 102 },
     });
     let htmlQueryFetched = false;
+    let querySnapshotEndpointCalled = false;
 
     await page.route('**/notifications/html/query**', (route) => {
       htmlQueryFetched = true;
@@ -140,51 +142,33 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
         body: JSON.stringify(emptyResponse),
       });
     });
-    const pytorchServer = await mockQuerySnapshot(page, {
-      query: 'org:pytorch',
-      syncPost: makeQueryServerSnapshotPayload('org:pytorch', {
+    await page.route('**/api/snapshots/query**', (route) => {
+      querySnapshotEndpointCalled = true;
+      route.fallback();
+    });
+    const profileServer = await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      syncPost: makeProfileServerSnapshotPayload('pytorch', {
         sync: { status: 'running', mode: 'full' },
       }),
-      syncPoll: makeQueryServerSnapshotPayload('org:pytorch', {
+      syncPoll: makeProfileServerSnapshotPayload('pytorch', {
         sync: {
           status: 'success',
           mode: 'full',
           phase: 'complete',
-          pages_fetched: 1,
-          notifications_count: 1,
+          pages_fetched: 2,
+          notifications_count: 2,
         },
         snapshot: {
-          notifications: [pytorchNotification],
+          notifications: [metaNotification, pytorchNotification],
           comment_cache: makeCommentCache({
-            'query-full-pytorch-1': makeCommentThread({
+            'profile-full-pytorch-1': makeCommentThread({
               notificationUpdatedAt: pytorchNotification.updated_at,
               comments: [],
               allComments: true,
               fetchedAt: new Date().toISOString(),
             }),
-          }),
-          authenticity_token: 'server-token',
-          synced_at: '2025-01-03T12:01:00+00:00',
-        },
-      }),
-    });
-    const metaServer = await mockQuerySnapshot(page, {
-      query: 'org:meta-pytorch',
-      syncPost: makeQueryServerSnapshotPayload('org:meta-pytorch', {
-        sync: { status: 'running', mode: 'full' },
-      }),
-      syncPoll: makeQueryServerSnapshotPayload('org:meta-pytorch', {
-        sync: {
-          status: 'success',
-          mode: 'full',
-          phase: 'complete',
-          pages_fetched: 1,
-          notifications_count: 1,
-        },
-        snapshot: {
-          notifications: [metaNotification],
-          comment_cache: makeCommentCache({
-            'query-full-meta-1': makeCommentThread({
+            'profile-full-meta-1': makeCommentThread({
               notificationUpdatedAt: metaNotification.updated_at,
               comments: [],
               allComments: true,
@@ -200,13 +184,115 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await page.locator('#full-sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
-    await expect(page.locator('[data-id="query-full-pytorch-1"]')).toBeVisible();
-    await expect(page.locator('[data-id="query-full-meta-1"]')).toBeVisible();
-    expect(pytorchServer.postCount).toBe(1);
-    expect(metaServer.postCount).toBe(1);
-    expect(pytorchServer.pollCount).toBe(1);
-    expect(metaServer.pollCount).toBe(1);
+    await expect(page.locator('[data-id="profile-full-pytorch-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="profile-full-meta-1"]')).toBeVisible();
+    expect(profileServer.postCount).toBe(1);
+    expect(profileServer.pollCount).toBe(1);
+    expect(profileServer.postBodies).toEqual([
+      {
+        mode: 'full',
+        entries: [
+          { kind: 'query', query: 'org:pytorch' },
+          { kind: 'query', query: 'org:meta-pytorch' },
+        ],
+      },
+    ]);
+    await expect
+      .poll(() =>
+        page.evaluate((key) => localStorage.getItem(key), APP_STORAGE_KEYS.lastSyncedRepo)
+      )
+      .toBe('pytorch:org:pytorch\norg:meta-pytorch');
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem('ghnotif_server_snapshot_synced_at:profile:pytorch')
+        )
+      )
+      .toBe('2025-01-04T12:01:00+00:00');
     expect(htmlQueryFetched).toBe(false);
+    expect(querySnapshotEndpointCalled).toBe(false);
+  });
+
+  test('profile full sync falls back to client sync when the server fetcher is unavailable', async ({
+    page,
+  }) => {
+    const seenQueries: string[] = [];
+    const profileServer = await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      syncPost: {
+        status: 503,
+        json: { detail: 'No GitHub fetcher configured. Start server with --account.' },
+      },
+    });
+
+    await page.route('**/notifications/html/query**', (route) => {
+      const url = new URL(route.request().url());
+      const query = url.searchParams.get('query') || '';
+      seenQueries.push(query);
+      const repo = query === 'org:pytorch' ? 'pytorch/pytorch' : 'meta-pytorch/test';
+      const id = query === 'org:pytorch' ? 'fallback-pytorch-1' : 'fallback-meta-1';
+      const number = query === 'org:pytorch' ? 201 : 202;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          makeNotificationsResponse(
+            [
+              makeIssueNotification({
+                id,
+                repo,
+                repository: {
+                  owner: repo.split('/')[0],
+                  name: repo.split('/')[1],
+                  full_name: repo,
+                },
+                reason: 'mention',
+                updated_at: `2025-01-${query === 'org:pytorch' ? '06' : '07'}T12:00:00Z`,
+                subject: { title: `Fallback ${query}`, number },
+              }),
+            ],
+            { authenticity_token: 'fallback-token' },
+            repo
+          )
+        ),
+      });
+    });
+    await page.route('**/github/rest/review-requests**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications: [] }),
+      })
+    );
+    await page.route('**/github/rest/comments/bulk', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ threads: {} }),
+      })
+    );
+    await page.route('**/github/rest/repos/**/issues/**/comments**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+    );
+    await page.route('**/github/rest/repos/**/issues/**', (route) => {
+      if (route.request().url().includes('/comments')) {
+        return route.fallback();
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 1, body: '', user: { login: 'testuser' } }),
+      });
+    });
+
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
+    await expect(page.locator('[data-id="fallback-pytorch-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="fallback-meta-1"]')).toBeVisible();
+    expect(profileServer.postCount).toBe(1);
+    expect(profileServer.pollCount).toBe(0);
+    expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
   });
 
   test('full sync prunes orphaned comment-cache threads from returned server snapshot', async ({
@@ -643,24 +729,25 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(htmlFetched).toBe(false);
   });
 
-  test('server refresh loads a query-keyed snapshot', async ({ page }) => {
+  test('server refresh loads the profile snapshot', async ({ page }) => {
     const snapshotNotification = makeIssueNotification({
-      id: 'query-refresh-1',
+      id: 'profile-refresh-1',
       repo: 'pytorch/pytorch',
       repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
       reason: 'mention',
       updated_at: '2025-01-05T12:00:00Z',
-      subject: { title: 'Loaded from query snapshot', number: 111 },
+      subject: { title: 'Loaded from profile snapshot', number: 111 },
     });
     let htmlQueryFetched = false;
+    let querySnapshotEndpointCalled = false;
 
-    const server = await mockQuerySnapshot(page, {
-      query: 'org:pytorch',
-      get: makeQueryServerSnapshotPayload('org:pytorch', {
+    const server = await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      get: makeProfileServerSnapshotPayload('pytorch', {
         snapshot: {
           notifications: [snapshotNotification],
           comment_cache: makeCommentCache({
-            'query-refresh-1': makeCommentThread({
+            'profile-refresh-1': makeCommentThread({
               notificationUpdatedAt: snapshotNotification.updated_at,
               comments: [],
               allComments: true,
@@ -672,6 +759,10 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
         },
       }),
     });
+    await page.route('**/api/snapshots/query**', (route) => {
+      querySnapshotEndpointCalled = true;
+      route.fallback();
+    });
     await page.route('**/notifications/html/query**', (route) => {
       htmlQueryFetched = true;
       route.fulfill({
@@ -681,16 +772,23 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       });
     });
 
-    await page.locator('#repo-input').fill('org:pytorch');
     await page.locator('#server-refresh-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText(
       'Loaded 1 notifications from server snapshot'
     );
-    await expect(page.locator('[data-id="query-refresh-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="profile-refresh-1"]')).toBeVisible();
     expect(server.getCount).toBe(1);
     expect(server.postCount).toBe(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          localStorage.getItem('ghnotif_server_snapshot_synced_at:profile:pytorch')
+        )
+      )
+      .toBe('2025-01-05T12:01:00+00:00');
     expect(htmlQueryFetched).toBe(false);
+    expect(querySnapshotEndpointCalled).toBe(false);
   });
 
   test('loads server snapshot on startup when local cache is empty', async ({ page }) => {

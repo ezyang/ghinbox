@@ -128,14 +128,15 @@
             buildIncrementalRestLookupKeys,
             buildNotificationMatchKeySet,
             buildPreviousMatchMap,
+            buildServerProfileSyncEntries,
             canUseIncrementalOverlapMerge,
             dedupAndSortNotifications,
             findIncrementalOverlapIndex,
+            getServerSnapshotKey,
             getServerSnapshotLastSyncedRepo,
             getServerSnapshotSourceKey,
             mergeIncrementalNotifications,
-            mergeServerSnapshotNotifications,
-            shouldApplyServerSnapshotBundle,
+            shouldApplyServerSnapshot,
         } = GhinboxSyncMerge;
         const {
             mergeServerSnapshotCommentCache,
@@ -584,42 +585,50 @@
             return `ghnotif_server_snapshot_synced_at:${snapshotKey}`;
         }
 
-        function getServerSnapshotTarget(source) {
+        function isSingleRepoSnapshotSource(sources) {
+            return Array.isArray(sources) && sources.length === 1 && sources[0]?.kind === 'repo';
+        }
+
+        function getRepoServerSnapshotTarget(source) {
             const snapshotKey = getServerSnapshotSourceKey(source);
+            if (!snapshotKey || source?.kind !== 'repo') {
+                return null;
+            }
+            const owner = source.owner;
+            const repo = source.repo;
+            return {
+                kind: 'repo',
+                source,
+                snapshotKey,
+                label: source.fullName || `${owner}/${repo}`,
+                snapshotUrl: `/api/snapshots/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+                syncUrl: `/api/snapshots/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/sync`,
+                syncBody: { mode: 'full' },
+            };
+        }
+
+        function getProfileServerSnapshotTarget(profileName, sources) {
+            const snapshotKey = getServerSnapshotKey(sources, profileName);
             if (!snapshotKey) {
                 return null;
             }
-            if (source.kind === 'repo') {
-                const owner = source.owner;
-                const repo = source.repo;
-                return {
-                    kind: 'repo',
-                    source,
-                    snapshotKey,
-                    label: source.fullName || `${owner}/${repo}`,
-                    snapshotUrl: `/api/snapshots/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-                    syncUrl: `/api/snapshots/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/sync`,
-                };
-            }
-            if (source.kind === 'query') {
-                const query = String(source.query || source.value || '').trim();
-                const params = new URLSearchParams({ query });
-                return {
-                    kind: 'query',
-                    source,
-                    snapshotKey,
-                    label: query,
-                    snapshotUrl: `/api/snapshots/query?${params}`,
-                    syncUrl: `/api/snapshots/query/sync?${params}`,
-                };
-            }
-            return null;
+            const name = String(profileName || '').trim();
+            const entries = buildServerProfileSyncEntries(sources);
+            return {
+                kind: 'profile',
+                snapshotKey,
+                label: name,
+                snapshotUrl: `/api/snapshots/profile/${encodeURIComponent(name)}`,
+                syncUrl: `/api/snapshots/profile/${encodeURIComponent(name)}/sync`,
+                syncBody: { mode: 'full', entries },
+            };
         }
 
-        function getServerSnapshotTargets(sources) {
-            return sources
-                .map((source) => getServerSnapshotTarget(source))
-                .filter(Boolean);
+        function getServerSnapshotTarget(sources) {
+            if (isSingleRepoSnapshotSource(sources)) {
+                return getRepoServerSnapshotTarget(sources[0]);
+            }
+            return getProfileServerSnapshotTarget(state.profileId, sources);
         }
 
         function getServerSnapshotStorageValue(entries, sources) {
@@ -649,11 +658,8 @@
             saveCommentCache();
         }
 
-        function applyServerSnapshotBundle(snapshotItems, options = {}) {
-            const available = (Array.isArray(snapshotItems) ? snapshotItems : []).filter((item) =>
-                Array.isArray(item?.snapshot?.notifications)
-            );
-            if (!available.length) {
+        function applyServerSnapshot(target, snapshot, options = {}) {
+            if (!snapshot || !Array.isArray(snapshot.notifications)) {
                 return false;
             }
             const schedulePrefetch = options.schedulePrefetch !== false;
@@ -663,26 +669,23 @@
             if (storageValue) {
                 localStorage.setItem(REPO_KEY, storageValue);
             }
-            state.notifications = mergeServerSnapshotNotifications(available);
+            state.notifications = snapshot.notifications;
             state.lastSyncedRepo = lastSyncedRepo;
             if (lastSyncedRepo) {
                 localStorage.setItem(LAST_SYNCED_REPO_KEY, lastSyncedRepo);
             }
-            const authSnapshot = available.find((item) => item.snapshot?.authenticity_token);
-            if (authSnapshot?.snapshot?.authenticity_token) {
-                state.authenticity_token = authSnapshot.snapshot.authenticity_token;
-                persistAuthenticityToken(authSnapshot.snapshot.authenticity_token);
+            if (snapshot.authenticity_token) {
+                state.authenticity_token = snapshot.authenticity_token;
+                persistAuthenticityToken(snapshot.authenticity_token);
             }
-            available.forEach((item) => {
-                if (item.snapshot.synced_at) {
-                    localStorage.setItem(
-                        getServerSnapshotSyncedAtKey(item.snapshotKey),
-                        item.snapshot.synced_at
-                    );
-                }
-                applyServerSnapshotCommentCache(item.snapshot);
-            });
+            if (snapshot.synced_at) {
+                localStorage.setItem(
+                    getServerSnapshotSyncedAtKey(target.snapshotKey),
+                    snapshot.synced_at
+                );
+            }
             persistNotifications();
+            applyServerSnapshotCommentCache(snapshot);
             // The server snapshot is an authoritative upstream rebuild of the
             // notification list, so drop any orphaned comment-cache threads whose
             // notifications are no longer present. Without this, stale local
@@ -699,18 +702,6 @@
                 scheduleCommentPrefetch(state.notifications);
             }
             return true;
-        }
-
-        function applyServerSnapshot(target, snapshot, options = {}) {
-            return applyServerSnapshotBundle(
-                [{
-                    source: target.source,
-                    target,
-                    snapshotKey: target.snapshotKey,
-                    snapshot,
-                }],
-                options
-            );
         }
 
         async function fetchServerSnapshot(target) {
@@ -732,27 +723,6 @@
             return date.toLocaleString();
         }
 
-        function formatSnapshotBundleTimestamp(snapshotItems) {
-            const syncedAtValues = snapshotItems
-                .map((item) => item?.snapshot?.synced_at)
-                .filter(Boolean);
-            if (!syncedAtValues.length) {
-                return formatSnapshotTimestamp(null);
-            }
-            const latest = syncedAtValues.reduce((best, value) => {
-                const bestTime = Date.parse(best);
-                const valueTime = Date.parse(value);
-                if (Number.isNaN(bestTime)) {
-                    return value;
-                }
-                if (Number.isNaN(valueTime)) {
-                    return best;
-                }
-                return valueTime > bestTime ? value : best;
-            });
-            return formatSnapshotTimestamp(latest);
-        }
-
         async function loadServerSnapshotOnInit({ forceApply = false } = {}) {
             const entries = getCurrentProfileEntries();
             if (!entries.length) {
@@ -762,58 +732,42 @@
             if (sources.some((source) => !source.value || source.kind === 'invalid')) {
                 return false;
             }
-            const targets = getServerSnapshotTargets(sources);
-            if (!targets.length) {
+            const target = getServerSnapshotTarget(sources);
+            if (!target) {
                 return false;
             }
             const { storageValue, lastSyncedRepo } = getServerSnapshotApplyConfig(entries, sources);
             try {
-                const snapshotItems = [];
-                const runningTargets = [];
-                for (const target of targets) {
-                    const data = await fetchServerSnapshot(target);
-                    const snapshot = data?.snapshot;
-                    if (snapshot && Array.isArray(snapshot.notifications)) {
-                        snapshotItems.push({
-                            source: target.source,
-                            target,
-                            snapshotKey: target.snapshotKey,
-                            snapshot,
-                            localSyncedAt: localStorage.getItem(
-                                getServerSnapshotSyncedAtKey(target.snapshotKey)
-                            ),
-                        });
-                    }
-                    if (data?.sync?.status === 'running') {
-                        runningTargets.push(target);
-                    }
-                }
+                const data = await fetchServerSnapshot(target);
+                const snapshot = data?.snapshot;
                 let applied = false;
-                const shouldApply = shouldApplyServerSnapshotBundle({
+                const shouldApply = shouldApplyServerSnapshot({
                     forceApply,
                     currentNotificationCount: state.notifications.length,
-                    snapshotItems,
+                    snapshot,
+                    localSyncedAt: localStorage.getItem(
+                        getServerSnapshotSyncedAtKey(target.snapshotKey)
+                    ),
                 });
                 if (
                     shouldApply &&
-                    applyServerSnapshotBundle(snapshotItems, { storageValue, lastSyncedRepo })
+                    applyServerSnapshot(target, snapshot, { storageValue, lastSyncedRepo })
                 ) {
                     applied = true;
                     showStatus(
-                        `Loaded server snapshot from ${formatSnapshotBundleTimestamp(snapshotItems)}`,
+                        `Loaded server snapshot from ${formatSnapshotTimestamp(snapshot.synced_at)}`,
                         'info',
                         { flash: true }
                     );
                 }
-                runningTargets.forEach((target) => {
+                if (data?.sync?.status === 'running') {
                     pollServerSync(target, {
-                        applySnapshot: targets.length === 1,
                         lastSyncedRepo,
                         storageValue,
                     }).catch((error) => {
                         showStatus(`Full Sync failed: ${error.message || error}`, 'error');
                     });
-                });
+                }
                 return applied;
             } catch (error) {
                 console.error('Failed to load server snapshot:', error);
@@ -847,12 +801,13 @@
         }
 
         function shouldApplyRunningServerSnapshot(target, snapshot) {
-            if (!snapshot || !Array.isArray(snapshot.notifications) || !snapshot.synced_at) {
-                return false;
-            }
-            return snapshot.synced_at !== localStorage.getItem(
-                getServerSnapshotSyncedAtKey(target.snapshotKey)
-            );
+            return shouldApplyServerSnapshot({
+                currentNotificationCount: state.notifications.length,
+                snapshot,
+                localSyncedAt: localStorage.getItem(
+                    getServerSnapshotSyncedAtKey(target.snapshotKey)
+                ),
+            });
         }
 
         function isServerSnapshotUnavailable(error) {
@@ -864,7 +819,7 @@
             await fetchJson(target.syncUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: 'full' }),
+                body: JSON.stringify(target.syncBody || { mode: 'full' }),
             });
         }
 
@@ -920,7 +875,13 @@
             const syncLabel = options.syncLabel || 'Full Sync';
             const fallbackMode = options.fallbackMode || null;
             const fallbackOnUnavailable = Boolean(options.fallbackOnUnavailable);
-            const target = getServerSnapshotTarget(source);
+            const target = getRepoServerSnapshotTarget(source);
+            if (!target) {
+                showStatus('Invalid profile entry for server sync', 'error');
+                return {
+                    handled: true,
+                };
+            }
             const storageValue = options.storageValue || source.fullName || source.value;
             const profileSignature = getProfileSignature();
             const lastSyncedRepo =
@@ -1005,14 +966,23 @@
                 showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
                 return;
             }
-            const targets = getServerSnapshotTargets(sources);
-            if (targets.length !== sources.length) {
-                showStatus('Invalid profile entry for server sync', 'error');
+            if (isSingleRepoSnapshotSource(sources)) {
+                await runServerSnapshotSyncForSource(sources[0], {
+                    syncLabel: 'Full Sync',
+                    fallbackMode: 'full',
+                });
                 return;
             }
 
             const { storageValue, lastSyncedRepo } =
                 getServerSnapshotApplyConfig(entries, sources);
+            const target = getServerSnapshotTarget(sources);
+            const syncEntries = buildServerProfileSyncEntries(sources);
+            if (!target || syncEntries.length !== sources.length) {
+                showStatus('Invalid profile entry for server sync', 'error');
+                return;
+            }
+            target.syncBody = { mode: 'full', entries: syncEntries };
             state.repo = storageValue;
             localStorage.setItem(REPO_KEY, storageValue);
             state.loading = true;
@@ -1020,39 +990,21 @@
             render();
 
             try {
-                const snapshotItems = [];
-                for (const target of targets) {
-                    showStatus(
-                        `Full Sync starting on server for ${target.label}...`,
-                        'info',
-                        { flash: true }
-                    );
-                    await startServerSnapshotSync(target);
-                    showStatus(`Full Sync running on server for ${target.label}...`, 'info');
-                    const result = await pollServerSync(target, {
-                        applySnapshot: false,
-                        lastSyncedRepo,
-                        storageValue,
-                        syncLabel: 'Full Sync',
-                    });
-                    if (result.snapshot && Array.isArray(result.snapshot.notifications)) {
-                        snapshotItems.push({
-                            source: target.source,
-                            target,
-                            snapshotKey: target.snapshotKey,
-                            snapshot: result.snapshot,
-                        });
-                    }
+                showStatus(
+                    `Full Sync starting on server for ${target.label}...`,
+                    'info',
+                    { flash: true }
+                );
+                await startServerSnapshotSync(target);
+                showStatus(`Full Sync running on server for ${target.label}...`, 'info');
+                const result = await pollServerSync(target, {
+                    lastSyncedRepo,
+                    storageValue,
+                    syncLabel: 'Full Sync',
+                });
+                if (!result.snapshot || !Array.isArray(result.snapshot.notifications)) {
+                    showStatus('No server snapshot available', 'info');
                 }
-
-                if (applyServerSnapshotBundle(snapshotItems, { storageValue, lastSyncedRepo })) {
-                    showStatus(`Synced ${state.notifications.length} notifications`, 'success', {
-                        autoDismiss: true,
-                    });
-                    render();
-                    return;
-                }
-                showStatus('No server snapshot available', 'info');
             } catch (error) {
                 if (isServerSnapshotUnavailable(error)) {
                     state.loading = false;

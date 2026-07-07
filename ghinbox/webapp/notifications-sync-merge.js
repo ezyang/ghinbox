@@ -1,6 +1,5 @@
-// Pure incremental-sync merge logic: overlap detection and dedup merging of
-// freshly fetched notification pages against the previous sync's list.
-// Browser code passes notification arrays in; Node tests import this file.
+// Pure sync logic: overlap/dedup merging plus server snapshot key and apply
+// decisions. Browser code passes plain data in; Node tests import this file.
 (function (root, factory) {
     let identity = root.GhinboxNotificationIdentity;
     if (!identity && typeof require === 'function') {
@@ -163,11 +162,23 @@
             ).trim();
             return fullName;
         }
-        if (source.kind === 'query') {
-            const query = String(source.query || source.value || '').trim();
-            return query ? `query:${query}` : '';
-        }
         return '';
+    }
+
+    function getServerProfileSnapshotKey(profileName) {
+        const name = String(profileName || '').trim();
+        return name ? `profile:${name}` : '';
+    }
+
+    function getServerSnapshotKey(sources, profileName) {
+        if (
+            Array.isArray(sources) &&
+            sources.length === 1 &&
+            sources[0]?.kind === 'repo'
+        ) {
+            return getServerSnapshotSourceKey(sources[0]);
+        }
+        return getServerProfileSnapshotKey(profileName);
     }
 
     function getServerSnapshotLastSyncedRepo(sources, profileSignature) {
@@ -182,41 +193,38 @@
         return profileValue;
     }
 
-    function mergeServerSnapshotNotifications(snapshotItems) {
-        const merged = [];
-        const seenKeys = new Set();
-        (Array.isArray(snapshotItems) ? snapshotItems : []).forEach((item) => {
-            const snapshot = item?.snapshot || item;
-            const notifications = Array.isArray(snapshot?.notifications)
-                ? snapshot.notifications
-                : [];
-            notifications.forEach((notification) => {
-                const key =
-                    getNotificationDedupKey(notification) ||
-                    getNotificationKey(notification);
-                if (key && seenKeys.has(key)) {
-                    return;
-                }
-                if (key) {
-                    seenKeys.add(key);
-                }
-                merged.push(notification);
-            });
-        });
-        return merged.sort((a, b) =>
-            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-        );
+    function getServerSnapshotSyncEntry(source) {
+        if (!source || typeof source !== 'object') {
+            return null;
+        }
+        if (source.kind === 'repo') {
+            const owner = String(source.owner || '').trim();
+            const repo = String(source.repo || '').trim();
+            return owner && repo ? { kind: 'repo', owner, repo } : null;
+        }
+        if (source.kind === 'query') {
+            const query = String(source.query || source.value || '').trim();
+            return query ? { kind: 'query', query } : null;
+        }
+        return null;
     }
 
-    function shouldApplyServerSnapshotBundle({
+    function buildServerProfileSyncEntries(sources) {
+        if (!Array.isArray(sources)) {
+            return [];
+        }
+        return sources
+            .map((source) => getServerSnapshotSyncEntry(source))
+            .filter(Boolean);
+    }
+
+    function shouldApplyServerSnapshot({
         forceApply = false,
         currentNotificationCount = 0,
-        snapshotItems = [],
+        snapshot = null,
+        localSyncedAt = null,
     } = {}) {
-        const available = (Array.isArray(snapshotItems) ? snapshotItems : []).filter((item) =>
-            Array.isArray(item?.snapshot?.notifications)
-        );
-        if (!available.length) {
+        if (!snapshot || !Array.isArray(snapshot.notifications)) {
             return false;
         }
         if (forceApply) {
@@ -225,24 +233,24 @@
         if (currentNotificationCount === 0) {
             return true;
         }
-        return available.some((item) => {
-            const syncedAt = item?.snapshot?.synced_at;
-            return syncedAt && syncedAt !== item.localSyncedAt;
-        });
+        return Boolean(snapshot.synced_at && snapshot.synced_at !== localSyncedAt);
     }
 
     return {
+        buildServerProfileSyncEntries,
         buildIncrementalRestLookupKeys,
         buildNotificationMatchKeySet,
         buildPreviousMatchMap,
         canUseIncrementalOverlapMerge,
         dedupAndSortNotifications,
         findIncrementalOverlapIndex,
+        getServerProfileSnapshotKey,
+        getServerSnapshotKey,
         getServerSnapshotLastSyncedRepo,
         getServerSnapshotSourceKey,
+        getServerSnapshotSyncEntry,
         getUpdatedAtSignature,
-        mergeServerSnapshotNotifications,
         mergeIncrementalNotifications,
-        shouldApplyServerSnapshotBundle,
+        shouldApplyServerSnapshot,
     };
 });
