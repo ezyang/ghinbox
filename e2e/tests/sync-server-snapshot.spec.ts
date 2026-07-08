@@ -476,6 +476,68 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(server.postCount).toBe(1);
   });
 
+  test('full sync uses the persisted force-refresh asset bust after a plain reload', async ({
+    page,
+  }) => {
+    const storedBust = 'stored-full-sync-bust';
+    const snapshotNotification = makeIssueNotification({
+      id: 'full-sync-stored-bust-1',
+      reason: 'mention',
+      updated_at: '2024-12-29T12:00:00Z',
+      subject: { title: 'Stored force refresh notification', number: 44 },
+    });
+    const server = await mockServerSnapshot(page, {
+      syncPost: makeServerSnapshotPayload('test/repo', {
+        sync: { status: 'running', mode: 'full' },
+      }),
+      syncPoll: makeServerSnapshotPayload('test/repo', {
+        sync: {
+          status: 'success',
+          mode: 'full',
+          phase: 'complete',
+          pages_fetched: 1,
+          notifications_count: 1,
+        },
+        snapshot: {
+          notifications: [snapshotNotification],
+          authenticity_token: 'server-token',
+          synced_at: '2024-12-29T12:01:00+00:00',
+        },
+      }),
+    });
+    const syncScriptVersions: (string | null)[] = [];
+
+    await page.route('**/notifications-sync.js**', async (route) => {
+      const url = new URL(route.request().url());
+      const version = url.searchParams.get('v');
+      syncScriptVersions.push(version);
+      if (version !== storedBust) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/javascript',
+          body: '// stale cached sync script without handleServerFullSync\n',
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.evaluate((cacheBust) => {
+      localStorage.setItem('ghnotif_cache_bust', cacheBust);
+      localStorage.setItem('ghnotif_profile_id', 'custom');
+      localStorage.setItem('ghnotif_repo', 'test/repo');
+    }, storedBust);
+    await page.reload();
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('[data-id="full-sync-stored-bust-1"]')).toBeVisible();
+    expect(syncScriptVersions).toEqual([storedBust]);
+    expect(server.postCount).toBe(1);
+  });
+
   test('quick sync runs on server for a single repo when available', async ({ page }) => {
     const snapshotNotification = makeIssueNotification({
       id: 'server-quick-1',

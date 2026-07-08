@@ -27,13 +27,15 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-06-10-done-queue-undo-modules';
+            const ASSET_VERSION = '2026-07-08-force-refresh-cache-bust';
+            const CACHE_BUST_KEY = 'ghnotif_cache_bust';
             const params = new URLSearchParams(window.location.search);
             const explicitCacheBust = params.get('cache_bust');
             if (explicitCacheBust) {
-                localStorage.setItem('ghnotif_cache_bust', explicitCacheBust);
+                localStorage.setItem(CACHE_BUST_KEY, explicitCacheBust);
             }
-            const cacheBust = explicitCacheBust || ASSET_VERSION;
+            const storedCacheBust = explicitCacheBust ? null : localStorage.getItem(CACHE_BUST_KEY);
+            const cacheBust = explicitCacheBust || storedCacheBust || ASSET_VERSION;
             // Reused by the script loader at the bottom of the page.
             window.ghnotifAssetBust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(
