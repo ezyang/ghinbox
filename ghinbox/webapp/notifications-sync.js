@@ -136,6 +136,7 @@
             getServerSnapshotLastSyncedRepo,
             getServerSnapshotSourceKey,
             mergeIncrementalNotifications,
+            shouldPruneIncrementalNotifications,
             shouldApplyServerSnapshot,
         } = GhinboxSyncMerge;
         const {

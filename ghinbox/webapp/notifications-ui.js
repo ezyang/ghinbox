@@ -540,6 +540,7 @@
                 const reviewRequestsPromise = fetchReviewRequestsForSources(sources);
                 const allNotifications = [];
                 let overlapIndex = null;
+                let stoppedAtOverlap = false;
 
                 for (const source of sources) {
                     let afterCursor = null;
@@ -566,7 +567,8 @@
                             state.authenticity_token = data.authenticity_token;
                             persistAuthenticityToken(data.authenticity_token);
                         }
-                        afterCursor = data.pagination?.has_next ? data.pagination.after_cursor : null;
+                        const hasNextPage = Boolean(data.pagination?.has_next);
+                        afterCursor = hasNextPage ? data.pagination.after_cursor : null;
                         if (previousMatchMap && overlapIndex === null) {
                             overlapIndex = findIncrementalOverlapIndex(
                                 pageNotifications,
@@ -578,6 +580,9 @@
                                     'info',
                                     { flash: true }
                                 );
+                                if (hasNextPage) {
+                                    stoppedAtOverlap = true;
+                                }
                                 afterCursor = null;
                             }
                         }
@@ -591,10 +596,16 @@
 
                 let mergedNotifications = allNotifications;
                 if (previousMatchMap && overlapIndex !== null) {
+                    const pruneMissing = shouldPruneIncrementalNotifications({
+                        syncMode,
+                        fetchedUntilEnd: !stoppedAtOverlap,
+                        stoppedAtOverlap,
+                    });
                     mergedNotifications = mergeIncrementalNotifications(
                         allNotifications,
                         previousNotifications,
-                        overlapIndex + 1
+                        overlapIndex + 1,
+                        { pruneMissing }
                     );
                 }
 

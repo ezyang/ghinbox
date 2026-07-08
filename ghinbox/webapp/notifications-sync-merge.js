@@ -81,6 +81,13 @@
         return null;
     }
 
+    function isSyntheticReviewRequest(notification) {
+        return (
+            notification?.responsibility_source === 'review-requested' &&
+            String(notification?.id || '').startsWith('review-request:')
+        );
+    }
+
     function canUseIncrementalOverlapMerge({
         syncMode,
         sources,
@@ -108,24 +115,69 @@
         );
     }
 
-    function mergeIncrementalNotifications(newNotifications, previousNotifications, startIndex) {
+    function shouldPruneIncrementalNotifications({
+        syncMode = null,
+        fetchedUntilEnd = false,
+        stoppedAtOverlap = false,
+    } = {}) {
+        return (
+            syncMode === 'incremental' &&
+            fetchedUntilEnd === true &&
+            stoppedAtOverlap !== true
+        );
+    }
+
+    function mergeIncrementalNotifications(
+        newNotifications,
+        previousNotifications,
+        startIndex,
+        { pruneMissing = false } = {}
+    ) {
         const merged = newNotifications.slice();
         const seenKeys = new Set();
+        const seenIds = new Set();
+        const seenSyntheticReviewKeys = new Set();
         merged.forEach((notif) => {
+            const id = getNotificationKey(notif);
+            if (id) {
+                seenIds.add(id);
+            }
             const key = getNotificationDedupKey(notif);
             if (key) {
                 seenKeys.add(key);
+                if (isSyntheticReviewRequest(notif)) {
+                    seenSyntheticReviewKeys.add(key);
+                }
             }
         });
         for (let i = startIndex; i < previousNotifications.length; i += 1) {
             const notif = previousNotifications[i];
-            const key = getNotificationDedupKey(notif);
-            if (key && seenKeys.has(key)) {
+            const syntheticReviewRequest = isSyntheticReviewRequest(notif);
+            if (pruneMissing && !syntheticReviewRequest) {
                 continue;
             }
+            const id = getNotificationKey(notif);
+            if (id && seenIds.has(id)) {
+                continue;
+            }
+            const key = getNotificationDedupKey(notif);
+            if (key && seenKeys.has(key)) {
+                // Synthetic review-request rows are sourced from review search, not
+                // from the HTML notification stream. A fresh NT_ row for the same PR
+                // does not make the cached synthetic responsibility row obsolete.
+                if (!syntheticReviewRequest || seenSyntheticReviewKeys.has(key)) {
+                    continue;
+                }
+            }
             merged.push(notif);
+            if (id) {
+                seenIds.add(id);
+            }
             if (key) {
                 seenKeys.add(key);
+                if (syntheticReviewRequest) {
+                    seenSyntheticReviewKeys.add(key);
+                }
             }
         }
         return merged;
@@ -251,6 +303,7 @@
         getServerSnapshotSyncEntry,
         getUpdatedAtSignature,
         mergeIncrementalNotifications,
+        shouldPruneIncrementalNotifications,
         shouldApplyServerSnapshot,
     };
 });

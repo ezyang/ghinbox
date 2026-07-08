@@ -15,6 +15,7 @@ const {
   getServerSnapshotSyncEntry,
   getUpdatedAtSignature,
   mergeIncrementalNotifications,
+  shouldPruneIncrementalNotifications,
   shouldApplyServerSnapshot,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
 const {
@@ -52,6 +53,16 @@ function prNotif(id, number, updatedAt, extra = {}) {
       state: 'open',
       state_reason: null,
     },
+    ...extra,
+  });
+}
+
+function syntheticReviewRequest(number, updatedAt, extra = {}) {
+  return prNotif(`review-request:owner/repo#${number}`, number, updatedAt, {
+    unread: false,
+    responsibility_source: 'review-requested',
+    last_read_at: null,
+    ui: { action_tokens: {} },
     ...extra,
   });
 }
@@ -161,6 +172,27 @@ test('mergeIncrementalNotifications dedups previous tail against fresh page by m
   );
 });
 
+test('mergeIncrementalNotifications preserves previous synthetic review requests when an NT row shares the PR key', () => {
+  const previous = [
+    notif('overlap-old', 1, '2025-01-05T00:00:00Z'),
+    syntheticReviewRequest(10, '2025-01-04T00:00:00Z'),
+    notif('tail', 3, '2025-01-03T00:00:00Z'),
+  ];
+  const fresh = [
+    prNotif('NT_pr_10', 10, '2025-01-06T00:00:00Z', {
+      reason: 'subscribed',
+    }),
+    notif('overlap-api', 1, '2025-01-05T00:00:00Z'),
+  ];
+
+  const merged = mergeIncrementalNotifications(fresh, previous, 1);
+
+  assert.deepEqual(
+    merged.map((n) => n.id),
+    ['NT_pr_10', 'overlap-api', 'review-request:owner/repo#10', 'tail']
+  );
+});
+
 test('mergeIncrementalNotifications with startIndex 0 never duplicates the overlap item', () => {
   const previous = [
     notif('a', 1, '2025-01-05T00:00:00Z'),
@@ -171,6 +203,67 @@ test('mergeIncrementalNotifications with startIndex 0 never duplicates the overl
   assert.deepEqual(
     merged.map((n) => n.id),
     ['a', 'b']
+  );
+});
+
+test('shouldPruneIncrementalNotifications only allows pruning after a complete incremental fetch', () => {
+  const cases = [
+    {
+      name: 'complete incremental fetch',
+      input: {
+        syncMode: 'incremental',
+        fetchedUntilEnd: true,
+        stoppedAtOverlap: false,
+      },
+      expected: true,
+    },
+    {
+      name: 'overlap stopped before fetching remaining pages',
+      input: {
+        syncMode: 'incremental',
+        fetchedUntilEnd: false,
+        stoppedAtOverlap: true,
+      },
+      expected: false,
+    },
+    {
+      name: 'unknown completion is not safe to prune',
+      input: {
+        syncMode: 'incremental',
+      },
+      expected: false,
+    },
+    {
+      name: 'full sync replaces instead of using incremental prune',
+      input: {
+        syncMode: 'full',
+        fetchedUntilEnd: true,
+        stoppedAtOverlap: false,
+      },
+      expected: false,
+    },
+  ];
+
+  cases.forEach(({ name, input, expected }) => {
+    assert.equal(shouldPruneIncrementalNotifications(input), expected, name);
+  });
+});
+
+test('mergeIncrementalNotifications prunes ordinary previous items when fetched stream is complete', () => {
+  const previous = [
+    notif('overlap-old', 1, '2025-01-05T00:00:00Z'),
+    notif('stale', 2, '2025-01-04T00:00:00Z'),
+    syntheticReviewRequest(10, '2025-01-03T00:00:00Z'),
+  ];
+  const fresh = [notif('overlap-api', 1, '2025-01-05T00:00:00Z')];
+
+  const merged = mergeIncrementalNotifications(fresh, previous, 1, {
+    pruneMissing: true,
+  });
+
+  assert.deepEqual(
+    merged.map((n) => n.id),
+    ['overlap-api', 'review-request:owner/repo#10']
   );
 });
 
@@ -299,28 +392,18 @@ test('dedupAndSortNotifications dedups repeated ids and sorts by updated_at desc
 
 test('dedupAndSortNotifications keeps NT and synthetic review-request rows for same PR', () => {
   const htmlNotification = prNotif('NT_pr_10', 10, '2025-01-05T12:30:00Z');
-  const syntheticReviewRequest = prNotif(
-    'review-request:owner/repo#10',
-    10,
-    '2025-01-05T12:00:00Z',
-    {
-      unread: false,
-      responsibility_source: 'review-requested',
-      last_read_at: null,
-      ui: { action_tokens: {} },
-    }
-  );
+  const reviewRequest = syntheticReviewRequest(10, '2025-01-05T12:00:00Z');
 
   assert.equal(getNotificationDedupKey(htmlNotification), 'owner/repo:PullRequest:10');
   assert.equal(
     getNotificationDedupKey(htmlNotification),
-    getNotificationDedupKey(syntheticReviewRequest)
+    getNotificationDedupKey(reviewRequest)
   );
-  assert.notEqual(htmlNotification.id, syntheticReviewRequest.id);
+  assert.notEqual(htmlNotification.id, reviewRequest.id);
 
   const result = dedupAndSortNotifications([
     htmlNotification,
-    syntheticReviewRequest,
+    reviewRequest,
   ]);
 
   assert.deepEqual(
