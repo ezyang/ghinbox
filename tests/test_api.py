@@ -301,16 +301,26 @@ class TestRootEndpoint:
 class TestGetRepoNotifications:
     """Tests for GET /notifications/html/repo/{owner}/{repo}."""
 
-    def test_returns_empty_without_fixture(self, client: TestClient) -> None:
-        """Test that endpoint returns empty response without fixture."""
+    def test_returns_503_without_fetcher(self, client: TestClient) -> None:
+        """Test that missing live fetching fails loudly instead of looking empty."""
         response = client.get("/notifications/html/repo/testowner/testrepo")
 
-        assert response.status_code == 200
-        data = response.json()
+        assert response.status_code == 503
+        assert "No GitHub fetcher configured" in response.json()["detail"]
 
-        assert data["repository"]["owner"] == "testowner"
-        assert data["repository"]["name"] == "testrepo"
-        assert data["notifications"] == []
+    def test_returns_session_expired_without_fetcher_when_auth_refresh_is_needed(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test absent browser fetcher due auth expiry returns the structured 401."""
+        monkeypatch.setenv("GHINBOX_NEEDS_AUTH", "1")
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+
+        response = client.get("/notifications/html/repo/testowner/testrepo")
+
+        assert response.status_code == 401
+        detail = response.json()["detail"]
+        assert detail["error"] == "session_expired"
+        assert "browser session is expired" in detail["message"].lower()
 
     def test_fixture_param_requires_test_mode(
         self, client: TestClient, pagination_page1_path: str
@@ -453,6 +463,27 @@ class TestGetRepoNotifications:
         assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"
 
 
+class TestGetQueryNotifications:
+    """Tests for GET /notifications/html/query."""
+
+    def test_returns_session_expired_without_fetcher_when_auth_refresh_is_needed(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test query fetches also surface missing auth as session_expired."""
+        monkeypatch.setenv("GHINBOX_NEEDS_AUTH", "1")
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: None)
+
+        response = client.get(
+            "/notifications/html/query",
+            params={"query": "repo:testowner/testrepo"},
+        )
+
+        assert response.status_code == 401
+        detail = response.json()["detail"]
+        assert detail["error"] == "session_expired"
+        assert "browser session is expired" in detail["message"].lower()
+
+
 class TestNotificationActions:
     """Tests for POST /notifications/html/action."""
 
@@ -476,6 +507,44 @@ class TestNotificationActions:
         detail = response.json()["detail"]
         assert detail["error"] == "session_expired"
         assert "browser session is expired" in detail["message"].lower()
+
+    def test_submit_action_returns_session_expired_when_fetcher_reports_it(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test stale form submissions become structured session-expired 401s."""
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                assert action == "archive"
+                assert notification_ids == ["notif-1"]
+                assert authenticity_token == "stale-form-token"
+                return ActionResult(
+                    status="session_expired",
+                    error="GitHub returned 422 while submitting notification action.",
+                    github_status_code=422,
+                )
+
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": ["notif-1"],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 401
+        detail = response.json()["detail"]
+        assert detail["error"] == "session_expired"
+        assert "422" in detail["message"]
+        assert os.environ["GHINBOX_NEEDS_AUTH"] == "1"
 
     def test_submit_action_archives_with_token_backed_rest_api(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

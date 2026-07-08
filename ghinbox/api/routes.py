@@ -5,7 +5,6 @@ FastAPI route handlers for the HTML notifications API.
 import os
 import re
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, NoReturn
 
@@ -28,6 +27,12 @@ from ghinbox.parser.notifications import SessionExpiredError, parse_notification
 
 router = APIRouter(prefix="/notifications/html", tags=["notifications"])
 SESSION_EXPIRED_MESSAGE = "GitHub session has expired. Please re-authenticate."
+FETCHER_MISSING_MESSAGE = (
+    "No GitHub fetcher configured. Start server with --account to fetch notifications."
+)
+FETCHER_AUTH_REFRESH_MESSAGE = (
+    "Stored browser session is expired. Log in again to refresh notifications."
+)
 
 
 class NotificationActionRequest(BaseModel):
@@ -64,31 +69,6 @@ def _query_repo_name(query: str) -> str:
     return compact[:80] or "all"
 
 
-def _empty_notifications_response(
-    *,
-    source_url: str,
-    owner: str,
-    repo: str,
-    full_name: str,
-) -> NotificationsResponse:
-    return NotificationsResponse(
-        source_url=source_url,
-        generated_at=datetime.now(),
-        repository={
-            "owner": owner,
-            "name": repo,
-            "full_name": full_name,
-        },
-        notifications=[],
-        pagination={
-            "before_cursor": None,
-            "after_cursor": None,
-            "has_previous": False,
-            "has_next": False,
-        },
-    )
-
-
 def _raise_session_expired(message: str) -> NoReturn:
     mark_github_session_expired()
     raise HTTPException(
@@ -97,6 +77,15 @@ def _raise_session_expired(message: str) -> NoReturn:
             "error": "session_expired",
             "message": message,
         },
+    )
+
+
+def _raise_missing_fetcher_for_notifications() -> NoReturn:
+    if os.environ.get("GHINBOX_NEEDS_AUTH") == "1":
+        _raise_session_expired(FETCHER_AUTH_REFRESH_MESSAGE)
+    raise HTTPException(
+        status_code=503,
+        detail=FETCHER_MISSING_MESSAGE,
     )
 
 
@@ -178,12 +167,8 @@ async def get_query_notifications(
     query_repo_name = _query_repo_name(query)
     fetcher = get_fetcher()
     if fetcher is None:
-        return _empty_notifications_response(
-            source_url=source_url,
-            owner="query",
-            repo=query_repo_name,
-            full_name=f"query/{query_repo_name}",
-        )
+        _raise_missing_fetcher_for_notifications()
+    assert fetcher is not None
 
     result = await _fetch_live_notifications(
         fetcher.fetch_notifications_query,
@@ -235,7 +220,7 @@ async def get_repo_notifications(
 
     If a fixture path is provided in test mode, reads from that file.
     If the server was started with --account, fetches live from GitHub.
-    Otherwise returns an empty response.
+    Otherwise reports why live fetching is unavailable.
     """
     html: str | None = None
     source_url = f"https://github.com/notifications?query=repo:{owner}/{repo}"
@@ -262,8 +247,10 @@ async def get_repo_notifications(
         html = fixture_path.read_text()
 
     # Option 2: Fetch live from GitHub (run in thread pool to avoid blocking)
-    elif get_fetcher() is not None:
+    else:
         fetcher = get_fetcher()
+        if fetcher is None:
+            _raise_missing_fetcher_for_notifications()
         assert fetcher is not None
         result = await _fetch_live_notifications(
             fetcher.fetch_repo_notifications,
@@ -276,15 +263,7 @@ async def get_repo_notifications(
         html = result.html
         source_url = result.url
 
-    # Option 3: No fetcher, return empty response
-    if html is None:
-        return _empty_notifications_response(
-            source_url=source_url,
-            owner=owner,
-            repo=repo,
-            full_name=repo_key(owner, repo),
-        )
-
+    assert html is not None
     return _parse_notifications_response(
         html=html,
         owner=owner,
@@ -382,6 +361,8 @@ async def submit_action(
             status = result.status
             error = result.error
             github_status_code = result.github_status_code
+            if result.status == "session_expired":
+                _raise_session_expired(error or SESSION_EXPIRED_MESSAGE)
             if result.status != "ok":
                 break
 
