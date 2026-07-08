@@ -568,7 +568,15 @@
                             persistAuthenticityToken(data.authenticity_token);
                         }
                         const hasNextPage = Boolean(data.pagination?.has_next);
-                        afterCursor = hasNextPage ? data.pagination.after_cursor : null;
+                        const paginationDecision = GhinboxPagination.getNextNotificationPage({
+                            pagination: data.pagination,
+                            currentCursor: afterCursor,
+                            pagesFetched: pageCount,
+                        });
+                        if (paginationDecision.error) {
+                            throw new Error(paginationDecision.error);
+                        }
+                        afterCursor = paginationDecision.nextCursor;
                         if (previousMatchMap && overlapIndex === null) {
                             overlapIndex = findIncrementalOverlapIndex(
                                 pageNotifications,

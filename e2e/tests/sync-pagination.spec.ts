@@ -86,4 +86,42 @@ test.describe('Sync Pagination @slow @sync', () => {
     const stored = await readNotificationsCache(page);
     expect((stored as unknown[]).length).toBe(3);
   });
+
+  test('sync stops with an error when the cursor does not advance', async ({ page }) => {
+    const repeatingCursorResponse = {
+      ...emptyResponse,
+      notifications: [
+        makeIssueNotification({
+          id: 'notif-repeat-cursor',
+          reason: 'author',
+          updated_at: '2024-12-27T12:00:00Z',
+          subject: { title: 'Repeating cursor notification', number: 1 },
+        }),
+      ],
+      pagination: {
+        before_cursor: null,
+        after_cursor: 'cursor-stuck',
+        has_previous: false,
+        has_next: true,
+      },
+    };
+
+    let requestCount = 0;
+    await page.route('**/notifications/html/repo/test/repo**', (route) => {
+      requestCount += 1;
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(repeatingCursorResponse),
+      });
+    });
+
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    const statusBar = page.locator('#status-bar');
+    await expect(statusBar).toContainText('pagination cursor did not advance');
+    await expect(statusBar).toHaveClass(/error/);
+    expect(requestCount).toBe(2);
+  });
 });
