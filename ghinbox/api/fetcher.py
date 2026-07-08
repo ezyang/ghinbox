@@ -40,6 +40,9 @@ DEFAULT_FETCH_LOG_RETENTION_HOURS = 24
 FETCH_LOG_RETENTION_ENV = "GHINBOX_FETCH_LOG_RETENTION_HOURS"
 FETCH_DUMP_DIR_ENV = "GHINBOX_FETCH_DUMP_DIR"
 FETCH_DUMP_HTML_ENV = "GHINBOX_FETCH_DUMP_HTML"
+FORM_ACTION_SESSION_EXPIRED_MESSAGE = (
+    "GitHub returned 422 while submitting notification action."
+)
 
 
 @dataclass
@@ -517,6 +520,14 @@ class NotificationsFetcher:
             status_code = result["status"]
             content = result["body"]
 
+            if status_code == 422:
+                return ActionResult(
+                    status="session_expired",
+                    error=FORM_ACTION_SESSION_EXPIRED_MESSAGE,
+                    response_html=content,
+                    github_status_code=status_code,
+                )
+
             if status_code >= 400:
                 return ActionResult(
                     status="error",
@@ -528,8 +539,8 @@ class NotificationsFetcher:
             lower_content = content.lower()
             if "error" in lower_content and "422" in lower_content:
                 return ActionResult(
-                    status="error",
-                    error="GitHub returned 422 - token may be invalid or expired",
+                    status="session_expired",
+                    error=FORM_ACTION_SESSION_EXPIRED_MESSAGE,
                     response_html=content,
                     github_status_code=status_code,
                 )

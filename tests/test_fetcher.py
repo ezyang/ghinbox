@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from ghinbox import auth_common
 from ghinbox.api.fetcher import (
+    ActionResult,
     NotificationsFetcher,
     run_fetcher_call,
     shutdown_fetcher_executor,
@@ -107,6 +108,42 @@ class FakeContext:
         self.storage_state_paths: list[str] = []
 
     def new_page(self) -> FakePage:
+        return self.page
+
+    def storage_state(self, *, path: str) -> None:
+        self.storage_state_paths.append(path)
+
+
+class FakeActionPage:
+    def __init__(self, *, status: int, body: str) -> None:
+        self.status = status
+        self.body = body
+        self.closed = False
+        self.goto_url: str | None = None
+
+    def goto(self, url: str, *, wait_until: str) -> FakeResponse:
+        assert url == "https://github.com"
+        assert wait_until == "domcontentloaded"
+        self.goto_url = url
+        return FakeResponse()
+
+    def evaluate(self, script: str, args: list[str]) -> dict[str, object]:
+        assert "fetch(url" in script
+        assert args[0] == "https://github.com/notifications/beta/archive"
+        assert "authenticity_token=stale-token" in args[1]
+        assert "notification_ids%5B%5D=notif-1" in args[1]
+        return {"status": self.status, "body": self.body}
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeActionContext:
+    def __init__(self, *, status: int, body: str) -> None:
+        self.page = FakeActionPage(status=status, body=body)
+        self.storage_state_paths: list[str] = []
+
+    def new_page(self) -> FakeActionPage:
         return self.page
 
     def storage_state(self, *, path: str) -> None:
@@ -254,3 +291,25 @@ def test_run_fetcher_call_serializes_work_on_one_worker_thread() -> None:
 
     assert result == [1, 2]
     assert len(seen_threads) == 1
+
+
+def test_submit_action_maps_github_422_to_session_expired() -> None:
+    html = "<html><body><h1>Error 422</h1></body></html>"
+    fetcher = NotificationsFetcher(account="default")
+    context = FakeActionContext(status=422, body=html)
+    cast(Any, fetcher)._context = context
+
+    result = fetcher.submit_notification_action(
+        "archive",
+        ["notif-1"],
+        "stale-token",
+    )
+
+    assert result == ActionResult(
+        status="session_expired",
+        error="GitHub returned 422 while submitting notification action.",
+        response_html=html,
+        github_status_code=422,
+    )
+    assert context.page.closed is True
+    assert context.storage_state_paths == []
