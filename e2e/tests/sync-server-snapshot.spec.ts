@@ -522,11 +522,17 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       await route.fallback();
     });
 
-    await page.evaluate((cacheBust) => {
-      localStorage.setItem('ghnotif_cache_bust', cacheBust);
+    const assetVersion = await page.evaluate(() => (window as any).ghnotifAssetVersion);
+    const storedPayload = JSON.stringify({
+      version: assetVersion,
+      bust: storedBust,
+    });
+
+    await page.evaluate((cacheBustPayload) => {
+      localStorage.setItem('ghnotif_cache_bust', cacheBustPayload);
       localStorage.setItem('ghnotif_profile_id', 'custom');
       localStorage.setItem('ghnotif_repo', 'test/repo');
-    }, storedBust);
+    }, storedPayload);
     await page.reload();
 
     await page.locator('#repo-input').fill('test/repo');
