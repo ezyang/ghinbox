@@ -194,6 +194,97 @@ def test_remove_notifications_prunes_across_repos(db_path) -> None:
     assert snapshot_b["notifications"] == []
 
 
+def test_remove_notifications_prunes_comment_cache_and_sync_state(db_path) -> None:
+    save_snapshot(
+        "owner/repo",
+        [
+            {
+                "id": "remove-id",
+                "subject": {
+                    "title": "Remove",
+                    "type": "Issue",
+                    "number": 1,
+                    "url": "https://github.com/owner/repo/issues/1",
+                },
+            },
+            {
+                "id": "review-request:owner/repo#2",
+                "repository": {
+                    "owner": "owner",
+                    "name": "repo",
+                    "full_name": "owner/repo",
+                },
+                "subject": {
+                    "title": "Remove review",
+                    "type": "PullRequest",
+                    "number": 2,
+                    "url": "https://github.com/owner/repo/pull/2",
+                },
+            },
+            {
+                "id": "keep-id",
+                "subject": {
+                    "title": "Keep",
+                    "type": "Issue",
+                    "number": 3,
+                    "url": "https://github.com/owner/repo/issues/3",
+                },
+            },
+        ],
+        comment_cache={
+            "version": 1,
+            "threads": {
+                "remove-id": {
+                    "comments": [{"id": 1, "body": "stale"}],
+                    "allComments": True,
+                    "fetchedAt": "2025-01-05T12:00:00Z",
+                    "error": "upstream failed",
+                },
+                "review-request:owner/repo#2": {
+                    "comments": [{"id": 2, "body": "stale review"}],
+                    "allComments": True,
+                    "fetchedAt": "2025-01-05T12:00:00Z",
+                },
+                "keep-id": {
+                    "comments": [{"id": 3, "body": "fresh"}],
+                    "allComments": True,
+                    "fetchedAt": "2025-01-05T12:00:00Z",
+                },
+            },
+        },
+        db_path=db_path,
+    )
+    set_sync_state(
+        "owner/repo",
+        status="success",
+        phase="complete",
+        pages_fetched=4,
+        notifications_count=3,
+        comments_total=3,
+        comments_fetched=3,
+        comments_failed=1,
+        db_path=db_path,
+    )
+
+    removed = remove_notifications_from_snapshots(
+        ["remove-id", "review-request:owner/repo#2"],
+        db_path=db_path,
+    )
+
+    assert removed == 2
+    snapshot = get_snapshot("owner/repo", db_path)
+    assert snapshot is not None
+    assert [notification["id"] for notification in snapshot["notifications"]] == [
+        "keep-id"
+    ]
+    assert set(snapshot["comment_cache"]["threads"]) == {"keep-id"}
+    sync_state = get_sync_state("owner/repo", db_path)
+    assert sync_state["notifications_count"] == 1
+    assert sync_state["comments_total"] == 1
+    assert sync_state["comments_fetched"] == 1
+    assert sync_state["comments_failed"] == 0
+
+
 def test_remove_notifications_ignores_unknown_ids(db_path) -> None:
     save_snapshot(
         "owner/repo",

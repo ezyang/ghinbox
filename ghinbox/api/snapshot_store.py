@@ -6,7 +6,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from ghinbox.api.notification_shapes import get_notification_repo
+from ghinbox.api.notification_shapes import (
+    get_notification_repo,
+    notification_to_bulk_comment_item,
+    parse_repo_input,
+)
 from ghinbox.api.repo_keys import repo_key
 
 SyncStatus = Literal["idle", "running", "success", "error"]
@@ -307,6 +311,62 @@ def save_snapshot(
         conn.close()
 
 
+def _snapshot_repo_context(snapshot_key: str) -> tuple[str | None, str | None]:
+    if snapshot_key.startswith("profile:"):
+        return None, None
+    repo_info = parse_repo_input(snapshot_key)
+    if repo_info is None:
+        return None, None
+    return repo_info["owner"], repo_info["repo"]
+
+
+def _count_comment_fetchable_notifications(
+    snapshot_key: str,
+    notifications: list[dict],
+) -> int:
+    owner, repo = _snapshot_repo_context(snapshot_key)
+    return sum(
+        1
+        for notification in notifications
+        if notification_to_bulk_comment_item(notification, owner, repo) is not None
+    )
+
+
+def _prune_comment_cache_to_notifications(
+    comment_cache: dict | None,
+    notifications: list[dict],
+) -> dict | None:
+    if comment_cache is None:
+        return None
+    threads = comment_cache.get("threads")
+    if not isinstance(threads, dict):
+        return comment_cache
+    kept_ids = {
+        str(notification.get("id"))
+        for notification in notifications
+        if notification.get("id")
+    }
+    pruned_cache = dict(comment_cache)
+    pruned_cache["threads"] = {
+        str(key): value for key, value in threads.items() if str(key) in kept_ids
+    }
+    return pruned_cache
+
+
+def _comment_cache_progress_counts(comment_cache: dict | None) -> tuple[int, int]:
+    if comment_cache is None:
+        return 0, 0
+    threads = comment_cache.get("threads")
+    if not isinstance(threads, dict):
+        return 0, 0
+    comments_failed = sum(
+        1
+        for thread in threads.values()
+        if isinstance(thread, dict) and thread.get("error")
+    )
+    return len(threads), comments_failed
+
+
 def remove_notifications_from_snapshots(
     notification_ids: list[str],
     db_path: str | None = None,
@@ -327,7 +387,7 @@ def remove_notifications_from_snapshots(
     try:
         with conn:
             rows = conn.execute(
-                "SELECT repo, data FROM notification_snapshots"
+                "SELECT repo, data, comment_cache FROM notification_snapshots"
             ).fetchall()
             for row in rows:
                 notifications = json.loads(row["data"])
@@ -335,9 +395,48 @@ def remove_notifications_from_snapshots(
                 if len(kept) == len(notifications):
                     continue
                 removed += len(notifications) - len(kept)
+                comment_cache = (
+                    json.loads(row["comment_cache"]) if row["comment_cache"] else None
+                )
+                pruned_comment_cache = _prune_comment_cache_to_notifications(
+                    comment_cache,
+                    kept,
+                )
+                comments_fetched, comments_failed = _comment_cache_progress_counts(
+                    pruned_comment_cache,
+                )
                 conn.execute(
-                    "UPDATE notification_snapshots SET data = ? WHERE repo = ?",
-                    (json.dumps(kept), row["repo"]),
+                    """
+                    UPDATE notification_snapshots
+                    SET data = ?, comment_cache = ?
+                    WHERE repo = ?
+                    """,
+                    (
+                        json.dumps(kept),
+                        (
+                            json.dumps(pruned_comment_cache)
+                            if pruned_comment_cache is not None
+                            else None
+                        ),
+                        row["repo"],
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE snapshot_sync_state
+                    SET notifications_count = ?,
+                        comments_total = ?,
+                        comments_fetched = ?,
+                        comments_failed = ?
+                    WHERE repo = ?
+                    """,
+                    (
+                        len(kept),
+                        _count_comment_fetchable_notifications(row["repo"], kept),
+                        comments_fetched,
+                        comments_failed,
+                        row["repo"],
+                    ),
                 )
     finally:
         conn.close()
