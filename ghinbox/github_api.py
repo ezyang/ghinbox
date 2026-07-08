@@ -3,6 +3,7 @@ GitHub API client and common utilities.
 """
 
 import json
+import logging
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,45 @@ from typing import Any
 from ghinbox.github_headers import github_graphql_headers, github_rest_headers
 
 RESPONSES_DIR = Path("responses")
+MAX_GITHUB_API_PAGES = 20
+
+logger = logging.getLogger(__name__)
+
+
+class GitHubPaginationLimitError(RuntimeError):
+    """Raised when a GitHub API pagination walk hits a hard safety stop."""
+
+
+def _next_link_url(link_header: str | None) -> str | None:
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        section = part.strip()
+        if 'rel="next"' not in section:
+            continue
+        if not section.startswith("<"):
+            continue
+        end_index = section.find(">")
+        if end_index <= 1:
+            continue
+        return section[1:end_index]
+    return None
+
+
+def _header_value(headers: Any, name: str) -> str | None:
+    if headers is None:
+        return None
+    value = headers.get(name)
+    if value is not None:
+        return str(value)
+    lower_name = name.lower()
+    value = headers.get(lower_name)
+    if value is not None:
+        return str(value)
+    for key, header_value in getattr(headers, "items", lambda: [])():
+        if str(key).lower() == lower_name:
+            return str(header_value)
+    return None
 
 
 class GitHubAPI:
@@ -23,15 +63,21 @@ class GitHubAPI:
     def __init__(self, token: str):
         self.token = token
         self._user_cache: Any = None
+        self.request_count = 0
 
-    def _request(
+    def _url_for_endpoint(self, endpoint: str) -> str:
+        if endpoint.startswith("https://"):
+            return endpoint
+        return f"{self.BASE_URL}{endpoint}"
+
+    def _request_with_headers(
         self,
         method: str,
         endpoint: str,
         data: dict | None = None,
-    ) -> dict | list | None:
+    ) -> tuple[dict | list | None, Any]:
         """Make an API request."""
-        url = f"{self.BASE_URL}{endpoint}"
+        url = self._url_for_endpoint(endpoint)
         headers = github_rest_headers(self.token)
 
         body = None
@@ -46,14 +92,15 @@ class GitHubAPI:
             method=method,
         )
 
+        self.request_count += 1
         try:
             with urllib.request.urlopen(request) as response:
                 if response.status == 204:  # No content
-                    return None
+                    return None, response.headers
                 body = response.read()
                 if not body:
-                    return None
-                return json.loads(body.decode("utf-8"))
+                    return None, response.headers
+                return json.loads(body.decode("utf-8")), response.headers
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else ""
             print(f"API Error {e.code}: {e.reason}")
@@ -61,10 +108,80 @@ class GitHubAPI:
             print(f"  Body: {error_body}")
             raise
 
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict | None = None,
+    ) -> dict | list | None:
+        """Make an API request."""
+        payload, _headers = self._request_with_headers(method, endpoint, data)
+        return payload
+
     def _with_params(self, endpoint: str, params: dict[str, str]) -> str:
         if not params:
             return endpoint
-        return f"{endpoint}?{urllib.parse.urlencode(params)}"
+        separator = "&" if "?" in endpoint else "?"
+        return f"{endpoint}{separator}{urllib.parse.urlencode(params)}"
+
+    def _get_paginated_list(
+        self,
+        endpoint: str,
+        params: dict[str, str] | None = None,
+        *,
+        max_pages: int | None = None,
+    ) -> list[Any]:
+        page_limit = max_pages if max_pages is not None else MAX_GITHUB_API_PAGES
+        page_limit = max(1, int(page_limit))
+        page_params = dict(params or {})
+        page_params.setdefault("per_page", "100")
+        path_or_url = self._with_params(endpoint, page_params)
+        items: list[Any] = []
+        pages_fetched = 0
+        seen_urls: set[str] = set()
+
+        while True:
+            request_url = self._url_for_endpoint(path_or_url)
+            if request_url in seen_urls:
+                raise GitHubPaginationLimitError(
+                    f"GitHub API pagination did not advance for {endpoint}: {request_url}"
+                )
+            seen_urls.add(request_url)
+
+            payload, headers = self._request_with_headers("GET", path_or_url)
+            pages_fetched += 1
+            if not isinstance(payload, list):
+                logger.info(
+                    "GitHubAPI pagination fetched %s page(s) from %s; request_count=%s",
+                    pages_fetched,
+                    endpoint,
+                    self.request_count,
+                )
+                return []
+
+            items.extend(payload)
+            next_url = _next_link_url(_header_value(headers, "Link"))
+            if not next_url:
+                logger.info(
+                    "GitHubAPI pagination fetched %s page(s) from %s; request_count=%s",
+                    pages_fetched,
+                    endpoint,
+                    self.request_count,
+                )
+                return items
+
+            if pages_fetched >= page_limit:
+                logger.warning(
+                    "GitHubAPI pagination exceeded %s pages for %s; request_count=%s",
+                    page_limit,
+                    endpoint,
+                    self.request_count,
+                )
+                raise GitHubPaginationLimitError(
+                    f"GitHub API pagination exceeded {page_limit} pages for {endpoint}"
+                )
+
+            path_or_url = next_url
 
     def get(self, endpoint: str) -> dict | list | None:
         return self._request("GET", endpoint)
@@ -134,8 +251,7 @@ class GitHubAPI:
 
     def get_repository_invitations(self) -> list[Any]:
         """List repository invitations for the authenticated user."""
-        result = self.get("/user/repository_invitations")
-        return result if isinstance(result, list) else []
+        return self._get_paginated_list("/user/repository_invitations")
 
     def accept_repository_invitation(self, invitation_id: int) -> None:
         """Accept a repository invitation by ID."""
@@ -156,10 +272,7 @@ class GitHubAPI:
         if since:
             params["since"] = since
 
-        endpoint = self._with_params("/notifications", params)
-
-        result = self.get(endpoint)
-        return result if isinstance(result, list) else []
+        return self._get_paginated_list("/notifications", params)
 
     def get_notification_thread(self, thread_id: str) -> Any:
         """Get a specific notification thread."""
@@ -177,12 +290,10 @@ class GitHubAPI:
         self, owner: str, repo: str, number: int, per_page: int = 100
     ) -> list[Any]:
         """List events for a single issue."""
-        endpoint = self._with_params(
+        return self._get_paginated_list(
             f"/repos/{owner}/{repo}/issues/{number}/events",
             {"per_page": str(per_page)},
         )
-        result = self.get(endpoint)
-        return result if isinstance(result, list) else []
 
     def list_issue_timeline(
         self,
@@ -196,11 +307,9 @@ class GitHubAPI:
         params = {"per_page": str(per_page)}
         if since:
             params["since"] = since
-        endpoint = self._with_params(
+        return self._get_paginated_list(
             f"/repos/{owner}/{repo}/issues/{number}/timeline", params
         )
-        result = self.get(endpoint)
-        return result if isinstance(result, list) else []
 
     def list_issue_comments(
         self,
@@ -214,11 +323,9 @@ class GitHubAPI:
         params = {"per_page": str(per_page)}
         if since:
             params["since"] = since
-        endpoint = self._with_params(
+        return self._get_paginated_list(
             f"/repos/{owner}/{repo}/issues/{number}/comments", params
         )
-        result = self.get(endpoint)
-        return result if isinstance(result, list) else []
 
     def create_issue_comment(
         self, owner: str, repo: str, number: int, body: str
@@ -250,6 +357,7 @@ class GitHubAPI:
             method="POST",
         )
 
+        self.request_count += 1
         try:
             with urllib.request.urlopen(request) as response:
                 return json.loads(response.read().decode("utf-8"))
