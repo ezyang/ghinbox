@@ -33,10 +33,13 @@ def db_path(monkeypatch: pytest.MonkeyPatch):
             pass
 
 
-def test_review_request_search_query_matches_client() -> None:
+def test_review_request_search_query_excludes_approved_prs() -> None:
     query = notification_shapes.build_review_request_search_query("pytorch", "pytorch")
 
-    assert query == "repo:pytorch/pytorch is:pr is:open user-review-requested:@me"
+    assert (
+        query
+        == "repo:pytorch/pytorch is:pr is:open user-review-requested:@me -review:approved"
+    )
 
 
 def test_search_item_becomes_synthetic_review_request_notification() -> None:

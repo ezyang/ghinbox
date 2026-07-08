@@ -384,7 +384,7 @@ def test_review_requests_endpoint_normalizes_search_results(
         assert kwargs["request_id"] == "req-123"
         assert path == "search/issues"
         assert params == {
-            "q": "repo:test/repo is:pr is:open user-review-requested:@me",
+            "q": "repo:test/repo is:pr is:open user-review-requested:@me -review:approved",
             "per_page": "100",
         }
         return 200, {

@@ -146,7 +146,9 @@ def build_review_request_search_query(
     query: str | None = None,
 ) -> str:
     scope = query or (f"repo:{owner}/{repo}" if owner and repo else "")
-    return " ".join([scope, "is:pr", "is:open", "user-review-requested:@me"]).strip()
+    return " ".join(
+        [scope, "is:pr", "is:open", "user-review-requested:@me", "-review:approved"]
+    ).strip()
 
 
 def get_search_item_repo(
