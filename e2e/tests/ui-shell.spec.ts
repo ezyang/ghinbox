@@ -78,12 +78,59 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-07-08-force-refresh-cache-bust'
+      'notifications.css?v=2026-07-08-asset-version-shadow'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-07-08-force-refresh-cache-bust'
+      'notifications-sync.js?v=2026-07-08-asset-version-shadow'
     );
+  });
+
+  test('force refresh bust survives reload but stale deploy payload does not', async ({
+    page,
+  }) => {
+    const assetVersion = await page.evaluate(() => (window as any).ghnotifAssetVersion);
+    const deployedAssetBust = `?v=${encodeURIComponent(assetVersion)}`;
+
+    await page.locator('#force-refresh-btn').click();
+    await expect(page).toHaveURL(/cache_bust=/);
+
+    const forceRefreshAssetBust = await page.evaluate(
+      () => (window as any).ghnotifAssetBust
+    );
+    expect(forceRefreshAssetBust).not.toBe(deployedAssetBust);
+    await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
+      'src',
+      `notifications-sync.js${forceRefreshAssetBust}`
+    );
+
+    await page.reload();
+    await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
+      'src',
+      `notifications-sync.js${forceRefreshAssetBust}`
+    );
+
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'ghnotif_cache_bust',
+        JSON.stringify({
+          version: 'previous-deploy',
+          bust: 'stale-force-refresh',
+        })
+      );
+      const url = new URL(window.location.href);
+      url.searchParams.delete('cache_bust');
+      history.replaceState(null, '', url.toString());
+    });
+    await page.reload();
+
+    await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
+      'src',
+      `notifications-sync.js${deployedAssetBust}`
+    );
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('ghnotif_cache_bust')))
+      .toBe(null);
   });
 
   test('toggles and persists dark mode', async ({ page }) => {

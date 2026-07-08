@@ -104,9 +104,14 @@
         }
         forceRefreshBtn.addEventListener('click', () => {
             const cacheBust = Date.now().toString();
-            localStorage.setItem(CACHE_BUST_KEY, cacheBust);
+            const cacheBustPayload =
+                globalThis.GhinboxAssetVersion?.serializeCacheBust?.(
+                    globalThis.ghnotifAssetVersion,
+                    cacheBust
+                ) || cacheBust;
+            localStorage.setItem(CACHE_BUST_KEY, cacheBustPayload);
             const url = new URL(window.location.href);
-            url.searchParams.set('cache_bust', cacheBust);
+            url.searchParams.set('cache_bust', cacheBustPayload);
             window.location.replace(url.toString());
         });
     }

@@ -27,15 +27,93 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-07-08-force-refresh-cache-bust';
+            const ASSET_VERSION = '2026-07-08-asset-version-shadow';
             const CACHE_BUST_KEY = 'ghnotif_cache_bust';
-            const params = new URLSearchParams(window.location.search);
-            const explicitCacheBust = params.get('cache_bust');
-            if (explicitCacheBust) {
-                localStorage.setItem(CACHE_BUST_KEY, explicitCacheBust);
+            function normalizeCacheBustPart(value) {
+                if (typeof value !== 'string') {
+                    return null;
+                }
+                const trimmed = value.trim();
+                return trimmed ? trimmed : null;
             }
-            const storedCacheBust = explicitCacheBust ? null : localStorage.getItem(CACHE_BUST_KEY);
-            const cacheBust = explicitCacheBust || storedCacheBust || ASSET_VERSION;
+
+            function parseCacheBust(value) {
+                const text = normalizeCacheBustPart(value);
+                if (!text) {
+                    return null;
+                }
+                try {
+                    const parsed = JSON.parse(text);
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                        return null;
+                    }
+                    const version = normalizeCacheBustPart(parsed.version);
+                    const bust = normalizeCacheBustPart(parsed.bust);
+                    if (!version || !bust) {
+                        return null;
+                    }
+                    return { version, bust };
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            function serializeCacheBust(version, bust) {
+                const normalizedVersion = normalizeCacheBustPart(version);
+                const normalizedBust = normalizeCacheBustPart(bust);
+                if (!normalizedVersion || !normalizedBust) {
+                    return null;
+                }
+                return JSON.stringify({
+                    version: normalizedVersion,
+                    bust: normalizedBust,
+                });
+            }
+
+            function resolveAssetBust(options) {
+                const assetVersion = normalizeCacheBustPart(options.assetVersion) || '';
+                const explicit = parseCacheBust(options.explicitValue);
+                if (explicit?.version === assetVersion) {
+                    return {
+                        cacheBust: explicit.bust,
+                        storageValue: serializeCacheBust(assetVersion, explicit.bust),
+                        clearStored: false,
+                    };
+                }
+
+                const stored = parseCacheBust(options.storedValue);
+                if (stored?.version === assetVersion) {
+                    return {
+                        cacheBust: stored.bust,
+                        storageValue: null,
+                        clearStored: false,
+                    };
+                }
+
+                return {
+                    cacheBust: assetVersion,
+                    storageValue: null,
+                    clearStored: options.storedValue != null,
+                };
+            }
+
+            window.GhinboxAssetVersion = {
+                resolveAssetBust,
+                serializeCacheBust,
+            };
+            const params = new URLSearchParams(window.location.search);
+            const assetDecision = resolveAssetBust({
+                explicitValue: params.get('cache_bust'),
+                storedValue: localStorage.getItem(CACHE_BUST_KEY),
+                assetVersion: ASSET_VERSION,
+            });
+            if (assetDecision.storageValue !== null) {
+                localStorage.setItem(CACHE_BUST_KEY, assetDecision.storageValue);
+            } else if (assetDecision.clearStored) {
+                localStorage.removeItem(CACHE_BUST_KEY);
+            }
+            const cacheBust = assetDecision.cacheBust;
+            window.ghnotifAssetVersion = ASSET_VERSION;
             // Reused by the script loader at the bottom of the page.
             window.ghnotifAssetBust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
             document.write(
