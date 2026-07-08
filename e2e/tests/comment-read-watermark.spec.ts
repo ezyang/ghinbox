@@ -31,6 +31,42 @@ function makeWatermarkNotification(updatedAt: string, ui: Record<string, unknown
 }
 
 test.describe('Read comment watermark @mutation', () => {
+  test('persists synthetic review-request watermarks whose ids contain slashes', async ({
+    page,
+  }) => {
+    await page.goto('notifications.html');
+
+    const notificationId = 'review-request:test/repo#42';
+    const readAt = '2026-01-07T12:00:00Z';
+    const result = await page.evaluate(
+      async ({ notificationId, readAt }) => {
+        const response = await fetch(
+          `/notifications/html/repo/test/repo/read-comment-watermarks/${encodeURIComponent(notificationId)}`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ read_comment_watermark_at: readAt }),
+          }
+        );
+        return {
+          status: response.status,
+          body: await response.json(),
+        };
+      },
+      { notificationId, readAt }
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        status: 'ok',
+        repo: 'test/repo',
+        notification_id: notificationId,
+        read_comment_watermark_at: readAt,
+      },
+    });
+  });
+
   test('marks done notifications with a persistent comment read watermark', async ({
     page,
   }) => {

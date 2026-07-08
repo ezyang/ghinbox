@@ -55,7 +55,7 @@ def _local_state_response(
 
 
 @router.put(
-    "/repo/{owner}/{repo}/bookmarks/{notification_id}",
+    "/repo/{owner}/{repo}/bookmarks/{notification_id:path}",
     summary="Set local bookmark state",
 )
 async def set_bookmark(
@@ -75,7 +75,7 @@ async def set_bookmark(
 
 
 @router.put(
-    "/repo/{owner}/{repo}/replies-muted/{notification_id}",
+    "/repo/{owner}/{repo}/replies-muted/{notification_id:path}",
     summary="Set local Replies suppression state",
 )
 async def set_replies_muted(
@@ -95,7 +95,7 @@ async def set_replies_muted(
 
 
 @router.put(
-    "/repo/{owner}/{repo}/read-comment-watermarks/{notification_id}",
+    "/repo/{owner}/{repo}/read-comment-watermarks/{notification_id:path}",
     summary="Set local read-comment watermark",
 )
 async def set_read_comment_watermark(
