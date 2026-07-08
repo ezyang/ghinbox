@@ -54,9 +54,17 @@ const initialNotifications = {
   },
 };
 
+// Quick sync stops at the overlap with more pages remaining, so thread-pr-2
+// is carried over from cache (not pruned) and gets its PR state refreshed.
 const quickSyncNotifications = {
   ...initialNotifications,
   notifications: [initialNotifications.notifications[0]],
+  pagination: {
+    before_cursor: null,
+    after_cursor: 'cursor-page-2',
+    has_previous: false,
+    has_next: true,
+  },
 };
 
 test.describe('Quick Sync PR state refresh @slow @sync', () => {
