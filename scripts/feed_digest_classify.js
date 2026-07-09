@@ -113,9 +113,15 @@ function classifyNotifications(payload) {
   const classifications = notifications.map((notification) => {
     const id = notification?.id || getNotificationKey(notification);
     const isFeed = classifier.matchesView(notification, 'issues');
+    // The webapp auto-marks "trash" (low-priority: merge-machinery/bot-only
+    // chatter, approved/closed noise) done on sync, so those never reach the
+    // feed the user actually sees. The digest must mirror that or it surfaces
+    // items the inbox already swept. See notifications-filtering.isTrash*.
+    const isTrash = classifier.isTrashNotification(notification);
     return {
       id,
       is_feed: isFeed,
+      is_trash: isTrash,
       is_review_queue: classifier.isNotificationReviewQueue(notification),
       is_synthetic_review_request:
         classifier.isSyntheticResponsibilityNotification(notification),
@@ -127,7 +133,10 @@ function classifyNotifications(payload) {
     total_count: notifications.length,
     current_user: currentUserLogin,
     feed_ids: classifications
-      .filter((classification) => classification.is_feed)
+      .filter((classification) => classification.is_feed && !classification.is_trash)
+      .map((classification) => classification.id),
+    trash_ids: classifications
+      .filter((classification) => classification.is_trash)
       .map((classification) => classification.id),
     classifications,
   };

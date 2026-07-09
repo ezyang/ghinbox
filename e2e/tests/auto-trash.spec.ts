@@ -353,6 +353,77 @@ test.describe('Low-priority cleanup @mutation', () => {
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
+  test('cleans a freshly bot-updated PR whose comments are only fetched during this sync', async ({ page }) => {
+    // Regression: the trash sweep must not race comment hydration. A "my PR"
+    // that got a new bot comment this cycle has a stale/missing thread at sweep
+    // time; if the sweep runs before comments are fetched, getUninterestingReason
+    // returns null and the item wrongly survives auto-clean.
+    const botOnlyPr = makePrNotification(
+      'bot-updated-my-pr',
+      42,
+      'My PR bumped only by mergebot this cycle',
+      'author'
+    );
+    const singleNotificationResponse = {
+      ...notificationsResponse,
+      notifications: [botOnlyPr],
+    };
+    currentNotificationsResponse = singleNotificationResponse;
+
+    // The seeded comment cache (from beforeEach) has no thread for this
+    // notification, so the app must fetch its comments during the sync. The
+    // bulk endpoint returns bot-only comments.
+    let archivedIds: string[] = [];
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'archive') {
+        archivedIds = body.notification_ids;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
+    });
+
+    await page.route('**/github/rest/comments/bulk', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          threads: {
+            'bot-updated-my-pr': {
+              allComments: true,
+              comments: [
+                {
+                  id: 4201,
+                  created_at: '2025-01-08T11:00:00Z',
+                  body: '### Merge started\nYour change will be merged once all checks pass.',
+                  user: { login: 'pytorchmergebot' },
+                },
+              ],
+            },
+          },
+        }),
+      });
+    });
+
+    await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    // The bot-only PR should be auto-cleaned even though its comments were only
+    // available via the fetch triggered by this very sync.
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.length : -1;
+      })
+      .toBe(0);
+    expect(archivedIds).toEqual(['bot-updated-my-pr']);
+    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+  });
+
   test('Clean now button cleans low-priority notifications when auto mode is disabled', async ({ page }) => {
     let archivedIds: string[] = [];
     await page.route('**/notifications/html/action', (route) => {

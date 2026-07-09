@@ -123,8 +123,13 @@ def test_extract_output_uses_js_review_queue_classification() -> None:
 
     output = feed_digest.build_extract_output(snapshot)
 
-    assert output["feed_count"] == 1
-    assert output["feed_ids"] == ["display-review-requested"]
+    # The display-form reason "review requested" (with a space) must NOT be
+    # routed into the review queue the way the API form "review_requested" is —
+    # it stays a plain feed-view item. But as a non-directed other's PR it is
+    # low-priority trash the webapp auto-cleans on sync, so the digest (which
+    # mirrors the post-clean feed) excludes it from feed_ids.
+    assert output["feed_count"] == 0
+    assert output["feed_ids"] == []
 
 
 def test_extract_output_uses_cached_thread_last_read_at() -> None:

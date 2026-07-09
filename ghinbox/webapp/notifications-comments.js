@@ -254,22 +254,43 @@ function scheduleSyncPageCommentPrefetch(notifications) {
 
 async function runCommentQueue() {
     if (state.commentQueueRunning) {
-        return;
+        return state.commentQueueIdlePromise || Promise.resolve();
     }
     state.commentQueueRunning = true;
-    while (state.commentQueue.length) {
-        const batch = state.commentQueue.splice(0, COMMENT_CONCURRENCY);
-        await Promise.all(batch.map((task) => task()));
-        saveCommentCache();
-        render();
+    let resolveIdle;
+    state.commentQueueIdlePromise = new Promise((resolve) => {
+        resolveIdle = resolve;
+    });
+    try {
+        while (state.commentQueue.length) {
+            const batch = state.commentQueue.splice(0, COMMENT_CONCURRENCY);
+            await Promise.all(batch.map((task) => task()));
+            saveCommentCache();
+            render();
+        }
+        await refreshRateLimit();
+    } finally {
+        state.commentQueueRunning = false;
+        if (typeof resolveIdle === 'function') {
+            resolveIdle();
+        }
     }
-    await refreshRateLimit();
-    state.commentQueueRunning = false;
     if (state.commentQueue.length) {
-        runCommentQueue();
-        return;
+        return runCommentQueue();
     }
     scheduleCommentPrefetchIdleClear();
+    return undefined;
+}
+
+// Resolves once no comment/review-metadata prefetch work is in flight. Used to
+// order the low-priority trash sweep after comment hydration so freshly
+// bot-updated items are classified against real comment data, not a stale or
+// missing cache entry.
+function whenCommentPrefetchIdle() {
+    if (!state.commentQueueRunning) {
+        return Promise.resolve();
+    }
+    return state.commentQueueIdlePromise || Promise.resolve();
 }
 
 function shouldPrefetchNotificationComments(notification) {

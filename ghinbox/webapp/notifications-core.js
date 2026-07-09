@@ -150,6 +150,7 @@
             commentQueue: [],
             commentQueueKeys: new Set(),
             commentQueueRunning: false,
+            commentQueueIdlePromise: null,
             commentPrefetchProgress: {
                 active: false,
                 total: 0,
@@ -1332,6 +1333,18 @@
             if (typeof processDoneBatch !== 'function') {
                 showStatus(`${syncLabel}: low-priority cleanup unavailable`, 'error');
                 return notifications;
+            }
+
+            // The trash classifier reads comment/review metadata from the cache;
+            // a freshly bot-updated PR has a stale-or-missing thread until its
+            // comments are fetched. Hydrate first and wait for that work to
+            // settle so the sweep classifies against real data instead of
+            // racing the prefetch and letting bot-only items survive.
+            if (typeof scheduleCommentPrefetch === 'function') {
+                scheduleCommentPrefetch(notifications);
+            }
+            if (typeof whenCommentPrefetchIdle === 'function') {
+                await whenCommentPrefetchIdle();
             }
 
             const trashNotifications = notifications.filter(isTrashNotification);
