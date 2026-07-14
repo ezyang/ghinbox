@@ -424,6 +424,98 @@ test.describe('Low-priority cleanup @mutation', () => {
     await expect(page.locator('#view-cleaned .count')).toHaveText('1');
   });
 
+  test('does not strand a bot-only PR when its first bulk fetch is rate-limited', async ({ page }) => {
+    // Regression: a rate-governor 429 during comment prefetch must NOT be cached
+    // as a thread error. buildCommentErrorCacheEntry marks the thread
+    // `.error`, which makes getUninterestingReason/isApproved bail to
+    // "not trash", so the item wrongly survives auto-clean. A throttle is
+    // transient — the sweep must retry the throttled fetch before classifying
+    // and then sweep the (now bot-only) PR.
+    const botOnlyPr = makePrNotification(
+      'bot-updated-my-pr',
+      42,
+      'My PR bumped only by mergebot this cycle',
+      'author'
+    );
+    currentNotificationsResponse = {
+      ...notificationsResponse,
+      notifications: [botOnlyPr],
+    };
+
+    let archivedIds: string[] = [];
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'archive') {
+        archivedIds = body.notification_ids;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
+    });
+
+    // First bulk call: the server hit the request-budget governor and returns a
+    // rate_limited result for the thread (no comments). Second call: budget has
+    // recovered and the real bot-only comments come back.
+    let bulkCalls = 0;
+    await page.route('**/github/rest/comments/bulk', (route) => {
+      bulkCalls += 1;
+      if (bulkCalls === 1) {
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rate_limited: true,
+            rate_limit: { reason: 'request_budget_exceeded' },
+            threads: {
+              'bot-updated-my-pr': {
+                error: 'GitHub API request budget exceeded: 300/300 outbound calls.',
+                rate_limited: true,
+                governor: { reason: 'request_budget_exceeded' },
+              },
+            },
+          }),
+        });
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          threads: {
+            'bot-updated-my-pr': {
+              allComments: true,
+              comments: [
+                {
+                  id: 4201,
+                  created_at: '2025-01-08T11:00:00Z',
+                  body: '### Merge started\nYour change will be merged once all checks pass.',
+                  user: { login: 'pytorchmergebot' },
+                },
+              ],
+            },
+          },
+        }),
+      });
+    });
+
+    await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    // The throttled thread must be retried (second bulk call) and then swept.
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.length : -1;
+      })
+      .toBe(0);
+    expect(bulkCalls).toBeGreaterThanOrEqual(2);
+    expect(archivedIds).toEqual(['bot-updated-my-pr']);
+    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+  });
+
   test('Clean now button cleans low-priority notifications when auto mode is disabled', async ({ page }) => {
     let archivedIds: string[] = [];
     await page.route('**/notifications/html/action', (route) => {

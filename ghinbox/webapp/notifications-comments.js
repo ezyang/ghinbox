@@ -8,6 +8,17 @@
 const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
 const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const COMMENT_CONCURRENCY = 8;
+// Notifications per bulk-comments POST. The server rate governor scopes its
+// request_budget per HTTP request_id, so keeping each POST small enough that
+// its fan-out of GitHub calls stays under budget prevents the tail of a large
+// sync from being throttled and stranded. Each notification costs up to ~3-4
+// GitHub calls (issue, issue comments, PR review comments, events), so 50
+// keeps a chunk well under the default 300-call budget.
+const BULK_COMMENT_CHUNK_SIZE = 50;
+// A rate-limited comment prefetch is retried rather than cached as an error.
+// Bound the retries so a persistently-exhausted governor cannot spin forever.
+const COMMENT_PREFETCH_MAX_RATE_LIMIT_RETRIES = 3;
+const COMMENT_PREFETCH_RATE_LIMIT_RETRY_DELAY_MS = 750;
 const REVIEW_DECISION_BATCH_SIZE = 40;
 const COMMENT_EXPAND_ISSUES_KEY = 'ghnotif_comment_expand_issues';
 const COMMENT_EXPAND_PRS_KEY = 'ghnotif_comment_expand_prs';
@@ -398,15 +409,55 @@ async function fetchBulkNotificationComments(notifications) {
     if (!notifications.length) {
         return null;
     }
-    const response = await fetch('/github/rest/comments/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notifications }),
-    });
-    if (!response.ok) {
+    // Each HTTP request gets its own server-side request_id, and the rate
+    // governor's request_budget (default 300 outbound GitHub calls) is scoped
+    // per request_id. One bulk POST covering a large feed can fan out to far
+    // more than 300 GitHub calls under a single request_id and trip the budget,
+    // stranding the tail of the batch. Chunk the notifications so each POST
+    // stays comfortably under budget, then merge the per-chunk results.
+    const chunks = [];
+    for (let i = 0; i < notifications.length; i += BULK_COMMENT_CHUNK_SIZE) {
+        chunks.push(notifications.slice(i, i + BULK_COMMENT_CHUNK_SIZE));
+    }
+    const merged = { threads: {}, rate_limited: false, failed: false };
+    for (const chunk of chunks) {
+        const response = await fetch('/github/rest/comments/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notifications: chunk }),
+        });
+        if (!response.ok) {
+            // A 429 is a transient governor throttle: flag it so callers retry
+            // rather than poisoning the cache with error entries. Any other
+            // failure is a genuine error — fall back to per-item fetches, which
+            // surface real errors, instead of spinning on retries.
+            if (response.status === 429) {
+                merged.rate_limited = true;
+            } else {
+                merged.failed = true;
+            }
+            continue;
+        }
+        const payload = await response.json();
+        if (payload?.threads && typeof payload.threads === 'object') {
+            Object.assign(merged.threads, payload.threads);
+        }
+        if (payload?.rate_limited) {
+            merged.rate_limited = true;
+        }
+    }
+    // A genuine (non-429) failure that produced no usable threads should trigger
+    // the caller's per-item fallback, exactly as an unparseable response did
+    // before chunking. Rate-limited-but-empty is kept distinct so the caller
+    // retries instead of falling back.
+    if (
+        !Object.keys(merged.threads).length &&
+        merged.failed &&
+        !merged.rate_limited
+    ) {
         return null;
     }
-    return response.json();
+    return merged;
 }
 
 function buildReviewDecisionQuery(issueNumbers) {
@@ -716,12 +767,105 @@ async function prefetchNotificationComments(notification) {
             }
         );
     } catch (error) {
+        // A rate-governor throttle (HTTP 429) is transient — do NOT cache it as
+        // a thread error, or getUninterestingReason/isApproved bail to "not
+        // trash" and the item wrongly survives auto-clean. Leave any prior
+        // cache entry intact and rethrow so the caller can retry.
+        if (error?.status === 429 || isExpiredGovernorMessage(error)) {
+            throw error;
+        }
         state.commentCache.threads[threadId] = COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(
             notification,
             cached,
             { error: error.message || String(error) }
         );
     }
+}
+
+function isExpiredGovernorMessage(error) {
+    const message = error?.detail?.message || error?.responseMessage || error?.message || '';
+    return String(message).includes('request budget exceeded');
+}
+
+function isRateLimitedCommentResult(result) {
+    if (!result || typeof result !== 'object') {
+        return false;
+    }
+    if (result.rate_limited || result.governor) {
+        return true;
+    }
+    return String(result.error || '').includes('request budget exceeded');
+}
+
+// Apply one bulk payload to the cache. Returns the notifications whose fetch was
+// rate-limited (a transient throttle, NOT an empty thread) so the caller can
+// retry them. A real error is cached as a thread error; a throttle never is,
+// because an error entry makes getUninterestingReason/isApproved bail to "not
+// trash" and the item wrongly survives auto-clean.
+function applyBulkCommentResults(pending, threads, { rateLimited = false } = {}) {
+    const rateLimitedNotifications = [];
+    let completed = 0;
+    let failed = 0;
+    pending.forEach((notification) => {
+        const threadId = getNotificationKey(notification);
+        const cached = state.commentCache.threads[threadId];
+        const result = threads ? threads[threadId] : undefined;
+        if (isRateLimitedCommentResult(result) || (rateLimited && !result)) {
+            // Throttled: leave any prior cache entry untouched and retry.
+            rateLimitedNotifications.push(notification);
+            return;
+        }
+        completed += 1;
+        if (!result) {
+            failed += 1;
+            state.commentCache.threads[threadId] =
+                COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
+                    error: 'Bulk comment fetch returned no result.',
+                });
+            return;
+        }
+        if (result.error) {
+            failed += 1;
+            state.commentCache.threads[threadId] =
+                COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
+                    error: result.error,
+                });
+            return;
+        }
+        state.commentCache.threads[threadId] =
+            COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(notification, cached, {
+                comments: Array.isArray(result.comments) ? result.comments : [],
+                stateEvents: Array.isArray(result.stateEvents) ? result.stateEvents : [],
+                allComments: Boolean(result.allComments),
+            });
+    });
+    return { rateLimitedNotifications, completed, failed };
+}
+
+// Per-item fallback fetch used when the bulk endpoint yields no usable payload.
+// A rate-governor throttle rethrows from prefetchNotificationComments; swallow
+// it here (leaving the thread uncached so a later sync retries) rather than
+// caching an error that would defeat auto-clean. Returns {completed, failed}.
+async function prefetchNotificationCommentsPerItem(notifications) {
+    let completed = 0;
+    let failed = 0;
+    await Promise.all(
+        notifications.map(async (notification) => {
+            try {
+                await prefetchNotificationComments(notification);
+            } catch (error) {
+                if (!(error?.status === 429 || isExpiredGovernorMessage(error))) {
+                    console.error('Per-item comment prefetch failed:', error);
+                }
+            } finally {
+                completed += 1;
+                if (state.commentCache.threads[getNotificationKey(notification)]?.error) {
+                    failed += 1;
+                }
+            }
+        })
+    );
+    return { completed, failed };
 }
 
 async function prefetchNotificationCommentsBulk(notifications) {
@@ -737,65 +881,53 @@ async function prefetchNotificationCommentsBulk(notifications) {
     let completed = 0;
     let failed = 0;
     try {
-        const bulkPayload = await fetchBulkNotificationComments(pending);
-        const threads = bulkPayload?.threads;
-        if (!threads || typeof threads !== 'object') {
-            await Promise.all(
-                pending.map(async (notification) => {
-                    try {
-                        await prefetchNotificationComments(notification);
-                    } finally {
-                        completed += 1;
-                        if (state.commentCache.threads[getNotificationKey(notification)]?.error) {
-                            failed += 1;
-                        }
-                    }
-                })
-            );
-            return;
+        let remaining = pending;
+        // Retry throttled threads with backoff rather than caching the 429 as a
+        // thread error. The governor's per-request budget recovers quickly, so
+        // a bounded retry lets the sweep classify against real comment data.
+        for (
+            let attempt = 0;
+            remaining.length && attempt <= COMMENT_PREFETCH_MAX_RATE_LIMIT_RETRIES;
+            attempt += 1
+        ) {
+            if (attempt > 0) {
+                await new Promise((resolve) =>
+                    setTimeout(resolve, COMMENT_PREFETCH_RATE_LIMIT_RETRY_DELAY_MS)
+                );
+            }
+            const bulkPayload = await fetchBulkNotificationComments(remaining);
+            const threads = bulkPayload?.threads;
+            if (!threads || typeof threads !== 'object') {
+                // No usable payload at all. If the whole request was throttled,
+                // retry; otherwise fall back to per-item fetches.
+                if (bulkPayload?.rate_limited && attempt < COMMENT_PREFETCH_MAX_RATE_LIMIT_RETRIES) {
+                    continue;
+                }
+                const result = await prefetchNotificationCommentsPerItem(remaining);
+                completed += result.completed;
+                failed += result.failed;
+                remaining = [];
+                break;
+            }
+            const applied = applyBulkCommentResults(remaining, threads, {
+                rateLimited: Boolean(bulkPayload?.rate_limited),
+            });
+            completed += applied.completed;
+            failed += applied.failed;
+            remaining = applied.rateLimitedNotifications;
         }
-        pending.forEach((notification) => {
-            const threadId = getNotificationKey(notification);
-            const cached = state.commentCache.threads[threadId];
-            const result = threads[threadId];
-            completed += 1;
-            if (!result) {
-                failed += 1;
-                state.commentCache.threads[threadId] =
-                    COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
-                        error: 'Bulk comment fetch returned no result.',
-                    });
-                return;
-            }
-            if (result.error) {
-                failed += 1;
-                state.commentCache.threads[threadId] =
-                    COMMENT_CACHE_POLICY.buildCommentErrorCacheEntry(notification, cached, {
-                        error: result.error,
-                    });
-                return;
-            }
-            state.commentCache.threads[threadId] =
-                COMMENT_CACHE_POLICY.buildCommentSuccessCacheEntry(notification, cached, {
-                    comments: Array.isArray(result.comments) ? result.comments : [],
-                    stateEvents: Array.isArray(result.stateEvents) ? result.stateEvents : [],
-                    allComments: Boolean(result.allComments),
-                });
-        });
+        // Exhausted retries with items still throttled: fall back to per-item
+        // fetches so classification runs against real data where possible.
+        if (remaining.length) {
+            const result = await prefetchNotificationCommentsPerItem(remaining);
+            completed += result.completed;
+            failed += result.failed;
+        }
     } catch (error) {
         console.error('Bulk comment prefetch failed:', error);
-        await Promise.all(
-            pending.map(async (notification) => {
-                try {
-                    await prefetchNotificationComments(notification);
-                } finally {
-                    completed += 1;
-                    if (state.commentCache.threads[getNotificationKey(notification)]?.error) {
-                        failed += 1;
-                    }
-                }
-            })
-        );
+        const result = await prefetchNotificationCommentsPerItem(pending);
+        completed += result.completed;
+        failed += result.failed;
     } finally {
         updateCommentPrefetchWork({
             completed,
