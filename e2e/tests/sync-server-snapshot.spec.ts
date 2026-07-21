@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  captureHtmlActions,
   makeCommentCache,
   makeCommentThread,
   makeNotification,
@@ -110,6 +111,70 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(server.postCount).toBe(1);
     expect(htmlFetchCalled).toBe(false);
     expect(profileSyncCalled).toBe(false);
+  });
+
+  test('server-backed full sync auto-cleans low-priority feed items', async ({ page }) => {
+    const currentNotification = makeIssueNotification({
+      id: 'server-current-1',
+      reason: 'subscribed',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: { title: 'Current server notification', number: 42, state: 'open' },
+    });
+    const lowPriorityNotification = makeIssueNotification({
+      id: 'server-low-priority-1',
+      reason: 'subscribed',
+      updated_at: '2024-12-26T12:00:00Z',
+      subject: { title: 'Closed low-priority notification', number: 41, state: 'closed' },
+    });
+    const actions = await captureHtmlActions(page);
+
+    await mockServerSnapshot(page, {
+      syncPost: makeServerSnapshotPayload('test/repo', {
+        sync: { status: 'running', mode: 'full' },
+      }),
+      syncPoll: makeServerSnapshotPayload('test/repo', {
+        sync: {
+          status: 'success',
+          mode: 'full',
+          phase: 'complete',
+          pages_fetched: 1,
+          notifications_count: 2,
+        },
+        snapshot: {
+          notifications: [currentNotification, lowPriorityNotification],
+          comment_cache: makeCommentCache({
+            'server-current-1': makeCommentThread({
+              notificationUpdatedAt: currentNotification.updated_at,
+              comments: [],
+              allComments: true,
+              fetchedAt: new Date().toISOString(),
+            }),
+            'server-low-priority-1': makeCommentThread({
+              notificationUpdatedAt: lowPriorityNotification.updated_at,
+              comments: [],
+              allComments: true,
+              fetchedAt: new Date().toISOString(),
+            }),
+          }),
+          authenticity_token: 'server-token',
+          synced_at: '2024-12-27T12:01:00+00:00',
+        },
+      }),
+    });
+
+    await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('[data-id="server-current-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="server-low-priority-1"]')).toHaveCount(0);
+    await expect.poll(() => actions).toEqual([
+      {
+        action: 'archive',
+        notification_ids: ['server-low-priority-1'],
+        authenticity_token: 'server-token',
+      },
+    ]);
   });
 
   test('full sync on the default query profile syncs the server profile snapshot', async ({

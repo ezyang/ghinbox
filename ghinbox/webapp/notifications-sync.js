@@ -705,6 +705,23 @@
             return true;
         }
 
+        async function cleanCompletedServerSync(syncLabel) {
+            let notifications = state.notifications;
+            notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel);
+            notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
+            state.notifications = notifications;
+
+            if (state.commentCache) {
+                state.commentCache = pruneCommentCacheToNotifications(
+                    state.commentCache,
+                    notifications
+                );
+                saveCommentCache();
+            }
+            persistNotifications();
+            scheduleCommentPrefetch(notifications);
+        }
+
         async function fetchServerSnapshot(target) {
             const response = await fetch(target.snapshotUrl);
             if (!response.ok) {
@@ -850,8 +867,10 @@
                 if (sync.status === 'success') {
                     if (applySnapshot && applyServerSnapshot(target, data.snapshot, {
                         lastSyncedRepo: options.lastSyncedRepo,
+                        schedulePrefetch: false,
                         storageValue: options.storageValue,
                     })) {
+                        await cleanCompletedServerSync(syncLabel);
                         showStatus(`Synced ${state.notifications.length} notifications`, 'success');
                         render();
                     }
