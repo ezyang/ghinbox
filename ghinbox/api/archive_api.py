@@ -1,10 +1,11 @@
-"""REST-backed notification archive helpers."""
+"""REST-backed notification action helpers."""
 
 import base64
 import binascii
 import logging
 import re
 import time
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from ghinbox.api.fetcher import ActionResult
@@ -31,7 +32,15 @@ MAX_GITHUB_NOTIFICATION_ACTION_IDS = 25
 # Keep this hard cap: an uncapped lookup loop once burned the entire GitHub
 # rate limit while trying to resolve current HTML notification IDs.
 MAX_REST_THREAD_LOOKUP_PAGES = 10
-SubjectKey = tuple[str, str, str, int]
+SubjectKey = tuple[str, str, str, str]
+
+
+@dataclass
+class RestThreadResolution:
+    """REST thread IDs resolved independently for one action batch."""
+
+    thread_ids_by_notification_id: dict[str, str]
+    unresolved_notification_ids: list[str]
 
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:
@@ -58,17 +67,72 @@ def _rest_thread_id_from_notification_id(notification_id: str) -> str | None:
     return match.group(1).decode("ascii")
 
 
-def _subject_key_from_url(url: str) -> SubjectKey | None:
+def _current_notification_subject_identity(
+    notification_id: str,
+) -> tuple[str, str] | None:
+    """Read the subject kind/database ID embedded in current HTML node IDs."""
+    if not notification_id.startswith("NT_"):
+        return None
+    encoded = notification_id[3:]
+    padded = encoded + "=" * (-len(encoded) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except (binascii.Error, UnicodeError, ValueError):
+        return None
+    match = re.search(rb"Repository;\d+;([^;]+);([^;]+)$", decoded)
+    if match is None:
+        return None
+    try:
+        return match.group(1).decode("ascii"), match.group(2).decode("ascii")
+    except UnicodeError:
+        return None
+
+
+def _subject_key_from_url(
+    url: str,
+    *,
+    notification_id: str | None = None,
+) -> SubjectKey | None:
     parsed = urlparse(url)
     parts = [part for part in parsed.path.split("/") if part]
     if parsed.netloc == "api.github.com":
-        if len(parts) < 5 or parts[0] != "repos":
+        if len(parts) < 4 or parts[0] != "repos":
             return None
-        owner, repo, kind, number = parts[1], parts[2], parts[3], parts[4]
+        owner, repo = parts[1], parts[2]
+        subject_parts = parts[3:]
     else:
-        if len(parts) < 4:
+        if len(parts) < 3:
             return None
-        owner, repo, kind, number = parts[0], parts[1], parts[2], parts[3]
+        owner, repo = parts[0], parts[1]
+        subject_parts = parts[2:]
+
+    encoded_identity = (
+        _current_notification_subject_identity(notification_id)
+        if notification_id is not None
+        else None
+    )
+    if encoded_identity is not None:
+        encoded_kind, encoded_database_id = encoded_identity
+        encoded_canonical_kind = {
+            "Release": "releases",
+            "CheckSuite": "check-suites",
+            "RepositoryVulnerabilityAlert": "repository-vulnerability-alerts",
+        }.get(encoded_kind)
+        if encoded_canonical_kind is not None:
+            return owner, repo, encoded_canonical_kind, encoded_database_id
+
+    if len(subject_parts) < 2:
+        return None
+
+    kind, identifier = subject_parts[0], subject_parts[1]
+    if kind == "dependabot" and len(subject_parts) >= 3:
+        if subject_parts[1] != "alerts":
+            return None
+        return owner, repo, "repository-vulnerability-alerts", subject_parts[2]
+    if kind == "security" and len(subject_parts) >= 3:
+        if subject_parts[1] != "dependabot":
+            return None
+        return owner, repo, "repository-vulnerability-alerts", subject_parts[2]
 
     canonical_kind = {
         "issue": "issues",
@@ -77,10 +141,18 @@ def _subject_key_from_url(url: str) -> SubjectKey | None:
         "pulls": "pulls",
         "discussion": "discussions",
         "discussions": "discussions",
+        "commit": "commits",
+        "commits": "commits",
+        "release": "releases",
+        "releases": "releases",
+        "check-suite": "check-suites",
+        "check-suites": "check-suites",
     }.get(kind)
-    if canonical_kind is None or not number.isdecimal():
+    if canonical_kind is None:
         return None
-    return owner, repo, canonical_kind, int(number)
+    if canonical_kind != "commits" and not identifier.isdecimal():
+        return None
+    return owner, repo, canonical_kind, identifier
 
 
 def _snapshot_subject_keys_by_notification_id(
@@ -105,7 +177,10 @@ def _snapshot_subject_keys_by_notification_id(
             if not isinstance(subject, dict):
                 continue
             subject_url = str(subject.get("url") or "")
-            subject_key = _subject_key_from_url(subject_url)
+            subject_key = _subject_key_from_url(
+                subject_url,
+                notification_id=notification_id,
+            )
             if subject_key is None:
                 continue
             subject_keys[notification_id] = subject_key
@@ -121,7 +196,7 @@ async def _rest_thread_ids_by_subject_key(
     subject_keys: set[SubjectKey],
     *,
     request_id: str | None = None,
-) -> dict[SubjectKey, str] | None:
+) -> dict[SubjectKey, str]:
     if not subject_keys:
         return {}
 
@@ -140,7 +215,13 @@ async def _rest_thread_ids_by_subject_key(
 
         while True:
             if pages_fetched >= MAX_REST_THREAD_LOOKUP_PAGES:
-                return None
+                logger.warning(
+                    "Stopped REST notification lookup for %s/%s after %d pages",
+                    owner,
+                    repo,
+                    pages_fetched,
+                )
+                break
             status, payload, headers = await _github_get_json_with_headers(
                 client,
                 token,
@@ -152,10 +233,21 @@ async def _rest_thread_ids_by_subject_key(
             )
             pages_fetched += 1
             if status >= 400:
-                return None
+                logger.warning(
+                    "REST notification lookup for %s/%s returned HTTP %d",
+                    owner,
+                    repo,
+                    status,
+                )
+                break
 
             if not isinstance(payload, list):
-                return None
+                logger.warning(
+                    "REST notification lookup for %s/%s returned a non-list payload",
+                    owner,
+                    repo,
+                )
+                break
 
             for item in payload:
                 if not isinstance(item, dict):
@@ -188,7 +280,7 @@ async def _rest_thread_ids_from_notification_ids(
     notification_ids: list[str],
     *,
     request_id: str | None = None,
-) -> list[str] | None:
+) -> RestThreadResolution:
     thread_ids_by_notification_id: dict[str, str] = {}
     unresolved: list[str] = []
 
@@ -203,27 +295,25 @@ async def _rest_thread_ids_from_notification_ids(
         subject_keys_by_notification_id = _snapshot_subject_keys_by_notification_id(
             unresolved,
         )
-        if set(unresolved) - subject_keys_by_notification_id.keys():
-            return None
+        if subject_keys_by_notification_id:
+            thread_ids_by_subject_key = await _rest_thread_ids_by_subject_key(
+                token,
+                set(subject_keys_by_notification_id.values()),
+                request_id=request_id,
+            )
+            for notification_id, subject_key in subject_keys_by_notification_id.items():
+                thread_id = thread_ids_by_subject_key.get(subject_key)
+                if thread_id is not None:
+                    thread_ids_by_notification_id[notification_id] = thread_id
 
-        thread_ids_by_subject_key = await _rest_thread_ids_by_subject_key(
-            token,
-            set(subject_keys_by_notification_id.values()),
-            request_id=request_id,
-        )
-        if thread_ids_by_subject_key is None:
-            return None
-
-        for notification_id, subject_key in subject_keys_by_notification_id.items():
-            thread_id = thread_ids_by_subject_key.get(subject_key)
-            if thread_id is None:
-                return None
-            thread_ids_by_notification_id[notification_id] = thread_id
-
-    return [
-        thread_ids_by_notification_id[notification_id]
-        for notification_id in notification_ids
-    ]
+    return RestThreadResolution(
+        thread_ids_by_notification_id=thread_ids_by_notification_id,
+        unresolved_notification_ids=[
+            notification_id
+            for notification_id in notification_ids
+            if notification_id not in thread_ids_by_notification_id
+        ],
+    )
 
 
 def _prune_snapshot_for_action(action: str, notification_ids: list[str]) -> None:
@@ -246,12 +336,32 @@ def _prune_snapshot_for_action(action: str, notification_ids: list[str]) -> None
         logger.exception("Failed to prune archived notifications from snapshot")
 
 
-async def _submit_archive_with_github_api(
+async def _submit_notification_action_with_github_api(
+    action: str,
     notification_ids: list[str],
     *,
     request_id: str | None = None,
 ) -> ActionResult | None:
-    """Mark notifications done through the REST API when IDs and token permit it."""
+    """Run token-backed notification actions without requiring browser auth."""
+    action_config: dict[str, tuple[str, str, dict[str, bool] | None, str]] = {
+        "archive": ("DELETE", "", None, "Archived"),
+        "subscribe": (
+            "PUT",
+            "/subscription",
+            {"subscribed": True, "ignored": False},
+            "Subscribed",
+        ),
+        "unsubscribe": (
+            "PUT",
+            "/subscription",
+            {"subscribed": False, "ignored": True},
+            "Unsubscribed",
+        ),
+    }
+    config = action_config.get(action)
+    if config is None:
+        return None
+
     token = get_token()
     if not token:
         return None
@@ -262,39 +372,51 @@ async def _submit_archive_with_github_api(
             error="No notification IDs provided for action",
         )
 
-    thread_ids = await _rest_thread_ids_from_notification_ids(
+    resolution = await _rest_thread_ids_from_notification_ids(
         token,
         notification_ids,
         request_id=request_id,
     )
-    if thread_ids is None:
-        return None
 
+    method, path_suffix, payload, completed_verb = config
     client = get_client()
     last_status_code: int | None = None
+    successful_notification_ids: list[str] = []
     headers = github_rest_headers(token)
-    for thread_id in thread_ids:
-        url = f"{GITHUB_API_BASE}/notifications/threads/{thread_id}"
+    for notification_id in notification_ids:
+        thread_id = resolution.thread_ids_by_notification_id.get(notification_id)
+        if thread_id is None:
+            continue
+        url = f"{GITHUB_API_BASE}/notifications/threads/{thread_id}{path_suffix}"
+        audit_source = (
+            "archive.thread_delete"
+            if action == "archive"
+            else "subscription.thread_update"
+        )
         check_github_rate_governor(
             request_id=request_id,
-            source="archive.thread_delete",
-            method="DELETE",
+            source=audit_source,
+            method=method,
             url=url,
             call_class="interactive",
             pool="core",
         )
         started = time.perf_counter()
         try:
-            response = await client.request(
-                "DELETE",
-                url,
-                headers=headers,
-            )
+            if payload is None:
+                response = await client.request(method, url, headers=headers)
+            else:
+                response = await client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    json=payload,
+                )
         except Exception as error:
             emit_github_api_call_audit(
                 request_id=request_id,
-                source="archive.thread_delete",
-                method="DELETE",
+                source=audit_source,
+                method=method,
                 url=url,
                 status_code=None,
                 duration_ms=(time.perf_counter() - started) * 1000,
@@ -303,8 +425,8 @@ async def _submit_archive_with_github_api(
             raise
         emit_github_api_call_audit(
             request_id=request_id,
-            source="archive.thread_delete",
-            method="DELETE",
+            source=audit_source,
+            method=method,
             url=url,
             status_code=response.status_code,
             duration_ms=(time.perf_counter() - started) * 1000,
@@ -313,11 +435,47 @@ async def _submit_archive_with_github_api(
         update_github_rate_governor_from_headers(getattr(response, "headers", None))
         last_status_code = response.status_code
         if response.status_code >= 400:
+            status = "partial" if successful_notification_ids else "error"
             return ActionResult(
-                status="error",
+                status=status,
                 error=f"HTTP {response.status_code}",
                 response_html=response.text,
                 github_status_code=response.status_code,
+                successful_notification_ids=successful_notification_ids,
+                unresolved_notification_ids=resolution.unresolved_notification_ids,
             )
+        successful_notification_ids.append(notification_id)
 
-    return ActionResult(status="ok", github_status_code=last_status_code)
+    unresolved_count = len(resolution.unresolved_notification_ids)
+    if unresolved_count:
+        successful_count = len(successful_notification_ids)
+        return ActionResult(
+            status="partial" if successful_count else "error",
+            error=(
+                f"{completed_verb} {successful_count} of {len(notification_ids)} "
+                "notifications; "
+                f"{unresolved_count} could not be resolved by REST."
+            ),
+            github_status_code=last_status_code,
+            successful_notification_ids=successful_notification_ids,
+            unresolved_notification_ids=resolution.unresolved_notification_ids,
+        )
+
+    return ActionResult(
+        status="ok",
+        github_status_code=last_status_code,
+        successful_notification_ids=successful_notification_ids,
+    )
+
+
+async def _submit_archive_with_github_api(
+    notification_ids: list[str],
+    *,
+    request_id: str | None = None,
+) -> ActionResult | None:
+    """Compatibility wrapper for callers that submit archive actions directly."""
+    return await _submit_notification_action_with_github_api(
+        "archive",
+        notification_ids,
+        request_id=request_id,
+    )

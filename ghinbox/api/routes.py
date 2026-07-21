@@ -16,7 +16,7 @@ from ghinbox.api.archive_api import (
     MAX_GITHUB_NOTIFICATION_ACTION_IDS,
     _chunks,
     _prune_snapshot_for_action,
-    _submit_archive_with_github_api,
+    _submit_notification_action_with_github_api,
 )
 from ghinbox.api.fetcher import FetchResult, get_fetcher, run_fetcher_call
 from ghinbox.api.models import NotificationsResponse
@@ -46,8 +46,10 @@ class NotificationActionRequest(BaseModel):
 class NotificationActionResponse(BaseModel):
     """Response from a notification action."""
 
-    status: Literal["ok", "error"]
+    status: Literal["ok", "error", "partial"]
     error: str | None = None
+    successful_notification_ids: list[str] | None = None
+    unresolved_notification_ids: list[str] | None = None
 
 
 def mark_github_session_expired() -> None:
@@ -276,13 +278,14 @@ async def get_repo_notifications(
 @router.post(
     "/action",
     response_model=NotificationActionResponse,
+    response_model_exclude_unset=True,
     summary="Submit a notification action",
     description="""
     Submit a notification action (archive, unarchive, subscribe, unsubscribe) to GitHub.
 
-    Archive uses the GitHub REST notifications API when a token-backed thread
-    ID is available. Other actions fall back to Playwright form submission,
-    which requires a valid authenticity_token from the page.
+    Archive, subscribe, and unsubscribe use the GitHub REST notifications API
+    when a token is available. Unarchive falls back to Playwright form
+    submission because GitHub has no equivalent REST operation.
 
     Actions:
     - archive: Mark a notification as done ("Mark as Done")
@@ -298,7 +301,7 @@ async def submit_action(
     """
     Submit a notification action to GitHub.
 
-    Requires either a token-backed archive request or an active fetcher
+    Requires either a token-backed REST action or an active fetcher
     (server started with --account).
     """
     started = time.perf_counter()
@@ -309,8 +312,9 @@ async def submit_action(
     request_id = request_id_value if isinstance(request_id_value, str) else None
 
     try:
-        if request.action == "archive":
-            api_result = await _submit_archive_with_github_api(
+        if request.action in {"archive", "subscribe", "unsubscribe"}:
+            api_result = await _submit_notification_action_with_github_api(
+                request.action,
                 request.notification_ids,
                 request_id=request_id,
             )
@@ -318,8 +322,18 @@ async def submit_action(
                 status = api_result.status
                 error = api_result.error
                 github_status_code = api_result.github_status_code
-                if status == "ok":
-                    _prune_snapshot_for_action(request.action, request.notification_ids)
+                successful_ids = api_result.successful_notification_ids or []
+                if successful_ids:
+                    _prune_snapshot_for_action(request.action, successful_ids)
+                if api_result.unresolved_notification_ids is not None:
+                    return NotificationActionResponse(
+                        status=status,
+                        error=error,
+                        successful_notification_ids=successful_ids,
+                        unresolved_notification_ids=(
+                            api_result.unresolved_notification_ids or []
+                        ),
+                    )
                 return NotificationActionResponse(
                     status=status,
                     error=error,

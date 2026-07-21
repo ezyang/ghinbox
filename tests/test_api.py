@@ -602,6 +602,67 @@ class TestNotificationActions:
             }
         ]
 
+    @pytest.mark.parametrize(
+        ("action", "expected_payload"),
+        [
+            ("subscribe", {"subscribed": True, "ignored": False}),
+            ("unsubscribe", {"subscribed": False, "ignored": True}),
+        ],
+    )
+    def test_submit_action_uses_rest_for_thread_subscriptions(
+        self,
+        client: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        action: str,
+        expected_payload: dict[str, bool],
+    ) -> None:
+        calls: list[dict[str, object]] = []
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+            headers: dict[str, str] = {}
+
+        class FakeClient:
+            async def request(
+                self,
+                method: str,
+                url: str,
+                headers: dict[str, str],
+                **kwargs: object,
+            ) -> FakeResponse:
+                calls.append({"method": method, "url": url, "json": kwargs.get("json")})
+                return FakeResponse()
+
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_fetcher",
+            lambda: pytest.fail(f"{action} must not use the browser fetcher"),
+        )
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": action,
+                "notification_ids": ["NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMQ"],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [
+            {
+                "method": "PUT",
+                "url": (
+                    "https://api.github.com/notifications/threads/"
+                    "21507933921/subscription"
+                ),
+                "json": expected_payload,
+            }
+        ]
+
     def test_submit_action_prunes_archived_ids_from_stored_snapshot(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -837,6 +898,160 @@ class TestNotificationActions:
             },
         ]
 
+    def test_submit_action_maps_release_html_id_to_rest_thread(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Release tag URLs use the database ID encoded in the HTML node ID."""
+        release_id = (
+            "NT_kwHNNPzaACdSZXBvc2l0b3J5OzExOTY2MTQyNzM7UmVsZWFzZTszNTQ2MzgxMzc"
+        )
+        calls: list[tuple[str, str]] = []
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+            headers: dict[str, str] = {}
+
+            def __init__(self, payload: object | None = None) -> None:
+                self.payload = payload
+
+            def json(self) -> object | None:
+                return self.payload
+
+        class FakeClient:
+            async def get(self, url: str, headers: dict[str, str]) -> FakeResponse:
+                calls.append(("GET", url))
+                return FakeResponse(
+                    [
+                        {
+                            "id": "25463813700",
+                            "subject": {
+                                "url": (
+                                    "https://api.github.com/repos/meta-pytorch/"
+                                    "spmd_types/releases/354638137"
+                                )
+                            },
+                        }
+                    ]
+                )
+
+            async def request(
+                self, method: str, url: str, headers: dict[str, str]
+            ) -> FakeResponse:
+                calls.append((method, url))
+                return FakeResponse()
+
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_fetcher",
+            lambda: pytest.fail("Release archive must not use the browser fetcher"),
+        )
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
+        monkeypatch.setattr(
+            "ghinbox.api.archive_api.list_snapshot_repos", lambda: ["profile:pytorch"]
+        )
+        monkeypatch.setattr(
+            "ghinbox.api.archive_api.get_snapshot",
+            lambda repo: {
+                "notifications": [
+                    {
+                        "id": release_id,
+                        "subject": {
+                            "type": "Release",
+                            "url": (
+                                "https://github.com/meta-pytorch/spmd_types/"
+                                "releases/tag/v0.2.2"
+                            ),
+                        },
+                    }
+                ]
+            },
+        )
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [release_id],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "error": None}
+        assert calls == [
+            (
+                "GET",
+                "https://api.github.com/repos/meta-pytorch/spmd_types/"
+                "notifications?all=true&per_page=100",
+            ),
+            (
+                "DELETE",
+                "https://api.github.com/notifications/threads/25463813700",
+            ),
+        ]
+
+    def test_submit_action_archives_resolvable_ids_without_browser_fallback(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One unsupported ID must not poison resolvable IDs in the batch."""
+        from ghinbox.api import snapshot_store
+
+        resolvable_id = "NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMQ"
+        unsupported_id = "unsupported-notification-id"
+        calls: list[str] = []
+        snapshot_store.save_snapshot(
+            "profile:pytorch",
+            [
+                {"id": resolvable_id, "subject": {"title": "Resolvable"}},
+                {"id": unsupported_id, "subject": {"title": "Unsupported"}},
+            ],
+        )
+
+        class FakeResponse:
+            status_code = 205
+            text = ""
+            headers: dict[str, str] = {}
+
+        class FakeClient:
+            async def request(
+                self, method: str, url: str, headers: dict[str, str]
+            ) -> FakeResponse:
+                calls.append(url)
+                return FakeResponse()
+
+        monkeypatch.setenv("GHINBOX_NEEDS_AUTH", "1")
+        monkeypatch.setattr(
+            "ghinbox.api.routes.get_fetcher",
+            lambda: pytest.fail(
+                "Partial REST archive must not use the browser fetcher"
+            ),
+        )
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
+        monkeypatch.setattr("ghinbox.api.archive_api.list_snapshot_repos", lambda: [])
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [resolvable_id, unsupported_id],
+                "authenticity_token": "stale-form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "partial",
+            "error": "Archived 1 of 2 notifications; 1 could not be resolved by REST.",
+            "successful_notification_ids": [resolvable_id],
+            "unresolved_notification_ids": [unsupported_id],
+        }
+        assert calls == ["https://api.github.com/notifications/threads/21507933921"]
+        snapshot = snapshot_store.get_snapshot("profile:pytorch")
+        assert snapshot is not None
+        assert [item["id"] for item in snapshot["notifications"]] == [unsupported_id]
+
     def test_submit_action_records_github_api_rate_limit_audit(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -989,7 +1204,7 @@ class TestNotificationActions:
     def test_submit_action_caps_current_html_id_rest_lookup(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test current ID lookup falls back before walking unbounded REST pages."""
+        """A capped REST lookup reports the ID without falling back to browser."""
         current_html_id = (
             "NT_kwHNNPzaACRSZXBvc2l0b3J5OzY1NjAwOTc1O0lzc3VlOzQ3MjMzNjQ2Njc"
         )
@@ -1072,9 +1287,14 @@ class TestNotificationActions:
         )
 
         assert response.status_code == 200
-        assert response.json() == {"status": "ok", "error": None}
+        assert response.json() == {
+            "status": "error",
+            "error": "Archived 0 of 1 notifications; 1 could not be resolved by REST.",
+            "successful_notification_ids": [],
+            "unresolved_notification_ids": [current_html_id],
+        }
         assert len(lookup_calls) == 2
-        assert fallback_calls == [[current_html_id]]
+        assert fallback_calls == []
 
     def test_submit_action_accepts_batched_notification_ids(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

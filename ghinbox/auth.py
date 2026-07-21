@@ -80,7 +80,7 @@ def login_interactive(
 
     if auth_path.exists() and not force:
         print(f"Auth state already exists for '{account}' at {auth_path}")
-        print("Use --force to re-login")
+        print("Verify the stored state before replacing it.")
         return True, load_username(account)
 
     print(f"\n{'=' * 60}")
@@ -203,6 +203,16 @@ def verify_auth(account: str) -> bool:
     return valid
 
 
+def refresh_auth(account: str) -> tuple[bool, str | None]:
+    """Keep a valid stored session, opening login only when it needs refresh."""
+    if has_valid_auth(account) and verify_auth(account):
+        print("Stored browser session is still valid; no login needed.")
+        return True, load_username(account)
+
+    print("Stored browser session is missing or expired; opening GitHub login.")
+    return login_interactive(account, force=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="GitHub login bootstrap for Playwright automation"
@@ -215,7 +225,7 @@ def main():
         "--force",
         "-f",
         action="store_true",
-        help="Force re-login even if auth state exists",
+        help="Replace stored auth without verifying it first (last resort)",
     )
     parser.add_argument(
         "--verify",
@@ -250,7 +260,10 @@ def main():
         success = verify_auth(args.account)
         return 0 if success else 1
 
-    success, _ = login_interactive(args.account, force=args.force)
+    if args.force:
+        success, _ = login_interactive(args.account, force=True)
+    else:
+        success, _ = refresh_auth(args.account)
     return 0 if success else 1
 
 

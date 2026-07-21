@@ -36,6 +36,25 @@ To work around these issues, ghinbox isn't just an HTML+JS application that hits
 
 Importantly, this means that I will not host ghinbox publicly; you have to run it yourself.  When you launch the server, it will launch a flow to log you into GitHub on Playwright's Chrome instance, and then will use that to issue itself a token (we also proxy plain GitHub API calls through this server so you don't have to provide a token in the web UI) and preserve the browser credentials so that it can do direct interactions.
 
+The long-lived API token handles API reads, marking notifications done, and
+thread subscribe/unsubscribe actions. The stored browser session is still
+required for full notification syncs because GitHub's REST API does not expose
+the HTML page's Done-vs-Read state, and for the website-only unarchive action.
+An unsupported notification kind is skipped during a REST action batch instead
+of forcing the whole batch through the browser.
+
+To refresh browser authentication, use the normal command without `--force`:
+
+```bash
+uv run python -m ghinbox.auth default
+```
+
+It verifies the stored session headlessly and opens interactive GitHub login
+only when the session is missing or expired. `--verify` checks without changing
+anything. `--force` deliberately discards the stored session without checking
+it first and should be reserved for a broken state that verification cannot
+repair.
+
 This repository also contains support for "prod flows", which are scripted interactions against the real GitHub website (using test accounts), which we can use to get fixtures for our E2E tests and also verify that GitHub hasn't changed its UI in a way that is incompatible with our Playwright scripts.
 
 ## Quick Start

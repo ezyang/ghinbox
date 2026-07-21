@@ -64,6 +64,8 @@ class ActionResult:
     error: str | None = None
     response_html: str | None = None
     github_status_code: int | None = None
+    successful_notification_ids: list[str] | None = None
+    unresolved_notification_ids: list[str] | None = None
 
 
 def _safe_page_value(get_value: Callable[[], Any]) -> str | None:
