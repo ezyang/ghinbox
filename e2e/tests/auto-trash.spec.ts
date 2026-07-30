@@ -353,6 +353,96 @@ test.describe('Low-priority cleanup @mutation', () => {
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
+  test('cleans an own merged PR whose review replies are all read and pre-close', async ({ page }) => {
+    // Regression: an own (author) merged PR that still carries historical
+    // review-thread replies must be treated as resolved and swept. The
+    // direct-reply exemption in getUninterestingReason used to keep such a PR
+    // "interesting" even though every reply was already read and predated the
+    // merge, so it lingered in Feed forever instead of being auto-cleaned.
+    const mergedOwnPr = {
+      ...makePrNotification(
+        'own-merged-resolved',
+        55,
+        'Own merged PR with old, read review replies',
+        'author',
+        'closed'
+      ),
+      actors: [{ login: 'testuser', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+    };
+    currentNotificationsResponse = {
+      ...notificationsResponse,
+      notifications: [mergedOwnPr],
+    };
+
+    await seedCommentCache(page, {
+      version: 1,
+      threads: {
+        'own-merged-resolved': {
+          notificationUpdatedAt: '2025-01-08T12:05:00Z',
+          // Everything was read at noon, after the last reply and after merge.
+          lastReadAt: '2025-01-08T12:00:00Z',
+          fetchedAt: freshIso,
+          allComments: true,
+          authorLogin: 'testuser',
+          authorLoginFetchedAt: freshIso,
+          // The PR merged at 11:30, after both replies below.
+          stateEvents: [{ event: 'merged', created_at: '2025-01-08T11:30:00Z' }],
+          comments: [
+            {
+              id: 5501,
+              created_at: '2025-01-08T10:00:00Z',
+              body: 'Why does this indirect through the engine?',
+              user: { login: 'testuser' },
+              isReviewComment: true,
+            },
+            {
+              id: 5502,
+              created_at: '2025-01-08T10:30:00Z',
+              body: 'We can make the two jumps in one.',
+              user: { login: 'albanD' },
+              isReviewComment: true,
+              in_reply_to_id: 5501,
+            },
+          ],
+        },
+      },
+    });
+    await page.reload();
+
+    let archivedIds: string[] = [];
+    await page.route('**/notifications/html/action', (route) => {
+      const body = route.request().postDataJSON();
+      if (body.action === 'archive') {
+        archivedIds = body.notification_ids;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok' }),
+      });
+    });
+
+    await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    // The resolved merged PR must be swept out of the live set into Cleaned.
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.length : -1;
+      })
+      .toBe(0);
+    expect(archivedIds).toEqual(['own-merged-resolved']);
+    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+    await page.locator('#view-cleaned').click();
+    await expect(page.locator('[data-id="own-merged-resolved"]')).toBeVisible();
+    // The badge must read "Resolved", not "Replies to you", for the old replies.
+    await expect(
+      page.locator('[data-id="own-merged-resolved"] .comment-tag')
+    ).toContainText('Resolved');
+  });
+
   test('cleans a freshly bot-updated PR whose comments are only fetched during this sync', async ({ page }) => {
     // Regression: the trash sweep must not race comment hydration. A "my PR"
     // that got a new bot comment this cycle has a stale/missing thread at sweep

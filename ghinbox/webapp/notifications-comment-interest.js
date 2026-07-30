@@ -507,6 +507,22 @@
     function getUninterestingReason(notification, options = {}) {
         const comments = Array.isArray(options.comments) ? options.comments : [];
         const currentUserLogin = options.currentUserLogin;
+        // A closed/merged notification whose remaining activity is not directed
+        // at the current user (every reply is read and predates the close event)
+        // is resolved: nothing here needs attention, so treat it as
+        // uninteresting even when it still carries historical review-thread
+        // replies. This mirrors the Replies-queue gating in
+        // isNotificationDirectedAtCurrentUser so the direct-reply exemption
+        // below (which is intentionally ungated) does not keep merged PRs alive.
+        // Open items are never resolved this way, so their exemption stands.
+        if (isClosedOrMergedNotification(notification)) {
+            const directedAtCurrentUser = options.directedAtCurrentUser === undefined
+                ? isNotificationDirectedAtCurrentUser(notification, options)
+                : Boolean(options.directedAtCurrentUser);
+            if (!directedAtCurrentUser) {
+                return 'resolved';
+            }
+        }
         if (
             notification.subject?.type === 'PullRequest' &&
             comments.length > 0 &&

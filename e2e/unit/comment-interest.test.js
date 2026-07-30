@@ -458,6 +458,65 @@ test('own comment filtering keeps only comments after the latest user comment', 
   });
 });
 
+test('resolved closed PR with only pre-close, read replies is uninteresting', () => {
+  const closedPr = notification('PullRequest', 'author', {
+    subject: { type: 'PullRequest', state: 'closed', title: 'merged pr' },
+  });
+  assert.equal(
+    getUninterestingReason(closedPr, {
+      comments: [
+        comment(1, 'testuser', 'Question.', { isReviewComment: true }),
+        comment(2, 'alice', 'Answer before close.', {
+          isReviewComment: true,
+          in_reply_to_id: 1,
+        }),
+      ],
+      currentUserLogin: 'testuser',
+      isApproved: false,
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents: [{ event: 'closed', created_at: '2025-01-01T00:03:00Z' }],
+    }),
+    'resolved'
+  );
+});
+
+test('closed PR with a post-close unread reply stays interesting', () => {
+  const closedPr = notification('PullRequest', 'author', {
+    subject: { type: 'PullRequest', state: 'closed', title: 'merged pr' },
+  });
+  assert.equal(
+    getUninterestingReason(closedPr, {
+      comments: [
+        comment(1, 'testuser', 'Question.', { isReviewComment: true }),
+        comment(8, 'alice', 'Post-close regression.', {
+          isReviewComment: true,
+          in_reply_to_id: 1,
+        }),
+      ],
+      currentUserLogin: 'testuser',
+      isApproved: false,
+      lastReadAt: '2025-01-01T00:05:00Z',
+      stateEvents: [{ event: 'closed', created_at: '2025-01-01T00:07:00Z' }],
+    }),
+    null
+  );
+});
+
+test('open PR with direct replies stays interesting even when read', () => {
+  assert.equal(
+    getUninterestingReason(notification('PullRequest'), {
+      comments: [
+        comment(1, 'testuser', 'Question.', { isReviewComment: true }),
+        comment(2, 'alice', 'Answer.', { isReviewComment: true, in_reply_to_id: 1 }),
+      ],
+      currentUserLogin: 'testuser',
+      isApproved: false,
+      lastReadAt: '2025-01-01T09:00:00Z',
+    }),
+    null
+  );
+});
+
 test('revert-related bot-looking comments are interesting', () => {
   assert.equal(isUninterestingComment(comment(1, 'alice', '@pytorchbot revert this')), false);
 });

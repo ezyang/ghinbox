@@ -157,6 +157,7 @@
             comments: getStatusComments(notification, cached),
             currentUserLogin: options.currentUserLogin,
             isApproved: isApproved(notification, cached),
+            directedAtCurrentUser: options.directedAtCurrentUser,
         });
     }
 
@@ -181,11 +182,17 @@
 
         const comments = getStatusComments(notification, cached);
         const count = comments.length;
+        // Compute the uninteresting reason first: a resolved closed/merged PR
+        // (no activity directed at the user) must not advertise a "Replies to
+        // you" badge for historical, already-read replies. The direct-reply
+        // exemption keeps the badge alive whenever the reason is null, so open
+        // PRs and closed PRs with live post-close replies are unaffected.
+        const reason = getUninterestingReason(notification, cached, options);
         const directReplies = commentInterest.getDirectReviewThreadReplies(
             comments,
             options.currentUserLogin
         );
-        if (directReplies.length > 0) {
+        if (reason === null && directReplies.length > 0) {
             return {
                 label: directReplies.length === 1
                     ? 'Reply to you'
@@ -202,12 +209,12 @@
             return { label: 'Approved', className: 'approved' };
         }
 
-        const reason = getUninterestingReason(notification, cached, options);
         const reasonLabels = {
             'no-comments': 'No new comments',
             'bot-only': 'Bot comments only',
             'bot-commands': 'Bot commands only',
             'own-or-bot-only': 'Only you or bots',
+            resolved: 'Resolved',
         };
         if (reason !== null) {
             const reasonLabel = reasonLabels[reason];

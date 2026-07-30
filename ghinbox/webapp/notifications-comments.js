@@ -944,6 +944,7 @@ function getCommentStatus(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_STATUS.getCommentStatus(notification, cached, {
         currentUserLogin: state.currentUserLogin,
+        directedAtCurrentUser: isNotificationDirectedAtCurrentUser(notification),
     });
 }
 
@@ -1067,6 +1068,7 @@ function getUninterestingReason(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_STATUS.getUninterestingReason(notification, cached, {
         currentUserLogin: state.currentUserLogin,
+        directedAtCurrentUser: isNotificationDirectedAtCurrentUser(notification),
     });
 }
 
