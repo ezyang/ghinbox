@@ -1052,9 +1052,13 @@ function isNotificationForCurrentUser(notification) {
 }
 
 function isNotificationDirectedAtCurrentUser(notification) {
+    const isReviewQueue =
+        GhinboxReviewRequests.isSyntheticReviewRequest(notification) ||
+        isNotificationReviewResponsibility(notification);
     if (
         state.profileId === DEFAULT_PROFILE_ID &&
-        GhinboxFiltering.isNotificationOutsidePytorchOrgs(notification)
+        GhinboxFiltering.isNotificationOutsidePytorchOrgs(notification) &&
+        !isReviewQueue
     ) {
         return true;
     }

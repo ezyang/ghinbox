@@ -270,7 +270,7 @@ test('identifies repositories outside the PyTorch-family orgs', () => {
   assert.equal(isNotificationOutsidePytorchOrgs(notification('unknown', 'Issue', 'open')), false);
 });
 
-test('all-notifications policy forces outside-org items into Replies', () => {
+test('all-notifications policy keeps outside-org review responsibility in Reviews', () => {
   const outsideReview = notification(
     'outside-review',
     'PullRequest',
@@ -284,7 +284,7 @@ test('all-notifications policy forces outside-org items into Replies', () => {
   });
 
   assert.equal(classifier.matchesView(outsideReview, 'issues'), false);
-  assert.equal(classifier.matchesView(outsideReview, 'others-prs'), false);
-  assert.equal(classifier.matchesView(outsideReview, 'pr-notifications'), true);
+  assert.equal(classifier.matchesView(outsideReview, 'others-prs'), true);
+  assert.equal(classifier.matchesView(outsideReview, 'pr-notifications'), false);
   assert.equal(classifier.isTrashNotification(outsideReview), false);
 });

@@ -56,9 +56,14 @@
         );
         const notificationKey = deps.notificationKey || getNotificationKey;
 
-        function isForcedOutsideOrgReply(notification) {
+        function isOutsidePytorchProfileNotification(notification) {
             return routeOutsidePytorchToReplies &&
                 isNotificationOutsidePytorchOrgs(notification);
+        }
+
+        function isForcedOutsideOrgReply(notification) {
+            return isOutsidePytorchProfileNotification(notification) &&
+                !isNotificationReviewQueue(notification);
         }
 
         function cachedFor(notification) {
@@ -265,6 +270,15 @@
             const uninteresting = getUninterestingReason(notification) !== null;
 
             if (isForcedOutsideOrgReply(notification)) {
+                return false;
+            }
+
+            if (
+                isOutsidePytorchProfileNotification(notification) &&
+                isNotificationReviewQueue(notification) &&
+                !isNotificationApproved(notification) &&
+                !isNotificationDone(notification)
+            ) {
                 return false;
             }
 

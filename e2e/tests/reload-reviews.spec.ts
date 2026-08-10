@@ -213,7 +213,7 @@ test.describe('Reload reviews button @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('Reloaded 1 review notification');
   });
 
-  test('reloads review requests for each query in the active profile', async ({ page }) => {
+  test('reloads review requests from PyTorch and outside orgs', async ({ page }) => {
     await openNotificationsWithCachedData(page, {
       notifications: [],
       expectedCount: 0,
@@ -227,8 +227,23 @@ test.describe('Reload reviews button @sync', () => {
       const query = url.searchParams.get('query') || '';
       seenQueries.push(query);
       const isMetaPyTorch = query.includes('org:meta-pytorch');
-      const repo = isMetaPyTorch ? 'meta-pytorch/test' : 'pytorch/pytorch';
-      const number = isMetaPyTorch ? 301 : 201;
+      const isGooglePyTorch = query === 'org:google-pytorch';
+      const isOutsidePyTorch = query.startsWith('-org:pytorch');
+      const repo = isOutsidePyTorch
+        ? 'acme/widgets'
+        : isGooglePyTorch
+          ? 'google-pytorch/test'
+          : isMetaPyTorch
+            ? 'meta-pytorch/test'
+            : 'pytorch/pytorch';
+      const number = isOutsidePyTorch ? 501 : isGooglePyTorch ? 401 : isMetaPyTorch ? 301 : 201;
+      const title = isOutsidePyTorch
+        ? 'Outside org review'
+        : isGooglePyTorch
+          ? 'Google PyTorch review'
+          : isMetaPyTorch
+            ? 'Meta PyTorch review'
+            : 'PyTorch review';
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -237,9 +252,9 @@ test.describe('Reload reviews button @sync', () => {
             reviewRequestNotification({
               repo,
               number,
-              title: isMetaPyTorch ? 'Meta PyTorch review' : 'PyTorch review',
-              author: isMetaPyTorch ? 'bob' : 'alice',
-              updatedAt: isMetaPyTorch ? '2026-01-03T00:00:00Z' : '2026-01-02T00:00:00Z',
+              title,
+              author: isOutsidePyTorch ? 'carol' : isMetaPyTorch ? 'bob' : 'alice',
+              updatedAt: `2026-01-0${seenQueries.length + 1}T00:00:00Z`,
             }),
           ],
         }),
@@ -250,7 +265,13 @@ test.describe('Reload reviews button @sync', () => {
       const body = route.request().postDataJSON() as { variables?: { owner?: string; name?: string } };
       const owner = body.variables?.owner;
       const name = body.variables?.name;
-      const number = owner === 'meta-pytorch' && name === 'test' ? 301 : 201;
+      const number = owner === 'acme'
+        ? 501
+        : owner === 'google-pytorch'
+          ? 401
+          : owner === 'meta-pytorch' && name === 'test'
+            ? 301
+            : 201;
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -270,7 +291,7 @@ test.describe('Reload reviews button @sync', () => {
                 additions: 12,
                 deletions: 3,
                 changedFiles: 2,
-                author: { login: number === 301 ? 'bob' : 'alice' },
+                author: { login: number === 501 ? 'carol' : number === 301 ? 'bob' : 'alice' },
                 labels: { nodes: [] },
               },
             },
@@ -291,12 +312,14 @@ test.describe('Reload reviews button @sync', () => {
     await viewTab(page, 'others-prs').click();
     await page.locator('#reload-reviews-btn').click();
 
-    await expect(page.locator('.notification-item')).toHaveCount(2);
+    await expect(page.locator('.notification-item')).toHaveCount(4);
     await expect(page.locator('.notification-item')).toContainText([
+      'Outside org review',
+      'Google PyTorch review',
       'Meta PyTorch review',
       'PyTorch review',
     ]);
-    await expect(page.locator('#status-bar')).toContainText('Reloaded 2 review notifications');
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 4 review notifications');
     expect(seenQueries).toEqual([
       'org:pytorch',
       'org:meta-pytorch',
