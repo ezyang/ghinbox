@@ -259,6 +259,11 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
         entries: [
           { kind: 'query', query: 'org:pytorch' },
           { kind: 'query', query: 'org:meta-pytorch' },
+          { kind: 'query', query: 'org:google-pytorch' },
+          {
+            kind: 'query',
+            query: '-org:pytorch -org:meta-pytorch -org:google-pytorch',
+          },
         ],
       },
     ]);
@@ -266,7 +271,10 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       .poll(() =>
         page.evaluate((key) => localStorage.getItem(key), APP_STORAGE_KEYS.lastSyncedRepo)
       )
-      .toBe('pytorch:org:pytorch\norg:meta-pytorch');
+      .toBe(
+        'pytorch:org:pytorch\norg:meta-pytorch\norg:google-pytorch\n' +
+        '-org:pytorch -org:meta-pytorch -org:google-pytorch'
+      );
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -357,7 +365,12 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('[data-id="fallback-meta-1"]')).toBeVisible();
     expect(profileServer.postCount).toBe(1);
     expect(profileServer.pollCount).toBe(0);
-    expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
+    expect(seenQueries).toEqual([
+      'org:pytorch',
+      'org:meta-pytorch',
+      'org:google-pytorch',
+      '-org:pytorch -org:meta-pytorch -org:google-pytorch',
+    ]);
   });
 
   test('full sync prunes orphaned comment-cache threads from returned server snapshot', async ({

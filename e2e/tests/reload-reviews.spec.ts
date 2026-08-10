@@ -297,6 +297,11 @@ test.describe('Reload reviews button @sync', () => {
       'PyTorch review',
     ]);
     await expect(page.locator('#status-bar')).toContainText('Reloaded 2 review notifications');
-    expect(seenQueries).toEqual(['org:pytorch', 'org:meta-pytorch']);
+    expect(seenQueries).toEqual([
+      'org:pytorch',
+      'org:meta-pytorch',
+      'org:google-pytorch',
+      '-org:pytorch -org:meta-pytorch -org:google-pytorch',
+    ]);
   });
 });

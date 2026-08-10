@@ -1052,6 +1052,12 @@ function isNotificationForCurrentUser(notification) {
 }
 
 function isNotificationDirectedAtCurrentUser(notification) {
+    if (
+        state.profileId === DEFAULT_PROFILE_ID &&
+        GhinboxFiltering.isNotificationOutsidePytorchOrgs(notification)
+    ) {
+        return true;
+    }
     const comments = getSortedNotificationComments(notification);
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {

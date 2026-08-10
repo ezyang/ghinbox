@@ -108,3 +108,25 @@ test('feed digest helper passes cached lastReadAt to directed classification', (
   assert.deepEqual(result.feed_ids, ['read-directed-mention']);
   assert.equal(result.classifications[0].is_directed_at_current_user, false);
 });
+
+test('profile digest routes repositories outside PyTorch orgs out of Feed', () => {
+  const result = classifyNotifications({
+    currentUserLogin: 'ezyang',
+    routeOutsidePytorchToReplies: true,
+    notifications: [
+      notification('pytorch-item', 'subscribed', {
+        repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
+        subject: { title: 'PyTorch issue', type: 'Issue', number: 1, state: 'open' },
+      }),
+      notification('outside-item', 'subscribed', {
+        repository: { owner: 'acme', name: 'widgets', full_name: 'acme/widgets' },
+        subject: { title: 'Outside issue', type: 'Issue', number: 2, state: 'open' },
+      }),
+    ],
+    commentThreads: {},
+  });
+
+  assert.deepEqual(result.feed_ids, ['pytorch-item']);
+  assert.equal(result.classifications[1].is_directed_at_current_user, true);
+  assert.equal(result.classifications[1].is_trash, false);
+});

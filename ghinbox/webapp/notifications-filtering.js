@@ -15,6 +15,7 @@
         : (typeof require === 'function' ? require('./notifications-review-requests.js') : null);
     const VALID_ORDERS = viewState?.VALID_ORDERS || new Set(['recent', 'size']);
     const AI_AUTHOR_LOGIN = 'jansel';
+    const PYTORCH_ORGS = new Set(['pytorch', 'meta-pytorch', 'google-pytorch']);
 
     const DEFAULT_VIEW_FILTERS = viewState.DEFAULT_VIEW_FILTERS;
     const DEFAULT_VIEW_ORDERS = viewState.DEFAULT_VIEW_ORDERS;
@@ -30,11 +31,35 @@
         return notification?.id || notification?.subject?.url || '';
     }
 
+    function getNotificationOwner(notification) {
+        const explicitOwner = notification?.repository?.owner;
+        if (typeof explicitOwner === 'string' && explicitOwner.trim()) {
+            return explicitOwner.trim().toLowerCase();
+        }
+        const fullName = String(
+            notification?.repository?.full_name || notification?.repo || ''
+        ).trim();
+        return fullName.includes('/') ? fullName.split('/', 1)[0].toLowerCase() : '';
+    }
+
+    function isNotificationOutsidePytorchOrgs(notification) {
+        const owner = getNotificationOwner(notification);
+        return Boolean(owner) && !PYTORCH_ORGS.has(owner);
+    }
+
     function makeClassifier(options = {}) {
         const deps = options.deps || {};
         const commentCache = options.commentCache || { threads: {} };
         const currentUserLogin = String(options.currentUserLogin || '').toLowerCase();
+        const routeOutsidePytorchToReplies = Boolean(
+            options.routeOutsidePytorchToReplies
+        );
         const notificationKey = deps.notificationKey || getNotificationKey;
+
+        function isForcedOutsideOrgReply(notification) {
+            return routeOutsidePytorchToReplies &&
+                isNotificationOutsidePytorchOrgs(notification);
+        }
 
         function cachedFor(notification) {
             return commentCache?.threads?.[notificationKey(notification)];
@@ -149,6 +174,9 @@
         }
 
         function isNotificationDirectedAtCurrentUser(notification) {
+            if (isForcedOutsideOrgReply(notification)) {
+                return true;
+            }
             return deps.isNotificationDirectedAtCurrentUser
                 ? deps.isNotificationDirectedAtCurrentUser(notification)
                 : false;
@@ -207,6 +235,9 @@
         }
 
         function matchesView(notification, view) {
+            if (isForcedOutsideOrgReply(notification)) {
+                return view === 'pr-notifications';
+            }
             if (view === 'issues') {
                 return !isSyntheticResponsibilityNotification(notification) &&
                     !isNotificationReviewQueue(notification) &&
@@ -232,6 +263,10 @@
             const type = notification.subject?.type;
             const notifState = notification.subject?.state;
             const uninteresting = getUninterestingReason(notification) !== null;
+
+            if (isForcedOutsideOrgReply(notification)) {
+                return false;
+            }
 
             if (isCommitNotification(notification)) {
                 return true;
@@ -489,7 +524,7 @@
             if (classifier.matchesView(notif, 'pr-notifications')) {
                 counts.prNotifications++;
             }
-            if (classifier.isNotificationReviewQueue(notif)) {
+            if (classifier.matchesView(notif, 'others-prs')) {
                 counts.othersPrs++;
             }
         });
@@ -698,6 +733,7 @@
         applyStateFilter,
         cloneDefaultViewFilters,
         getFilteredNotifications,
+        isNotificationOutsidePytorchOrgs,
         getSubfilterCounts,
         getViewCounts,
         makeClassifier,

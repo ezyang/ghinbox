@@ -9,8 +9,15 @@ import {
 } from './app-fixture';
 import { clearAppStorage } from './storage-utils';
 
-const DEFAULT_PROFILE_INPUT = 'org:pytorch\norg:meta-pytorch';
-const QUERY_ORDER = ['org:pytorch', 'org:meta-pytorch'];
+const DEFAULT_PROFILE_INPUT =
+  'org:pytorch\norg:meta-pytorch\norg:google-pytorch\n' +
+  '-org:pytorch -org:meta-pytorch -org:google-pytorch';
+const QUERY_ORDER = [
+  'org:pytorch',
+  'org:meta-pytorch',
+  'org:google-pytorch',
+  '-org:pytorch -org:meta-pytorch -org:google-pytorch',
+];
 
 function fulfillJson(route: Route, body: unknown, status = 200) {
   return route.fulfill({
@@ -107,6 +114,8 @@ async function openDefaultProfileWithNotifications(page: Page) {
   const seenQueries = await mockQueryNotifications(page, {
     'org:pytorch': queryResponse('pytorch/pytorch', pytorchNotifications),
     'org:meta-pytorch': queryResponse('meta-pytorch/test', metaPytorchNotifications),
+    'org:google-pytorch': queryResponse('google-pytorch/test', []),
+    '-org:pytorch -org:meta-pytorch -org:google-pytorch': queryResponse('acme/test', []),
   });
 
   await page.goto('notifications.html');

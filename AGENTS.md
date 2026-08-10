@@ -51,7 +51,8 @@
     snapshot over the debug socket with `uv run python scripts/feed_digest.py
     --extract > /tmp/feed_data.json` (use `uv run`; the script needs `httpx`).
     By default this targets the **`pytorch` profile** (org:pytorch +
-    org:meta-pytorch), which is the user's real feed — not a single repo. Use
+    org:meta-pytorch + org:google-pytorch + everything else), which is the
+    user's real feed — not a single repo. Use
     `--repo owner/repo` only for an ad-hoc single-repo digest.
   - The extract prints a `snapshot_health` block. If it emits a staleness
     WARNING (`synced_at` older than 6h), the snapshot has drifted from GitHub;

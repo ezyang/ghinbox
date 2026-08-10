@@ -5,6 +5,8 @@ const {
   getFilteredNotifications,
   getSubfilterCounts,
   getViewCounts,
+  isNotificationOutsidePytorchOrgs,
+  makeClassifier,
   normalizeViewFilters,
 } = require('../../ghinbox/webapp/notifications-filtering.js');
 
@@ -254,4 +256,35 @@ test('computes feed interest subfilter counts', () => {
     hasNew: 1,
     noNew: 3,
   });
+});
+
+test('identifies repositories outside the PyTorch-family orgs', () => {
+  const from = (owner) => notification('org-item', 'Issue', 'open', 'subscribed', {
+    repository: { owner, name: 'repo', full_name: `${owner}/repo` },
+  });
+
+  assert.equal(isNotificationOutsidePytorchOrgs(from('pytorch')), false);
+  assert.equal(isNotificationOutsidePytorchOrgs(from('meta-pytorch')), false);
+  assert.equal(isNotificationOutsidePytorchOrgs(from('Google-PyTorch')), false);
+  assert.equal(isNotificationOutsidePytorchOrgs(from('acme')), true);
+  assert.equal(isNotificationOutsidePytorchOrgs(notification('unknown', 'Issue', 'open')), false);
+});
+
+test('all-notifications policy forces outside-org items into Replies', () => {
+  const outsideReview = notification(
+    'outside-review',
+    'PullRequest',
+    'open',
+    'review_requested',
+    { repository: { owner: 'acme', name: 'widgets', full_name: 'acme/widgets' } }
+  );
+  const classifier = makeClassifier({
+    routeOutsidePytorchToReplies: true,
+    deps: baseDeps,
+  });
+
+  assert.equal(classifier.matchesView(outsideReview, 'issues'), false);
+  assert.equal(classifier.matchesView(outsideReview, 'others-prs'), false);
+  assert.equal(classifier.matchesView(outsideReview, 'pr-notifications'), true);
+  assert.equal(classifier.isTrashNotification(outsideReview), false);
 });

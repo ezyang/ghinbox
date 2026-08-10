@@ -57,11 +57,17 @@ DEFAULT_REPORT_PATH = "/tmp/feed-report.html"
 CLASSIFIER_SCRIPT = Path(__file__).with_name("feed_digest_classify.js")
 
 # The default target is the "PyTorch" profile (mirrors the webapp's default
-# profile in notifications-core.js): the two orgs the user actually watches.
+# profile in notifications-core.js): the PyTorch-family orgs plus the
+# complementary query that captures every other notification.
 # The server snapshots a profile as one keyed unit; single repos remain
 # addressable via --repo for ad-hoc digests.
 DEFAULT_PROFILE = "pytorch"
-DEFAULT_PROFILE_ENTRIES = ["org:pytorch", "org:meta-pytorch"]
+DEFAULT_PROFILE_ENTRIES = [
+    "org:pytorch",
+    "org:meta-pytorch",
+    "org:google-pytorch",
+    "-org:pytorch -org:meta-pytorch -org:google-pytorch",
+]
 
 # A snapshot older than this is likely to have drifted from GitHub (new
 # notifications never entered it). Periodic sync is often off, so the digest
@@ -230,6 +236,8 @@ def classify_notifications(
     notifications: list[dict],
     comment_threads: dict,
     current_user: str = DEFAULT_CURRENT_USER,
+    *,
+    route_outside_pytorch_to_replies: bool = False,
 ) -> dict:
     """Classify notifications by shelling out to the webapp's JS classifier."""
     node = shutil.which("node")
@@ -242,6 +250,7 @@ def classify_notifications(
         "notifications": notifications,
         "commentThreads": comment_threads,
         "currentUserLogin": current_user,
+        "routeOutsidePytorchToReplies": route_outside_pytorch_to_replies,
     }
     try:
         result = subprocess.run(
@@ -270,6 +279,8 @@ def classify_feed(
     notifications: list[dict],
     comment_threads: dict,
     current_user: str = DEFAULT_CURRENT_USER,
+    *,
+    route_outside_pytorch_to_replies: bool = False,
 ) -> list[dict]:
     """
     Classify notifications into the Feed queue using the authoritative JS modules.
@@ -280,6 +291,7 @@ def classify_feed(
         notifications,
         comment_threads,
         current_user,
+        route_outside_pytorch_to_replies=route_outside_pytorch_to_replies,
     )
     feed_ids = {str(notification_id) for notification_id in classifications["feed_ids"]}
     return [
@@ -587,7 +599,12 @@ def build_extract_output(
     comment_threads = comment_cache.get("threads", {})
     authenticity_token = snap.get("authenticity_token", "")
 
-    feed = classify_feed(notifications, comment_threads, current_user)
+    feed = classify_feed(
+        notifications,
+        comment_threads,
+        current_user,
+        route_outside_pytorch_to_replies=bool(snapshot_data.get("profile")),
+    )
     reply_nature = find_reply_nature_in_feed(feed, comment_threads, current_user)
     reply_nature_ids = {n["id"] for n in reply_nature}
     formatted = format_for_llm(feed, comment_threads, reply_nature_ids)
@@ -763,7 +780,12 @@ def do_mark_done(
     comment_threads = comment_cache.get("threads", {})
     authenticity_token = snap.get("authenticity_token", "")
 
-    feed = classify_feed(notifications, comment_threads, current_user)
+    feed = classify_feed(
+        notifications,
+        comment_threads,
+        current_user,
+        route_outside_pytorch_to_replies=bool(snapshot_data.get("profile")),
+    )
     exclude = set(exclude_ids or [])
     ids_to_mark = [n["id"] for n in feed if n["id"] not in exclude]
 

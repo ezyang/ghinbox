@@ -98,17 +98,24 @@
         const AUTO_MARK_TRASH_KEY = STORAGE_KEYS.autoMarkTrash;
         const RATE_LIMIT_LOG_MAX = 300;
         const DEFAULT_PROFILE_ID = 'pytorch';
+        const PYTORCH_ORG_QUERIES = [
+            'org:pytorch',
+            'org:meta-pytorch',
+            'org:google-pytorch',
+        ];
+        const EVERYTHING_ELSE_QUERY =
+            '-org:pytorch -org:meta-pytorch -org:google-pytorch';
         const DEFAULT_PROFILES = [
             {
                 id: 'pytorch',
-                name: 'PyTorch',
-                entries: ['org:pytorch', 'org:meta-pytorch'],
+                name: 'All notifications',
+                entries: [...PYTORCH_ORG_QUERIES, EVERYTHING_ELSE_QUERY],
                 system: true,
             },
             {
                 id: 'everything-else',
                 name: 'Everything else',
-                entries: ['-org:pytorch -org:meta-pytorch'],
+                entries: [EVERYTHING_ELSE_QUERY],
                 system: true,
             },
             {
@@ -279,6 +286,19 @@
                             const fallback = byId.get(String(profile?.id || ''));
                             const normalized = normalizeProfile(profile, fallback);
                             if (normalized) {
+                                const entriesText = normalized.entries.join('\n');
+                                if (
+                                    normalized.id === 'pytorch' &&
+                                    entriesText === 'org:pytorch\norg:meta-pytorch'
+                                ) {
+                                    normalized.entries = fallback.entries.slice();
+                                    normalized.name = fallback.name;
+                                } else if (
+                                    normalized.id === 'everything-else' &&
+                                    entriesText === '-org:pytorch -org:meta-pytorch'
+                                ) {
+                                    normalized.entries = fallback.entries.slice();
+                                }
                                 byId.set(normalized.id, normalized);
                             }
                         });
@@ -1181,6 +1201,7 @@
             return GhinboxFiltering.makeClassifier({
                 currentUserLogin: state.currentUserLogin,
                 commentCache: state.commentCache,
+                routeOutsidePytorchToReplies: state.profileId === DEFAULT_PROFILE_ID,
                 deps: {
                     notificationKey: getNotificationKey,
                     isNotificationForCurrentUser: typeof isNotificationForCurrentUser === 'function'

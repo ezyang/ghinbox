@@ -49,6 +49,7 @@ function normalizeInput(payload) {
       notifications: payload,
       commentThreads: {},
       currentUserLogin: '',
+      routeOutsidePytorchToReplies: false,
     };
   }
 
@@ -61,11 +62,17 @@ function normalizeInput(payload) {
       commentCache.threads || {},
     currentUserLogin: payload?.currentUserLogin || payload?.current_user ||
       payload?.currentUser || '',
+    routeOutsidePytorchToReplies: Boolean(payload?.routeOutsidePytorchToReplies),
   };
 }
 
 function classifyNotifications(payload) {
-  const { notifications, commentThreads, currentUserLogin } = normalizeInput(payload);
+  const {
+    notifications,
+    commentThreads,
+    currentUserLogin,
+    routeOutsidePytorchToReplies,
+  } = normalizeInput(payload);
   const directedCache = new Map();
 
   function cachedFor(notification) {
@@ -95,6 +102,7 @@ function classifyNotifications(payload) {
   const classifier = filtering.makeClassifier({
     currentUserLogin,
     commentCache: { threads: commentThreads },
+    routeOutsidePytorchToReplies,
     deps: {
       notificationKey: getNotificationKey,
       isNotificationDirectedAtCurrentUser: isDirectedAtCurrentUser,
@@ -122,10 +130,11 @@ function classifyNotifications(payload) {
       id,
       is_feed: isFeed,
       is_trash: isTrash,
-      is_review_queue: classifier.isNotificationReviewQueue(notification),
+      is_review_queue: classifier.matchesView(notification, 'others-prs'),
       is_synthetic_review_request:
         classifier.isSyntheticResponsibilityNotification(notification),
-      is_directed_at_current_user: isDirectedAtCurrentUser(notification),
+      is_directed_at_current_user:
+        classifier.isNotificationDirectedAtCurrentUser(notification),
     };
   });
 
