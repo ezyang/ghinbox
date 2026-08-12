@@ -78,11 +78,11 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-07-08-asset-version-shadow'
+      'notifications.css?v=2026-08-11-auth-render-status'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-07-08-asset-version-shadow'
+      'notifications-sync.js?v=2026-08-11-auth-render-status'
     );
   });
 
@@ -241,6 +241,34 @@ test.describe('Auth Status @layout', () => {
     const authStatus = page.locator('#auth-status');
     await expect(authStatus).toContainText('Signed in as testuser');
     await expect(authStatus).toHaveClass(/authenticated/);
+  });
+
+  test('keeps authenticated state when the follow-up render fails', async ({ page }) => {
+    await page.route('**/github/rest/user', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ login: 'testuser' }),
+      });
+    });
+
+    await page.goto('notifications.html');
+    await expect(page.locator('#auth-status')).toContainText('Signed in as testuser');
+
+    await page.evaluate(async () => {
+      const loading = document.querySelector('#loading');
+      if (!loading) throw new Error('Missing loading indicator');
+      Object.defineProperty(loading, 'className', {
+        configurable: true,
+        set() {
+          throw new Error('Simulated render failure');
+        },
+      });
+      await (window as any).checkAuth().catch(() => {});
+    });
+
+    await expect(page.locator('#auth-status')).toContainText('Signed in as testuser');
+    await expect(page.locator('#auth-status')).toHaveClass(/authenticated/);
   });
 
   test('shows error state when not authenticated', async ({ page }) => {

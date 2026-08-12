@@ -393,6 +393,7 @@
 
         // Check authentication status
         async function checkAuth() {
+            let authenticated = false;
             try {
                 const response = await fetch('/github/rest/user');
                 const data = await response.json();
@@ -405,8 +406,7 @@
                     if (typeof setCachedAuth === 'function') {
                         setCachedAuth(data.login);
                     }
-                    // Re-render to update view counts that depend on current user
-                    render();
+                    authenticated = true;
                 } else {
                     elements.authStatus.textContent = 'Not authenticated';
                     elements.authStatus.className = 'auth-status error';
@@ -419,6 +419,13 @@
                 elements.authStatus.textContent = 'Auth check failed';
                 elements.authStatus.className = 'auth-status error';
                 state.currentUserLogin = null;
+            }
+
+            // Keep rendering failures separate from the auth request. Otherwise an
+            // unrelated UI exception overwrites a successful sign-in state with
+            // the misleading "Auth check failed" message.
+            if (authenticated) {
+                render();
             }
         }
 
