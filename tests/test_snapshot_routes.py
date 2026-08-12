@@ -706,3 +706,58 @@ def test_profile_snapshot_syncs_multiple_query_entries(
     state = get_sync_state("profile:test-profile", db_path)
     assert state["status"] == "success"
     assert state["notifications_count"] == 2
+
+
+def test_profile_snapshot_deduplicates_overlapping_query_notifications(
+    db_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_one_entry_notifications(
+        fetcher, entry, on_page, base_total
+    ) -> tuple[list[dict], None, str, str]:
+        notification = {
+            "id": "shared-notification-id",
+            "updated_at": "2025-01-05T12:00:00Z",
+            "source": entry.query,
+        }
+        on_page(base_total + 1)
+        return [notification], None, f"https://github.com/{entry.query}", "generated"
+
+    async def fake_review_requests(*args, **kwargs) -> list[dict]:
+        return []
+
+    async def fake_comment_cache(*args, **kwargs) -> dict:
+        return {"version": 1, "threads": {}}
+
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", object)
+    monkeypatch.setattr(
+        snapshot_routes,
+        "_fetch_one_entry_notifications",
+        fake_fetch_one_entry_notifications,
+    )
+    monkeypatch.setattr(
+        snapshot_routes, "fetch_review_request_notifications", fake_review_requests
+    )
+    monkeypatch.setattr(
+        snapshot_routes, "_fetch_snapshot_comment_cache", fake_comment_cache
+    )
+
+    entries = [
+        snapshot_routes.SnapshotEntry(kind="query", query="org:pytorch"),
+        snapshot_routes.SnapshotEntry(
+            kind="query",
+            query="-org:pytorch -org:meta-pytorch -org:google-pytorch",
+        ),
+    ]
+    asyncio.run(snapshot_routes._fetch_snapshot("profile:overlap", entries))
+
+    snapshot = get_snapshot("profile:overlap", db_path)
+    assert snapshot is not None
+    assert snapshot["notifications"] == [
+        {
+            "id": "shared-notification-id",
+            "updated_at": "2025-01-05T12:00:00Z",
+            "source": "org:pytorch",
+        }
+    ]
+    assert get_sync_state("profile:overlap", db_path)["notifications_count"] == 1

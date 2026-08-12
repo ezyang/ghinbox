@@ -670,7 +670,10 @@
             if (storageValue) {
                 localStorage.setItem(REPO_KEY, storageValue);
             }
-            state.notifications = snapshot.notifications;
+            // Profile query results can overlap even when their GitHub search
+            // qualifiers appear disjoint. Keep older stored snapshots from
+            // rendering duplicate cards while the server rebuild catches up.
+            state.notifications = dedupAndSortNotifications(snapshot.notifications);
             state.lastSyncedRepo = lastSyncedRepo;
             if (lastSyncedRepo) {
                 localStorage.setItem(LAST_SYNCED_REPO_KEY, lastSyncedRepo);

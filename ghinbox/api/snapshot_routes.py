@@ -80,6 +80,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _deduplicate_notifications_by_id(notifications: list[dict]) -> list[dict]:
+    """Keep the first row for each GitHub notification ID.
+
+    Profile queries are not guaranteed to be disjoint. In particular, GitHub
+    can return an org notification for both an ``org:`` query and the profile's
+    negative-org catch-all query. Rows without an ID are retained so malformed
+    upstream data remains visible rather than being collapsed together.
+    """
+    deduplicated: list[dict] = []
+    seen_ids: set[str] = set()
+    for notification in notifications:
+        notification_id = str(notification.get("id") or "")
+        if notification_id and notification_id in seen_ids:
+            continue
+        if notification_id:
+            seen_ids.add(notification_id)
+        deduplicated.append(notification)
+    return deduplicated
+
+
 def _merge_review_request_notifications(
     notifications: list[dict],
     review_requests: list[dict],
@@ -320,6 +340,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
         )
         review_requests = await review_requests_task
         review_requests_task = None
+        all_notifications = _deduplicate_notifications_by_id(all_notifications)
         merged_notifications: list[dict] = _merge_review_request_notifications(
             all_notifications,
             review_requests,

@@ -286,6 +286,47 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(querySnapshotEndpointCalled).toBe(false);
   });
 
+  test('deduplicates notifications returned by overlapping profile queries', async ({ page }) => {
+    const notification = makeIssueNotification({
+      id: 'overlapping-profile-notification',
+      repo: 'pytorch/torchtitan',
+      repository: {
+        owner: 'pytorch',
+        name: 'torchtitan',
+        full_name: 'pytorch/torchtitan',
+      },
+      reason: 'mention',
+      updated_at: '2025-01-04T12:00:00Z',
+      subject: { title: 'Returned by two profile queries', number: 4117 },
+    });
+
+    await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      syncPost: makeProfileServerSnapshotPayload('pytorch', {
+        sync: { status: 'running', mode: 'full' },
+      }),
+      syncPoll: makeProfileServerSnapshotPayload('pytorch', {
+        sync: {
+          status: 'success',
+          mode: 'full',
+          phase: 'complete',
+          pages_fetched: 2,
+          notifications_count: 1,
+        },
+        snapshot: {
+          notifications: [notification, { ...notification }],
+          authenticity_token: 'server-token',
+          synced_at: '2025-01-04T12:01:00+00:00',
+        },
+      }),
+    });
+
+    await page.locator('#full-sync-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('[data-id="overlapping-profile-notification"]')).toHaveCount(1);
+  });
+
   test('profile full sync falls back to client sync when the server fetcher is unavailable', async ({
     page,
   }) => {
