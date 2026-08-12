@@ -48,6 +48,7 @@ test.describe('Feed and Reviews PR classification @classification', () => {
   });
 
   test('keeps PR author notifications in Feed unless they are directed replies or reviews', async ({ page }) => {
+    await page.locator('#profile-select').selectOption('custom');
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();
@@ -111,6 +112,7 @@ test.describe('Feed and Reviews PR classification @classification', () => {
       const postData = response.request().postData() || '';
       return postData.includes('reviewDecision') && postData.includes('pullRequest');
     });
+    await page.locator('#profile-select').selectOption('custom');
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();

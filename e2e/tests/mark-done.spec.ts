@@ -29,6 +29,7 @@ test.describe('Mark Done @slow @mutation', () => {
     await disableAutoClean(page);
 
     // Sync to load notifications
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     // Wait for Feed notifications to load
@@ -880,6 +881,7 @@ test.describe('Mark Done with Node IDs @slow @mutation', () => {
     await clearAppStorage(page);
     await disableAutoClean(page);
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     // Wait for Feed notifications to load

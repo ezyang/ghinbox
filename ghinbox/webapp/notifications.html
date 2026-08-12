@@ -27,7 +27,7 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-08-11-auth-render-status';
+            const ASSET_VERSION = '2026-08-12-review-priority';
             const CACHE_BUST_KEY = 'ghnotif_cache_bust';
             function normalizeCacheBustPart(value) {
                 if (typeof value !== 'string') {
@@ -1013,6 +1013,10 @@
             gap: 4px;
         }
 
+        .repo-input-group[hidden] {
+            display: none;
+        }
+
         #repo-input {
             min-width: 0;
             width: 100%;
@@ -1070,8 +1074,8 @@
                         <option value="custom">Custom</option>
                     </select>
                 </div>
-                <div class="input-group repo-input-group">
-                    <label for="repo-input">Notification queries:</label>
+                <div id="repo-input-group" class="input-group repo-input-group" hidden>
+                    <label for="repo-input">Custom notification queries:</label>
                     <textarea
                         id="repo-input"
                         rows="2"

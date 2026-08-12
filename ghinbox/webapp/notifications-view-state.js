@@ -184,10 +184,10 @@
                 },
                 {
                     group: 'author',
-                    ariaLabel: 'Filter reviews by author',
-                    allLabel: 'All authors',
+                    ariaLabel: 'Filter reviews by priority',
+                    allLabel: 'All reviews',
                     options: [
-                        { value: 'committer', label: 'Committers' },
+                        { value: 'committer', label: 'Important' },
                         { value: 'ai', label: 'AI' },
                         { value: 'external', label: 'External' },
                     ],

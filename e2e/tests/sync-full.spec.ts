@@ -103,6 +103,7 @@ test.describe('Sync Full @slow @sync', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -244,6 +245,7 @@ test.describe('Sync Full @slow @sync', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -302,6 +304,7 @@ test.describe('Sync Full @slow @sync', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 

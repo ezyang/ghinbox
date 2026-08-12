@@ -70,6 +70,7 @@ test.describe('Polish @layout', () => {
         { times: 1 }
       );
 
+      await page.locator('#profile-select').selectOption('custom');
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced');
@@ -104,6 +105,7 @@ test.describe('Polish @layout', () => {
         { times: 1 }
       );
 
+      await page.locator('#profile-select').selectOption('custom');
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
       await expect(page.locator('#status-bar')).toContainText('Synced');

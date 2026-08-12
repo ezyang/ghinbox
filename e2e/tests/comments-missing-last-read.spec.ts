@@ -92,6 +92,7 @@ test.describe('Comments without last_read_at @sync', () => {
     );
 
     await page.goto('notifications.html');
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

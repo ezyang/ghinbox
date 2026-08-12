@@ -103,6 +103,7 @@ test.describe('Sync Incremental @slow @sync', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

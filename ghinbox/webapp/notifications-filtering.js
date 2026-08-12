@@ -16,6 +16,7 @@
     const VALID_ORDERS = viewState?.VALID_ORDERS || new Set(['recent', 'size']);
     const AI_AUTHOR_LOGIN = 'jansel';
     const PYTORCH_ORGS = new Set(['pytorch', 'meta-pytorch', 'google-pytorch']);
+    const EXTERNAL_REVIEW_REPOSITORIES = new Set(['pytorch/pytorch']);
 
     const DEFAULT_VIEW_FILTERS = viewState.DEFAULT_VIEW_FILTERS;
     const DEFAULT_VIEW_ORDERS = viewState.DEFAULT_VIEW_ORDERS;
@@ -40,6 +41,29 @@
             notification?.repository?.full_name || notification?.repo || ''
         ).trim();
         return fullName.includes('/') ? fullName.split('/', 1)[0].toLowerCase() : '';
+    }
+
+    function getNotificationRepositoryFullName(notification) {
+        const explicitFullName = String(
+            notification?.repository?.full_name || notification?.repo || ''
+        ).trim();
+        if (explicitFullName.includes('/')) {
+            return explicitFullName.toLowerCase();
+        }
+        const owner = String(notification?.repository?.owner || '').trim();
+        const name = String(notification?.repository?.name || '').trim();
+        if (owner && name) {
+            return `${owner}/${name}`.toLowerCase();
+        }
+        const subjectUrl = String(notification?.subject?.url || '');
+        const match = subjectUrl.match(/github\.com\/([^/]+)\/([^/?#]+)/i);
+        return match ? `${match[1]}/${match[2]}`.toLowerCase() : '';
+    }
+
+    function isPytorchCoreNotification(notification) {
+        return EXTERNAL_REVIEW_REPOSITORIES.has(
+            getNotificationRepositoryFullName(notification)
+        );
     }
 
     function isNotificationOutsidePytorchOrgs(notification) {
@@ -211,10 +235,26 @@
             if (notification.subject?.type !== 'PullRequest') {
                 return false;
             }
+            if (!isPytorchCoreNotification(notification)) {
+                return false;
+            }
             if (!hasNotificationAuthorPermission(notification)) {
                 return false;
             }
             return !isNotificationFromCommitter(notification);
+        }
+
+        function isNotificationImportant(notification) {
+            if (notification.subject?.type !== 'PullRequest') {
+                return false;
+            }
+            const repository = getNotificationRepositoryFullName(notification);
+            // Low-volume repositories stay visible without requiring author metadata.
+            // Only explicitly high-volume repositories split external authors away.
+            if (repository && !isPytorchCoreNotification(notification)) {
+                return true;
+            }
+            return isNotificationFromCommitter(notification);
         }
 
         function isNotificationFromAiAuthor(notification) {
@@ -332,6 +372,7 @@
             isNotificationFromAiAuthor,
             isNotificationFromCommitter,
             isNotificationFromExternal,
+            isNotificationImportant,
             isNotificationNeedsReview,
             isNotificationOriginPullRequest,
             isNotificationReviewQueue,
@@ -378,7 +419,7 @@
         return notifications.filter((notif) => {
             const isAiAuthor = classifier.isNotificationFromAiAuthor(notif);
             if (authorFilter === 'committer') {
-                return !isAiAuthor && classifier.isNotificationFromCommitter(notif);
+                return !isAiAuthor && classifier.isNotificationImportant(notif);
             }
             if (authorFilter === 'ai') {
                 return isAiAuthor;
@@ -661,7 +702,7 @@
             baseForAuthorCounts.forEach((notif) => {
                 if (classifier.isNotificationFromAiAuthor(notif)) {
                     authorCounts.ai++;
-                } else if (classifier.isNotificationFromCommitter(notif)) {
+                } else if (classifier.isNotificationImportant(notif)) {
                     authorCounts.committer++;
                 } else if (classifier.isNotificationFromExternal(notif)) {
                     authorCounts.external++;
@@ -748,6 +789,7 @@
         cloneDefaultViewFilters,
         getFilteredNotifications,
         isNotificationOutsidePytorchOrgs,
+        isPytorchCoreNotification,
         getSubfilterCounts,
         getViewCounts,
         makeClassifier,

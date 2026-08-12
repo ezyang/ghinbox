@@ -198,6 +198,7 @@
         // DOM elements
         const elements = {
             profileSelect: document.getElementById('profile-select'),
+            repoInputGroup: document.getElementById('repo-input-group'),
             repoInput: document.getElementById('repo-input'),
             syncBtn: document.getElementById('sync-btn'),
             fullSyncBtn: document.getElementById('full-sync-btn'),
@@ -284,21 +285,12 @@
                     if (Array.isArray(parsed)) {
                         parsed.forEach((profile) => {
                             const fallback = byId.get(String(profile?.id || ''));
+                            // Built-in query scopes are policy, not user configuration.
+                            if (!fallback || fallback.system) {
+                                return;
+                            }
                             const normalized = normalizeProfile(profile, fallback);
                             if (normalized) {
-                                const entriesText = normalized.entries.join('\n');
-                                if (
-                                    normalized.id === 'pytorch' &&
-                                    entriesText === 'org:pytorch\norg:meta-pytorch'
-                                ) {
-                                    normalized.entries = fallback.entries.slice();
-                                    normalized.name = fallback.name;
-                                } else if (
-                                    normalized.id === 'everything-else' &&
-                                    entriesText === '-org:pytorch -org:meta-pytorch'
-                                ) {
-                                    normalized.entries = fallback.entries.slice();
-                                }
                                 byId.set(normalized.id, normalized);
                             }
                         });
@@ -363,6 +355,9 @@
             if (elements.repoInput) {
                 elements.repoInput.value = getProfileEntriesText(profile);
             }
+            if (elements.repoInputGroup) {
+                elements.repoInputGroup.hidden = Boolean(profile?.system);
+            }
             mirrorRepoStorage(profile?.entries || []);
         }
 
@@ -392,6 +387,10 @@
         function updateActiveProfileEntries(entries) {
             const profile = getActiveProfile();
             if (!profile) {
+                return;
+            }
+            if (profile.system) {
+                mirrorRepoStorage(profile.entries);
                 return;
             }
             profile.entries = entries.slice();
@@ -438,6 +437,10 @@
         }
 
         function getCurrentProfileEntries() {
+            const profile = getActiveProfile();
+            if (profile?.system) {
+                return profile.entries.slice();
+            }
             if (elements.repoInput) {
                 return splitProfileEntries(elements.repoInput.value);
             }
@@ -873,12 +876,14 @@
                     setActiveProfile(event.target.value);
                 });
             }
-            elements.repoInput.addEventListener('input', handleRepoInput);
-            elements.repoInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
-                    withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
-                }
-            });
+            if (elements.repoInput) {
+                elements.repoInput.addEventListener('input', handleRepoInput);
+                elements.repoInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
+                    }
+                });
+            }
             if (elements.orderSelect) {
                 elements.orderSelect.addEventListener('change', handleOrderChange);
             }

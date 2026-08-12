@@ -118,6 +118,7 @@ test.describe('Quick Sync PR state refresh @slow @sync', () => {
   });
 
   test('updates cached PR state after quick sync', async ({ page }) => {
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect

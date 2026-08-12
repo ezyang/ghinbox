@@ -26,6 +26,7 @@ test.describe('Remove Reviewer @mutation', () => {
     await clearAppStorage(page);
 
     // Sync to load notifications
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     // Wait for the background comment prefetch to settle: each progress
@@ -266,6 +267,7 @@ test.describe('Remove Reviewer @mutation', () => {
 
       // Reload
       await page.reload();
+      await page.locator('#profile-select').selectOption('custom');
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
       // Switch to Reviews view to see review-requested PR notifications.

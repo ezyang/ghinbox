@@ -241,6 +241,7 @@ test.describe('Notification Rendering @layout', () => {
     });
 
     await clearAppStorage(page);
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await reviewMetadataResponse;
@@ -293,6 +294,7 @@ test.describe('Notification Rendering @layout', () => {
         },
       });
 
+      await page.locator('#profile-select').selectOption('custom');
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
 
@@ -360,6 +362,7 @@ test.describe('Notification Rendering @layout', () => {
         },
       });
 
+      await page.locator('#profile-select').selectOption('custom');
       await page.locator('#repo-input').fill('test/repo');
       await page.locator('#sync-btn').click();
 

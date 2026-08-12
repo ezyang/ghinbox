@@ -122,6 +122,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     await mockNotificationsResponse(page, notificationBackedReviewRequest);
     const actions = await captureHtmlActions(page);
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');
@@ -143,6 +144,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
   test('removes approved review-requested PRs from needs-review', async ({
     page,
   }) => {
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
@@ -185,6 +187,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
@@ -221,6 +224,7 @@ test.describe('PR responsibility queue @classification @mutation', () => {
       });
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');

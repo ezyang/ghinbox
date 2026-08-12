@@ -177,6 +177,7 @@ test.describe('Read comment watermark @mutation', () => {
     });
 
     await page.goto('notifications.html');
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

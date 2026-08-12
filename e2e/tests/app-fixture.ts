@@ -600,6 +600,7 @@ export async function syncNotificationsUntilCached(page: Page, options: {
   expectedCount: number;
   repo?: string;
 }) {
+  await page.locator('#profile-select').selectOption('custom');
   await page.locator('#repo-input').fill(options.repo ?? DEFAULT_REPO);
   await page.locator('#sync-btn').click();
   await expect
@@ -685,6 +686,7 @@ export async function syncNotifications(page: Page, options: {
   const expectedCount = options.expectedCount ?? 4;
   const repo = options.repo ?? DEFAULT_REPO;
 
+  await page.locator('#profile-select').selectOption('custom');
   await page.locator('#repo-input').fill(repo);
   await page.locator('#sync-btn').click();
   await expect(page.locator('.notification-item')).toHaveCount(expectedCount);

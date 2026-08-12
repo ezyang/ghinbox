@@ -46,6 +46,7 @@ test.describe('Query State @classification', () => {
   test('updates the query string when filters change', async ({ page }) => {
     await page.goto('notifications.html');
 
+    await page.locator('#profile-select').selectOption('custom');
     const repoInput = page.locator('#repo-input');
     await repoInput.fill('test/repo');
 

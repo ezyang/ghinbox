@@ -118,8 +118,8 @@
 
         if (authorFilter === 'committer') {
             return {
-                title: 'No committer PRs',
-                message: 'No pull requests from repository committers match this view.',
+                title: 'No important reviews',
+                message: 'No reviews in the important bucket match this view.',
             };
         }
 

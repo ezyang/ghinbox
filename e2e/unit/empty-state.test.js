@@ -139,14 +139,14 @@ function withFilter(view, filters) {
     },
   },
   {
-    name: 'committer author filter has no matches',
+    name: 'important review filter has no matches',
     input: input({
       view: 'others-prs',
       viewFilters: withFilter('others-prs', { author: 'committer' }),
     }),
     expected: {
-      title: 'No committer PRs',
-      message: 'No pull requests from repository committers match this view.',
+      title: 'No important reviews',
+      message: 'No reviews in the important bucket match this view.',
     },
   },
   {

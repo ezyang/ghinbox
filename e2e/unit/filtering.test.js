@@ -6,6 +6,7 @@ const {
   getSubfilterCounts,
   getViewCounts,
   isNotificationOutsidePytorchOrgs,
+  isPytorchCoreNotification,
   makeClassifier,
   normalizeViewFilters,
 } = require('../../ghinbox/webapp/notifications-filtering.js');
@@ -154,16 +155,23 @@ test('classifies notifications into view counts', () => {
     expected: ['draft-pr', 'merged-pr', 'mergedog-pr'],
   },
   {
-    name: 'reviews author filter separates committers',
+    name: 'reviews importance filter keeps all non-AI work outside pytorch/pytorch',
     view: 'others-prs',
     filters: { 'others-prs': { author: 'committer' } },
-    expected: ['review-pr'],
+    expected: [
+      'review-pr',
+      'draft-pr',
+      'merged-pr',
+      'approved-review-pr',
+      'mergedog-pr',
+      'external-pr',
+    ],
   },
   {
-    name: 'reviews author filter separates external authors with permissions loaded',
+    name: 'reviews external filter ignores lower-volume repositories',
     view: 'others-prs',
     filters: { 'others-prs': { author: 'external' } },
-    expected: ['external-pr'],
+    expected: [],
   },
   {
     name: 'reviews author filter separates AI authors by login',
@@ -219,19 +227,19 @@ test('computes subfilter counts after cross-filters', () => {
   }));
 
   assert.deepEqual(counts.state, {
-    all: 1,
-    open: 1,
-    closed: 0,
-    draft: 0,
-    done: 0,
-    needsReview: 1,
-    approved: 0,
+    all: 6,
+    open: 5,
+    closed: 1,
+    draft: 1,
+    done: 3,
+    needsReview: 2,
+    approved: 1,
   });
   assert.deepEqual(counts.author, {
     all: 7,
-    committer: 1,
+    committer: 6,
     ai: 1,
-    external: 1,
+    external: 0,
   });
 });
 
@@ -287,4 +295,85 @@ test('all-notifications policy keeps outside-org review responsibility in Review
   assert.equal(classifier.matchesView(outsideReview, 'others-prs'), true);
   assert.equal(classifier.matchesView(outsideReview, 'pr-notifications'), false);
   assert.equal(classifier.isTrashNotification(outsideReview), false);
+});
+
+test('review importance only separates external authors for pytorch/pytorch', () => {
+  const review = (id, repo) => notification(
+    id,
+    'PullRequest',
+    'open',
+    'review_requested',
+    {
+      repository: {
+        owner: repo.split('/')[0],
+        name: repo.split('/')[1],
+        full_name: repo,
+      },
+    }
+  );
+  const cases = [
+    {
+      name: 'PyTorch core external author',
+      notification: review('core-external', 'pytorch/pytorch'),
+      fromCommitter: false,
+      hasPermission: true,
+      important: false,
+      external: true,
+    },
+    {
+      name: 'PyTorch core committer',
+      notification: review('core-committer', 'pytorch/pytorch'),
+      fromCommitter: true,
+      hasPermission: true,
+      important: true,
+      external: false,
+    },
+    {
+      name: 'lower-volume PyTorch repository',
+      notification: review('vision-external', 'pytorch/vision'),
+      fromCommitter: false,
+      hasPermission: true,
+      important: true,
+      external: false,
+    },
+    {
+      name: 'repository outside the PyTorch orgs',
+      notification: review('acme-external', 'acme/widgets'),
+      fromCommitter: false,
+      hasPermission: true,
+      important: true,
+      external: false,
+    },
+    {
+      name: 'non-core repository without author metadata',
+      notification: review('meta-unknown', 'meta-pytorch/torchchat'),
+      fromCommitter: false,
+      hasPermission: false,
+      important: true,
+      external: false,
+    },
+  ];
+
+  cases.forEach((entry) => {
+    const classifier = makeClassifier({
+      deps: {
+        ...baseDeps,
+        isNotificationFromCommitter: () => entry.fromCommitter,
+        hasNotificationAuthorPermission: () => entry.hasPermission,
+      },
+    });
+    assert.equal(
+      classifier.isNotificationImportant(entry.notification),
+      entry.important,
+      `${entry.name}: important`
+    );
+    assert.equal(
+      classifier.isNotificationFromExternal(entry.notification),
+      entry.external,
+      `${entry.name}: external`
+    );
+  });
+
+  assert.equal(isPytorchCoreNotification(review('core', 'PyTorch/PyTorch')), true);
+  assert.equal(isPytorchCoreNotification(review('vision', 'pytorch/vision')), false);
 });

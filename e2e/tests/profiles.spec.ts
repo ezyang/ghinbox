@@ -35,6 +35,29 @@ function response(repo: string, notifications: unknown[]) {
   );
 }
 
+function makeReviewRequest(repo: string, number: number) {
+  const [owner, name] = repo.split('/');
+  return {
+    id: `review-request:${repo}#${number}`,
+    unread: false,
+    reason: 'review_requested',
+    responsibility_source: 'review-requested',
+    updated_at: '2025-01-05T12:00:00Z',
+    last_read_at: null,
+    repository: { owner, name, full_name: repo },
+    subject: {
+      title: 'Needs my review',
+      url: `https://github.com/${repo}/pull/${number}`,
+      type: 'PullRequest',
+      number,
+      state: 'open',
+      state_reason: null,
+    },
+    actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
+    ui: { saved: false, done: false, action_tokens: {} },
+  };
+}
+
 test.describe('Notification Profiles @smoke', () => {
   test.beforeEach(async ({ page }) => {
     await mockDefaultApiRoutes(page);
@@ -44,18 +67,23 @@ test.describe('Notification Profiles @smoke', () => {
 
   test('ships an all-notifications default with the PyTorch-family org set', async ({ page }) => {
     await expect(page.locator('#profile-select')).toHaveValue('pytorch');
+    await expect(page.locator('#repo-input-group')).toBeHidden();
     await expect(page.locator('#repo-input')).toHaveValue(
       'org:pytorch\norg:meta-pytorch\norg:google-pytorch\n' +
       '-org:pytorch -org:meta-pytorch -org:google-pytorch'
     );
 
     await page.locator('#profile-select').selectOption('everything-else');
+    await expect(page.locator('#repo-input-group')).toBeHidden();
     await expect(page.locator('#repo-input')).toHaveValue(
       '-org:pytorch -org:meta-pytorch -org:google-pytorch'
     );
+
+    await page.locator('#profile-select').selectOption('custom');
+    await expect(page.locator('#repo-input-group')).toBeVisible();
   });
 
-  test('upgrades the previously persisted system profile defaults', async ({ page }) => {
+  test('ignores persisted edits to built-in notification scopes', async ({ page }) => {
     await page.evaluate(() => {
       localStorage.setItem('ghnotif_profiles', JSON.stringify([
         {
@@ -73,6 +101,7 @@ test.describe('Notification Profiles @smoke', () => {
       'org:pytorch\norg:meta-pytorch\norg:google-pytorch\n' +
       '-org:pytorch -org:meta-pytorch -org:google-pytorch'
     );
+    await expect(page.locator('#repo-input-group')).toBeHidden();
     await expect(page.locator('#profile-select option:checked')).toHaveText('All notifications');
   });
 
@@ -182,26 +211,10 @@ test.describe('Notification Profiles @smoke', () => {
       const query = url.searchParams.get('query') || '';
       reviewRequestQueries.push(query);
       const notifications = query === 'org:pytorch'
-        ? [{
-            id: 'review-request:pytorch/pytorch#7',
-            unread: false,
-            reason: 'review_requested',
-            responsibility_source: 'review-requested',
-            updated_at: '2025-01-05T12:00:00Z',
-            last_read_at: null,
-            repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
-            subject: {
-              title: 'Needs my review',
-              url: 'https://github.com/pytorch/pytorch/pull/7',
-              type: 'PullRequest',
-              number: 7,
-              state: 'open',
-              state_reason: null,
-            },
-            actors: [{ login: 'alice', avatar_url: 'https://avatars.githubusercontent.com/u/1?v=4' }],
-            ui: { saved: false, done: false, action_tokens: {} },
-          }]
-        : [];
+        ? [makeReviewRequest('pytorch/pytorch', 7)]
+        : query === 'org:meta-pytorch'
+          ? [makeReviewRequest('meta-pytorch/torchchat', 8)]
+          : [];
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -214,10 +227,20 @@ test.describe('Notification Profiles @smoke', () => {
 
     await page.locator('#full-sync-btn').click();
 
-    await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
     await viewTab(page, 'others-prs').click();
     await expect(page.locator('[data-id="review-request:pytorch/pytorch#7"]')).toBeVisible();
-    await expect(page.locator('#view-others-prs .count')).toHaveText('1');
+    await expect(page.locator('[data-id="review-request:meta-pytorch/torchchat#8"]')).toBeVisible();
+    await expect(page.locator('#view-others-prs .count')).toHaveText('2');
+    const priorityFilters = page.locator(
+      '.subfilter-tabs[data-for-view="others-prs"][data-subfilter-group="author"]'
+    );
+    await expect(priorityFilters.locator('[data-subfilter="committer"]')).toContainText(
+      /Important\s+1/
+    );
+    await priorityFilters.locator('[data-subfilter="committer"]').click();
+    await expect(page.locator('[data-id="review-request:meta-pytorch/torchchat#8"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:pytorch/pytorch#7"]')).toHaveCount(0);
     expect(reviewRequestQueries).toEqual([
       'org:pytorch',
       'org:meta-pytorch',

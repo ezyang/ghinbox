@@ -25,7 +25,7 @@ async function expectNoStatusFlash(page, text) {
  * Filtering Tests
  *
  * Tests for filtering notifications by queue (Feed, Replies, Reviews)
- * and by subfilter (All, Open, Closed, PRs, Issues, Needs Review, Approved, Committers, AI, External).
+ * and by subfilter (All, Open, Closed, PRs, Issues, Needs Review, Approved, Important, AI, External).
  */
 
 test.describe('Filtering @classification', () => {
@@ -48,6 +48,7 @@ test.describe('Filtering @classification', () => {
       }
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     const input = page.locator('#repo-input');
     await input.fill('test/repo');
     await page.locator('#sync-btn').click();
@@ -137,7 +138,7 @@ test.describe('Filtering @classification', () => {
       await expect(othersPrsStatus.locator('[data-subfilter="closed"]')).toHaveCount(0);
       await expect(othersPrsAuthor.locator('[data-subfilter="committer"]')).toBeVisible();
       await expect(othersPrsAuthor.locator('.subfilter-tab')).toHaveText([
-        /Committers\s+0/,
+        /Important\s+0/,
         /AI\s+0/,
         /External\s+0/,
       ]);
@@ -230,6 +231,7 @@ test.describe('Filtering @classification', () => {
     });
 
     test('updates view counts after sync', async ({ page }) => {
+      await page.locator('#profile-select').selectOption('custom');
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
@@ -349,6 +351,7 @@ test.describe('Filtering @classification', () => {
         });
       });
 
+      await page.locator('#profile-select').selectOption('custom');
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();
@@ -390,6 +393,7 @@ test.describe('Filtering @classification', () => {
     });
 
     test('switching filters does not trigger review metadata prefetch', async ({ page }) => {
+      await page.locator('#profile-select').selectOption('custom');
       const input = page.locator('#repo-input');
       await input.fill('test/repo');
       await page.locator('#sync-btn').click();

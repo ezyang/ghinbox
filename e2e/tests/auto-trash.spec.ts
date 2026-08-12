@@ -297,6 +297,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     });
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -423,6 +424,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     });
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -499,6 +501,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     });
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -591,6 +594,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     });
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -626,6 +630,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     await page.reload();
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).not.toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

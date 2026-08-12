@@ -98,6 +98,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       ],
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -163,6 +164,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     });
 
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -487,6 +489,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('[data-id="full-sync-orphan-stale-1"]')).toBeVisible();
     await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -568,6 +571,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await page.reload();
 
     await expect(page.locator('#sync-btn')).toBeEnabled();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -654,6 +658,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     }, storedPayload);
     await page.reload();
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#full-sync-btn').click();
 
@@ -724,6 +729,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       ],
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
@@ -823,6 +829,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       ],
     });
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

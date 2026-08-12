@@ -37,6 +37,7 @@ test.describe('Open all button @smoke', () => {
     await page.goto('notifications.html');
     await clearAppStorage(page);
 
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 5 notifications');

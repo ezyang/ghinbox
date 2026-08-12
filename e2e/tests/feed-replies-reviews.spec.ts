@@ -335,6 +335,7 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await clearAppStorage(page);
     await seedCommentCache(page, commentCache);
     await page.reload();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Synced 8 notifications');
@@ -663,6 +664,7 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     await clearAppStorage(page);
     await seedCommentCache(page, cache);
     await page.reload();
+    await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 

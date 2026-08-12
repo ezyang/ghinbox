@@ -65,6 +65,7 @@ test.describe('UI Shell @layout', () => {
   test('renders header, controls, and empty notifications list', async ({ page }) => {
     await expect(page.locator('.app-header h1')).toHaveText('ghinbox');
     await expect(page.locator('#profile-select')).toHaveValue('pytorch');
+    await expect(page.locator('#repo-input-group')).toBeHidden();
     await expect(page.locator('#repo-input')).toHaveAttribute(
       'placeholder',
       'owner/repo, org:name, or query; one per line'
@@ -78,11 +79,11 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-08-11-auth-render-status'
+      'notifications.css?v=2026-08-12-review-priority'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-08-11-auth-render-status'
+      'notifications-sync.js?v=2026-08-12-review-priority'
     );
   });
 
@@ -173,6 +174,7 @@ test.describe('Repository Input @layout', () => {
   });
 
   test('persists and reloads repository input value', async ({ page }) => {
+    await page.locator('#profile-select').selectOption('custom');
     const input = page.locator('#repo-input');
     await input.fill('vercel/next.js');
 
@@ -204,7 +206,8 @@ test.describe('Sync Button @layout', () => {
   });
 
   test('validates repository input on sync', async ({ page }) => {
-    // Clear the repo input first (app defaults to 'pytorch/pytorch' when localStorage is empty)
+    await page.locator('#profile-select').selectOption('custom');
+    // Clear the custom repo input before validating it.
     await page.locator('#repo-input').fill('');
     await page.locator('#sync-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Please enter a repository');
