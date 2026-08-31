@@ -58,3 +58,33 @@ def test_local_state_routes_accept_synthetic_review_request_ids(
         "notification_id": notification_id,
         field: value,
     }
+
+
+def test_live_parse_response_preserves_read_comment_watermark(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The local-state overlay must survive response model validation.
+
+    Regression test: UIState lacked read_comment_watermark_at, so pydantic
+    silently dropped the overlay from live-parse responses while snapshot
+    responses (raw dicts) kept it.
+    """
+    from pathlib import Path
+
+    monkeypatch.setenv("GHINBOX_TEST_MODE", "1")
+    fixture = str(Path(__file__).parent / "fixtures" / "pagination_page1.html")
+    watermark = "2026-01-07T12:00:00Z"
+
+    put = client.put(
+        "/notifications/html/repo/ezyang0/ghsim-test/read-comment-watermarks/NT_1",
+        json={"read_comment_watermark_at": watermark},
+    )
+    assert put.status_code == 200
+
+    response = client.get(
+        "/notifications/html/repo/ezyang0/ghsim-test",
+        params={"fixture": fixture},
+    )
+    assert response.status_code == 200
+    notif = next(n for n in response.json()["notifications"] if n["id"] == "NT_1")
+    assert notif["ui"]["read_comment_watermark_at"] == watermark

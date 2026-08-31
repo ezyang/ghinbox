@@ -34,12 +34,16 @@ class Subject(BaseModel):
 
 
 class UIState(BaseModel):
-    """UI-specific state only available from HTML."""
+    """UI-specific state only available from HTML, plus server-local overlays."""
 
     saved: bool = False
     done: bool = False
     bookmarked: bool = False
     replies_muted: bool = False
+    # Server-owned overlay written by the read-comment-watermarks endpoint;
+    # must round-trip through response validation or live-parse responses
+    # silently drop it while snapshot responses keep it.
+    read_comment_watermark_at: str | None = None
     action_tokens: dict[str, str] = Field(default_factory=dict)
 
 
