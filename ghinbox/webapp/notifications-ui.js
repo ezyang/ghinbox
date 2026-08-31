@@ -52,19 +52,14 @@ function setActiveNotification(notifId, { scroll = false } = {}) {
 }
 
 function moveActiveNotification(delta) {
-    const selectable = getSelectableNotifications();
-    if (selectable.length === 0) {
+    const newActiveId = GhinboxSelection.getNextActiveId(
+        getSelectableNotifications().map((notif) => notif.id),
+        state.activeNotificationId,
+        delta
+    );
+    if (newActiveId === null) {
         return;
     }
-    let index = selectable.findIndex(notif => notif.id === state.activeNotificationId);
-    if (index === -1) {
-        index = delta > 0 ? -1 : selectable.length;
-    }
-    const nextIndex = Math.min(
-        selectable.length - 1,
-        Math.max(0, index + delta)
-    );
-    const newActiveId = selectable[nextIndex].id;
     updateActiveNotificationClass(state.activeNotificationId, newActiveId);
     state.activeNotificationId = newActiveId;
     scrollActiveNotificationIntoView();
@@ -207,39 +202,20 @@ async function triggerActiveNotificationAction(action) {
 }
 
 function ensureActiveNotification(filteredNotifications) {
-    if (filteredNotifications.length === 0) {
-        state.activeNotificationId = null;
-        return;
-    }
-    if (!state.activeNotificationId) {
-        return;
-    }
-    const exists = filteredNotifications.some(
-        notif => notif.id === state.activeNotificationId
+    state.activeNotificationId = GhinboxSelection.ensureActiveId(
+        filteredNotifications.map((notif) => notif.id),
+        state.activeNotificationId
     );
-    if (!exists) {
-        state.activeNotificationId = filteredNotifications[0].id;
-    }
 }
 
 // Move active notification to the next one before removing a notification.
 // This ensures the selection moves to the next notification, not the first.
 function advanceActiveNotificationBeforeRemoval(removedId, filteredNotifications) {
-    if (state.activeNotificationId !== removedId) {
-        return;
-    }
-    const index = filteredNotifications.findIndex(n => n.id === removedId);
-    if (index === -1) {
-        return;
-    }
-    // Try to move to the next notification, or the previous if at the end
-    if (index + 1 < filteredNotifications.length) {
-        state.activeNotificationId = filteredNotifications[index + 1].id;
-    } else if (index > 0) {
-        state.activeNotificationId = filteredNotifications[index - 1].id;
-    } else {
-        state.activeNotificationId = null;
-    }
+    state.activeNotificationId = GhinboxSelection.getActiveIdAfterRemoval(
+        filteredNotifications.map((notif) => notif.id),
+        removedId,
+        state.activeNotificationId
+    );
 }
 
 // Handle keyboard shortcuts

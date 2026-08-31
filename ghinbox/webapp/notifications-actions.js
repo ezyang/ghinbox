@@ -192,18 +192,13 @@ async function postNotificationHtmlAction({
 
 // Apply a selection state across a range of notifications (for shift-click)
 function applyRangeSelection(fromId, toId, notifications, shouldSelect) {
-    const ids = notifications.map(n => n.id);
-    const fromIndex = ids.indexOf(fromId);
-    const toIndex = ids.indexOf(toId);
-
-    if (fromIndex === -1 || toIndex === -1) return false;
-
-    const start = Math.min(fromIndex, toIndex);
-    const end = Math.max(fromIndex, toIndex);
-
-    for (let i = start; i <= end; i++) {
-        setSelection(ids[i], shouldSelect);
-    }
+    const rangeIds = GhinboxSelection.getRangeIds(
+        fromId,
+        toId,
+        notifications.map(n => n.id)
+    );
+    if (!rangeIds) return false;
+    rangeIds.forEach((id) => setSelection(id, shouldSelect));
     return true;
 }
 
@@ -216,72 +211,28 @@ function clearSelection() {
 
 // Handle Mark Done button click
 function getMarkDoneTargets(filteredNotifications = getFilteredNotifications()) {
-    if (state.view === 'cleaned') {
-        return {
-            ids: [],
-            label: 'Mark selected as done',
-            show: false,
-        };
-    }
-    const actionableNotifications = filteredNotifications.filter((notif) =>
-        typeof hasNotificationHtmlAction !== 'function' ||
-        hasNotificationHtmlAction(notif, 'archive')
-    );
-    if (state.selected.size > 0) {
-        const actionableSelected = Array.from(state.selected).filter((id) => {
-            const notif = filteredNotifications.find((item) => item.id === id);
-            return notif && (
-                typeof hasNotificationHtmlAction !== 'function' ||
-                hasNotificationHtmlAction(notif, 'archive')
-            );
-        });
-        return {
-            ids: actionableSelected,
-            label: 'Mark selected as done',
-            show: actionableSelected.length > 0,
-        };
-    }
-    if (actionableNotifications.length > 0) {
-        return {
-            ids: actionableNotifications.map((notif) => notif.id),
-            label: 'Mark all as done',
-            show: true,
-        };
-    }
-    return {
-        ids: [],
-        label: 'Mark selected as done',
-        show: false,
-    };
+    return GhinboxSelection.getMarkDoneTargets({
+        view: state.view,
+        selectedIds: Array.from(state.selected),
+        notifications: filteredNotifications,
+        canArchive: (notif) =>
+            typeof hasNotificationHtmlAction !== 'function' ||
+            hasNotificationHtmlAction(notif, 'archive'),
+    });
 }
 
 function getUnsubscribeAllTargets(filteredNotifications = getFilteredNotifications()) {
-    if (state.view === 'cleaned') {
-        return { ids: [], show: false };
-    }
-    // Only show when nothing is selected and we're in the approved filter
-    if (state.selected.size > 0) {
-        return { ids: [], show: false };
-    }
     const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-    const stateFilter = viewFilters.state || 'all';
-    if (stateFilter === 'approved' && filteredNotifications.length > 0) {
-        return {
-            ids: filteredNotifications.map((notif) => notif.id),
-            show: true,
-        };
-    }
-    return { ids: [], show: false };
+    return GhinboxSelection.getUnsubscribeAllTargets({
+        view: state.view,
+        hasSelection: state.selected.size > 0,
+        stateFilter: viewFilters.state || 'all',
+        notifications: filteredNotifications,
+    });
 }
 
 function getOpenAllTargets(notifications = getFilteredNotifications()) {
-    const openableNotifications = notifications.filter(
-        (notif) => notif.subject && notif.subject.url
-    );
-    return {
-        notifications: openableNotifications,
-        show: openableNotifications.length > 0,
-    };
+    return GhinboxSelection.getOpenAllTargets(notifications);
 }
 
 // Shared done queue with bounded concurrency (pure state machine in
