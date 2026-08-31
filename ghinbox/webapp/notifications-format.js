@@ -114,9 +114,49 @@
         return Math.round(120 * (1 - scale));
     }
 
+    // Label for when a server snapshot was taken; 'server' when unknown.
+    function formatSnapshotTimestamp(value) {
+        if (!value) {
+            return 'server';
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return 'server';
+        }
+        return date.toLocaleString();
+    }
+
+    // Which server-sync progress facts are worth showing, and how.
+    function formatServerSyncProgressDetails(sync) {
+        const details = [];
+        const phase = typeof sync.phase === 'string' ? sync.phase : '';
+        if (phase && !['idle', 'running', 'notifications', 'complete'].includes(phase)) {
+            details.push(phase);
+        }
+        if (Number.isFinite(sync.pages_fetched)) {
+            details.push(`${sync.pages_fetched} pages`);
+        }
+        if (Number.isFinite(sync.notifications_count)) {
+            details.push(`${sync.notifications_count} notifications`);
+        }
+        if (Number.isFinite(sync.comments_total) && sync.comments_total > 0) {
+            const fetched = Number.isFinite(sync.comments_fetched)
+                ? sync.comments_fetched
+                : 0;
+            let comments = `comments ${fetched}/${sync.comments_total}`;
+            if (Number.isFinite(sync.comments_failed) && sync.comments_failed > 0) {
+                comments += `, ${sync.comments_failed} failed`;
+            }
+            details.push(comments);
+        }
+        return details.length > 0 ? ` (${details.join(', ')})` : '';
+    }
+
     return {
         formatReason,
         formatRelativeTime,
+        formatServerSyncProgressDetails,
+        formatSnapshotTimestamp,
         getDiffstatHue,
         getIconStateClass,
         getNotificationIconName,

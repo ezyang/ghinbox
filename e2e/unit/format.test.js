@@ -96,3 +96,27 @@ test('getDiffstatHue scales from green to red across the range', () => {
   assert.equal(getDiffstatHue(100, { min: 0, max: 100 }), 0);
   assert.equal(getDiffstatHue(50, { min: 0, max: 100 }), 60);
 });
+
+test('formatSnapshotTimestamp falls back to server for missing or invalid values', () => {
+  const { formatSnapshotTimestamp } = require('../../ghinbox/webapp/notifications-format.js');
+  assert.equal(formatSnapshotTimestamp(null), 'server');
+  assert.equal(formatSnapshotTimestamp(''), 'server');
+  assert.equal(formatSnapshotTimestamp('not a date'), 'server');
+  assert.notEqual(formatSnapshotTimestamp('2026-06-15T12:00:00Z'), 'server');
+});
+
+test('formatServerSyncProgressDetails shows only noteworthy facts', () => {
+  const { formatServerSyncProgressDetails } = require('../../ghinbox/webapp/notifications-format.js');
+  const cases = [
+    { sync: {}, expected: '' },
+    { sync: { phase: 'running' }, expected: '' },
+    { sync: { phase: 'comments' }, expected: ' (comments)' },
+    { sync: { pages_fetched: 3, notifications_count: 120 }, expected: ' (3 pages, 120 notifications)' },
+    { sync: { comments_total: 10, comments_fetched: 4 }, expected: ' (comments 4/10)' },
+    { sync: { comments_total: 10, comments_failed: 2 }, expected: ' (comments 0/10, 2 failed)' },
+    { sync: { comments_total: 0 }, expected: '' },
+  ];
+  for (const { sync, expected } of cases) {
+    assert.equal(formatServerSyncProgressDetails(sync), expected, JSON.stringify(sync));
+  }
+});
