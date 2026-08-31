@@ -311,6 +311,14 @@ function shouldPrefetchNotificationComments(notification) {
     });
 }
 
+function sortCommentsByCreatedAt(comments) {
+    comments.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateA - dateB;
+    });
+}
+
 function toIssueComment(issue) {
     if (!issue) {
         return null;
@@ -363,11 +371,7 @@ async function fetchAllIssueComments(repo, issueNumber, options = {}) {
     }
 
     // Sort all comments by created_at chronologically
-    comments.sort((a, b) => {
-        const dateA = new Date(a.created_at || 0);
-        const dateB = new Date(b.created_at || 0);
-        return dateA - dateB;
-    });
+    sortCommentsByCreatedAt(comments);
 
     return comments;
 }
@@ -703,12 +707,7 @@ async function prefetchNotificationComments(notification) {
                             rc.isReviewComment = true;
                         });
                         comments.push(...reviewComments);
-                        // Sort by created_at
-                        comments.sort((a, b) => {
-                            const dateA = new Date(a.created_at || 0);
-                            const dateB = new Date(b.created_at || 0);
-                            return dateA - dateB;
-                        });
+                        sortCommentsByCreatedAt(comments);
                     }
                 } catch (error) {
                     console.error('Failed to fetch PR review comments:', error);

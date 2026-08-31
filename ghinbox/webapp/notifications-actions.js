@@ -930,12 +930,13 @@ async function removeReviewer(owner, repo, prNumber, username) {
     console.log(`[RemoveReviewer] Response status: ${response.status}`);
 
     if (response.status === 429) {
-        const retryAfter = response.headers.get('Retry-After');
-        console.warn(`[RemoveReviewer] Rate limited, retry after: ${retryAfter}s`);
+        console.warn(
+            `[RemoveReviewer] Rate limited, retry after: ${response.headers.get('Retry-After')}s`
+        );
         return {
             success: false,
             rateLimited: true,
-            retryAfter: retryAfter ? parseInt(retryAfter, 10) * 1000 : 60000
+            retryAfter: readRetryAfterDelay(response),
         };
     }
 
