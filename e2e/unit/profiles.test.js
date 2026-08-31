@@ -140,6 +140,16 @@ test('buildProfiles migrates a legacy repo only into an untouched custom profile
   assert.deepEqual(untouched[2].entries, ['e/f']);
 });
 
+test('a mirrored system-profile value in ghnotif_repo is not a legacy signal', () => {
+  const pytorchMirror = DEFAULT_PROFILES[0].entries.join('\n');
+  const everythingElseMirror = DEFAULT_PROFILES[1].entries.join('\n');
+  for (const mirror of [pytorchMirror, everythingElseMirror]) {
+    const profiles = buildProfiles(null, mirror);
+    assert.deepEqual(profiles[2].entries, ['pytorch/pytorch'], `mirror=${JSON.stringify(mirror)}`);
+    assert.equal(resolveInitialProfileId(profiles, null, mirror), DEFAULT_PROFILE_ID);
+  }
+});
+
 test('resolveInitialProfileId prefers saved id, then legacy custom, then the default', () => {
   const profiles = buildProfiles(null, null);
   const cases = [

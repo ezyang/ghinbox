@@ -68,6 +68,22 @@
         };
     }
 
+    // The ghnotif_repo key is dual-purpose: pre-profiles versions stored the
+    // user's repo/query selection there, and current code keeps mirroring the
+    // active profile's entries into it for back-compat readers. A mirror of a
+    // built-in (system) profile therefore says nothing about a legacy custom
+    // selection and must not trigger the legacy migration below — otherwise
+    // any reload after a fresh start flips the app to the Custom profile.
+    function getLegacyRepoSignal(legacyRepo) {
+        const trimmed = String(legacyRepo || '').trim();
+        const isSystemMirror = DEFAULT_PROFILES.some(
+            (profile) =>
+                profile.system &&
+                getProfileEntriesStorageValue(profile.entries) === trimmed
+        );
+        return !trimmed || isSystemMirror ? '' : trimmed;
+    }
+
     function buildProfiles(saved, legacyRepo) {
         const defaults = DEFAULT_PROFILES.map((profile) => ({
             ...profile,
@@ -88,7 +104,7 @@
             });
         }
 
-        const trimmedLegacy = String(legacyRepo || '').trim();
+        const trimmedLegacy = getLegacyRepoSignal(legacyRepo);
         const custom = byId.get('custom');
         if (trimmedLegacy && custom && custom.entries.join('\n') === 'pytorch/pytorch') {
             custom.entries = splitProfileEntries(trimmedLegacy);
@@ -101,7 +117,7 @@
         if (profiles.some((profile) => profile.id === savedProfileId)) {
             return savedProfileId;
         }
-        return String(legacyRepo || '').trim() ? 'custom' : DEFAULT_PROFILE_ID;
+        return getLegacyRepoSignal(legacyRepo) ? 'custom' : DEFAULT_PROFILE_ID;
     }
 
     function classifyProfileEntry(entry) {
