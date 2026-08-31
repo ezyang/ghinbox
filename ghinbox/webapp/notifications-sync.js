@@ -1,35 +1,5 @@
-function formatRateLimit(rateLimit, error, graphqlRateLimit, graphqlError) {
-    const parts = [];
-    if (error) {
-        parts.push(`core error: ${error}`);
-    } else if (rateLimit?.resources?.core) {
-        const core = rateLimit.resources.core;
-        const resetAt = core.reset
-            ? new Date(core.reset * 1000).toLocaleTimeString()
-            : 'unknown';
-        parts.push(`core ${core.remaining}/${core.limit} reset @ ${resetAt}`);
-    } else {
-        parts.push('core unknown');
-    }
-
-    if (graphqlError) {
-        parts.push(`graphql error: ${graphqlError}`);
-    } else if (graphqlRateLimit) {
-        const resetAt = graphqlRateLimit.resetAt
-            ? new Date(graphqlRateLimit.resetAt).toLocaleTimeString()
-            : 'unknown';
-        parts.push(
-            `graphql ${graphqlRateLimit.remaining}/${graphqlRateLimit.limit} reset @ ${resetAt}`
-        );
-    } else {
-        parts.push('graphql unknown');
-    }
-
-    return `Rate limit: ${parts.join(' | ')}`;
-}
-
 function updateRateLimitBox() {
-    const text = formatRateLimit(
+    const text = GhinboxRateLimit.formatRateLimit(
         state.rateLimit,
         state.rateLimitError,
         state.graphqlRateLimit,

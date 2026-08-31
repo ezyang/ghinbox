@@ -96,7 +96,6 @@ const AUTH_TOKEN_KEY = STORAGE_KEYS.authenticityToken;
 const ORDER_KEY = STORAGE_KEYS.order;
 const ORDER_BY_VIEW_KEY = STORAGE_KEYS.orderByView;
 const AUTO_MARK_TRASH_KEY = STORAGE_KEYS.autoMarkTrash;
-const RATE_LIMIT_LOG_MAX = 300;
 const DEFAULT_PROFILE_ID = GhinboxProfiles.DEFAULT_PROFILE_ID;
 
 // Application state
@@ -385,75 +384,14 @@ function withActionContext(label, fn) {
     return result;
 }
 
-function shouldLogRateLimitRequest(url) {
-    if (!url) {
-        return false;
-    }
-    return (
-        url.startsWith('/github/') ||
-        url.startsWith('/notifications/html')
-    );
-}
-
-function extractGraphqlSummary(body) {
-    if (typeof body !== 'string') {
-        return null;
-    }
-    let payload;
-    try {
-        payload = JSON.parse(body);
-    } catch (error) {
-        return null;
-    }
-    const query = typeof payload?.query === 'string' ? payload.query : '';
-    const variables = payload?.variables && typeof payload.variables === 'object'
-        ? Object.keys(payload.variables)
-        : [];
-    const compact = query.replace(/\s+/g, ' ').trim();
-    if (!compact) {
-        return null;
-    }
-    const opMatch = compact.match(/\b(query|mutation)\s+([A-Za-z0-9_]+)/);
-    const operation = opMatch
-        ? `${opMatch[1]} ${opMatch[2]}`
-        : compact.startsWith('query')
-            ? 'query'
-            : compact.startsWith('mutation')
-                ? 'mutation'
-                : null;
-    const rootMatch = compact.match(/\{\s*([A-Za-z0-9_]+)/);
-    const rootField = rootMatch ? rootMatch[1] : null;
-    const parts = [];
-    if (operation) {
-        parts.push(operation);
-    }
-    if (rootField) {
-        parts.push(`root=${rootField}`);
-    }
-    if (variables.length) {
-        parts.push(`vars=${variables.join(',')}`);
-    }
-    if (!parts.length) {
-        parts.push(compact.slice(0, 80));
-    }
-    return parts.join(' ');
-}
-
 function updateRateLimitLogStatus() {
     if (!elements.rateLimitLogStatus) {
         return;
     }
-    const count = state.rateLimitLog.length;
-    if (count === 0) {
-        elements.rateLimitLogStatus.textContent =
-            'No rate limit requests logged yet.';
-        return;
-    }
-    const resetAt = state.rateLimitLogResetAt
-        ? new Date(state.rateLimitLogResetAt * 1000).toLocaleTimeString()
-        : 'unknown';
-    elements.rateLimitLogStatus.textContent =
-        `Logged ${count} request${count === 1 ? '' : 's'} until core resets @ ${resetAt}.`;
+    elements.rateLimitLogStatus.textContent = GhinboxRateLimit.getLogStatusMessage(
+        state.rateLimitLog.length,
+        state.rateLimitLogResetAt
+    );
 }
 
 function renderRateLimitLogs() {
@@ -493,17 +431,11 @@ function renderRateLimitLogs() {
     });
 }
 
-function clearRateLimitLogs({ preserveLatest = false, preserveSince = null } = {}) {
-    let preserved = [];
-    if (Number.isFinite(preserveSince)) {
-        preserved = state.rateLimitLog.filter(
-            (entry) => entry.timestamp >= preserveSince
-        );
-    } else if (preserveLatest) {
-        const latest = state.rateLimitLog[state.rateLimitLog.length - 1];
-        preserved = latest ? [latest] : [];
-    }
-    state.rateLimitLog = preserved;
+function clearRateLimitLogs(options = {}) {
+    state.rateLimitLog = GhinboxRateLimit.getPreservedLogEntries(
+        state.rateLimitLog,
+        options
+    );
     updateRateLimitLogStatus();
     if (elements.rateLimitDetails && !elements.rateLimitDetails.hidden) {
         renderRateLimitLogs();
@@ -511,10 +443,7 @@ function clearRateLimitLogs({ preserveLatest = false, preserveSince = null } = {
 }
 
 function recordRateLimitLog(entry) {
-    state.rateLimitLog.push(entry);
-    if (state.rateLimitLog.length > RATE_LIMIT_LOG_MAX) {
-        state.rateLimitLog.splice(0, state.rateLimitLog.length - RATE_LIMIT_LOG_MAX);
-    }
+    GhinboxRateLimit.appendLogEntry(state.rateLimitLog, entry);
     updateRateLimitLogStatus();
     if (elements.rateLimitDetails && !elements.rateLimitDetails.hidden) {
         renderRateLimitLogs();
@@ -532,7 +461,7 @@ function instrumentFetchForRateLimit() {
             init.method ||
             (typeof input === 'object' && input?.method) ||
             'GET';
-        if (!shouldLogRateLimitRequest(url)) {
+        if (!GhinboxRateLimit.shouldLogRequest(url)) {
             return originalFetch(input, init);
         }
         const startedAt = Date.now();
@@ -540,46 +469,28 @@ function instrumentFetchForRateLimit() {
         try {
             response = await originalFetch(input, init);
         } catch (error) {
-            const detail = error?.message ? String(error.message) : 'fetch failed';
-            recordRateLimitLog({
+            recordRateLimitLog(GhinboxRateLimit.buildLogEntry({
                 id: state.rateLimitLogNextId++,
-                timeLabel: new Date(startedAt).toLocaleTimeString(),
-                timestamp: startedAt,
+                startedAt,
                 action: getActionLabel(),
-                method: String(method || 'GET').toUpperCase(),
+                method,
                 url,
-                kind: url.includes('/github/graphql')
-                    ? 'GraphQL'
-                    : url.startsWith('/notifications/html')
-                        ? 'App'
-                        : 'REST',
                 status: 'error',
                 durationMs: Date.now() - startedAt,
-                detail,
-            });
+                errorMessage: error?.message ? String(error.message) : 'fetch failed',
+            }));
             throw error;
         }
-        const durationMs = Date.now() - startedAt;
-        const isGraphql = url.includes('/github/graphql');
-        const kind = isGraphql
-            ? 'GraphQL'
-            : url.startsWith('/notifications/html')
-                ? 'App'
-                : 'REST';
-        const body = init?.body;
-        const graphqlSummary = isGraphql ? extractGraphqlSummary(body) : null;
-        recordRateLimitLog({
+        recordRateLimitLog(GhinboxRateLimit.buildLogEntry({
             id: state.rateLimitLogNextId++,
-            timeLabel: new Date(startedAt).toLocaleTimeString(),
-            timestamp: startedAt,
+            startedAt,
             action: getActionLabel(),
-            method: String(method || 'GET').toUpperCase(),
+            method,
             url,
-            kind,
             status: response.status,
-            durationMs,
-            detail: graphqlSummary,
-        });
+            durationMs: Date.now() - startedAt,
+            requestBody: init?.body,
+        }));
         return response;
     };
     wrappedFetch.__ghinboxRateLimitWrapped = true;
