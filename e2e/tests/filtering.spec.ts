@@ -286,7 +286,9 @@ test.describe('Filtering @classification', () => {
       await expect(othersPrsStatus.locator('[data-subfilter="needs-review"] .count')).toHaveText('1');
       await expect(othersPrsStatus.locator('[data-subfilter="approved"] .count')).toHaveText('0');
       await expect(othersPrsStatus.locator('[data-subfilter="done"] .count')).toHaveText('0');
-      await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('0');
+      // test/repo is not a high-volume (pytorch/pytorch) repository, so its
+      // review request counts as Important without author metadata.
+      await expect(othersPrsAuthor.locator('[data-subfilter="committer"] .count')).toHaveText('1');
       await expect(othersPrsAuthor.locator('[data-subfilter="ai"] .count')).toHaveText('0');
       await expect(othersPrsAuthor.locator('[data-subfilter="external"] .count')).toHaveText('0');
     });
