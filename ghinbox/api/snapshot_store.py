@@ -695,15 +695,3 @@ def set_sync_state(
     finally:
         conn.close()
     return get_sync_state(repo, db_path)
-
-
-def clear_snapshot_store(db_path: str | None = None) -> None:
-    """Clear all snapshot data. Intended for tests."""
-    conn = _connect(db_path)
-    try:
-        with conn:
-            conn.execute("DELETE FROM notification_snapshots")
-            conn.execute("DELETE FROM snapshot_sync_state")
-            conn.execute("DELETE FROM notification_local_state")
-    finally:
-        conn.close()

@@ -7,7 +7,6 @@ callers.
 """
 
 from pathlib import Path
-from typing import Any
 
 from bs4 import BeautifulSoup
 from playwright.async_api import BrowserContext as AsyncBrowserContext
@@ -270,8 +269,3 @@ def normalize_github_href(href: str) -> str:
     if href.startswith("/"):
         return f"https://github.com{href}"
     return href
-
-
-def compact_text(value: Any) -> str:
-    """Normalize optional Playwright text content to a stripped string."""
-    return str(value or "").strip()

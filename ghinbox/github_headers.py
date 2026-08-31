@@ -18,14 +18,6 @@ def github_rest_headers(token: str) -> dict[str, str]:
     }
 
 
-def github_json_headers(token: str) -> dict[str, str]:
-    """Return GitHub REST headers for JSON request bodies."""
-    return {
-        **github_rest_headers(token),
-        "Content-Type": "application/json",
-    }
-
-
 def github_graphql_headers(token: str) -> dict[str, str]:
     """Return headers for GitHub GraphQL requests."""
     return {
