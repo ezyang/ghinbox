@@ -711,10 +711,6 @@ function commitStatusBarState(nextState) {
     state.statusAutoDismissId = nextState.statusAutoDismissId;
 }
 
-function clearStatusAutoDismiss() {
-    applyStatusBarTransition(GhinboxStatusBar.clearAutoDismiss(getStatusBarState()));
-}
-
 function freezeStatusAutoDismiss() {
     applyStatusBarTransition(GhinboxStatusBar.freezeAutoDismiss(getStatusBarState()));
 }

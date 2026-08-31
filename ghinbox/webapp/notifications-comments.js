@@ -481,36 +481,6 @@ function buildReviewDecisionQuery(issueNumbers) {
     `;
 }
 
-function setReviewDecisionCache(
-    notification,
-    reviewDecision,
-    authorAssociation,
-    authorLogin,
-    labelNames,
-    options = {}
-) {
-    const includeAuthorAssociation = Boolean(options.includeAuthorAssociation);
-    const threadId = getNotificationKey(notification);
-    const existing = state.commentCache.threads[threadId] || {};
-    state.commentCache.threads[threadId] =
-        COMMENT_CACHE_POLICY.buildReviewMetadataCacheEntry(
-            notification,
-            existing,
-            {
-                reviewDecision,
-                authorAssociation,
-                authorLogin,
-                labelNames,
-            },
-            {
-                includeAuthorAssociation,
-                includeDiffstatFields: false,
-                preserveUndefinedReviewDecision: true,
-                preserveLabelNamesWhenMissing: true,
-            }
-        );
-}
-
 function setAuthorPermissionCache(notification, authorPermission) {
     const threadId = getNotificationKey(notification);
     const existing = state.commentCache.threads[threadId] || {};
