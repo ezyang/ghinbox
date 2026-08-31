@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  applyPullRequestStateUpdates,
   buildIncrementalRestLookupKeys,
   buildNotificationMatchKeySet,
   buildPreviousMatchMap,
@@ -15,6 +16,8 @@ const {
   getServerSnapshotSyncEntry,
   getUpdatedAtSignature,
   mergeIncrementalNotifications,
+  mergeReviewRequestNotifications,
+  normalizePullRequestState,
   shouldPruneIncrementalNotifications,
   shouldApplyServerSnapshot,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
@@ -634,4 +637,73 @@ test('notifications without numbers fall back to id-based keys and still merge s
     merged.map((n) => n.id),
     ['a', 'weird']
   );
+});
+
+test('normalizePullRequestState maps GraphQL state and draft flag', () => {
+  const cases = [
+    { state: 'MERGED', isDraft: false, expected: 'merged' },
+    { state: 'CLOSED', isDraft: true, expected: 'closed' },
+    { state: 'OPEN', isDraft: true, expected: 'draft' },
+    { state: 'OPEN', isDraft: false, expected: 'open' },
+    { state: 'UNKNOWN', isDraft: false, expected: null },
+    { state: null, isDraft: false, expected: null },
+  ];
+  for (const { state, isDraft, expected } of cases) {
+    assert.equal(normalizePullRequestState(state, isDraft), expected, `${state}/${isDraft}`);
+  }
+});
+
+test('applyPullRequestStateUpdates rewrites matching PR subjects immutably', () => {
+  const pr = (id, number, state, type = 'PullRequest') => ({
+    id,
+    subject: { type, number, state },
+    repository: { full_name: 'o/r' },
+  });
+  const notifications = [
+    pr('a', 1, 'open'),
+    pr('b', 2, 'open'),
+    pr('c', 3, 'open', 'Issue'),
+    { id: 'd', subject: { type: 'PullRequest', state: 'open' } },
+  ];
+  const updates = new Map([[1, 'merged'], [2, 'open'], [3, 'closed']]);
+  const result = applyPullRequestStateUpdates(notifications, updates);
+  assert.equal(result[0].subject.state, 'merged');
+  assert.equal(notifications[0].subject.state, 'open');
+  // Unchanged state and non-PR subjects keep the same object.
+  assert.equal(result[1], notifications[1]);
+  assert.equal(result[2], notifications[2]);
+  assert.equal(result[3], notifications[3]);
+
+  const issueToo = applyPullRequestStateUpdates(notifications, updates, {
+    requirePullRequest: false,
+  });
+  assert.equal(issueToo[2].subject.state, 'closed');
+
+  const gated = applyPullRequestStateUpdates(notifications, updates, {
+    matchKeys: new Set(['o/r:PullRequest:1']),
+    repo: { owner: 'o', repo: 'r' },
+  });
+  assert.equal(gated[0].subject.state, 'merged');
+  assert.equal(gated[1], notifications[1]);
+});
+
+test('mergeReviewRequestNotifications appends new rows and overlays existing ones', () => {
+  const existing = [
+    { id: 'x', subject: { title: 'old' }, ui: { action_tokens: { archive: 't' } } },
+    { id: 'y', subject: { title: 'other' } },
+  ];
+  const requests = [
+    { id: 'x', subject: { title: 'new' }, responsibility_source: 'review-requested' },
+    { id: 'review-request:o/r#7', subject: { title: 'synthetic' } },
+  ];
+  const merged = mergeReviewRequestNotifications(existing, requests);
+  assert.equal(merged.length, 3);
+  assert.equal(merged[0].subject.title, 'new');
+  assert.deepEqual(merged[0].ui, { action_tokens: { archive: 't' } });
+  assert.equal(merged[0].responsibility_source, 'review-requested');
+  assert.equal(merged[2].id, 'review-request:o/r#7');
+  // No requests → same list back.
+  assert.equal(mergeReviewRequestNotifications(existing, []), existing);
+  // Inputs are not mutated.
+  assert.equal(existing[0].subject.title, 'old');
 });

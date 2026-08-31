@@ -5,13 +5,18 @@
     if (!identity && typeof require === 'function') {
         identity = require('./notifications-identity.js');
     }
-    const api = factory(identity);
+    let reviewRequests = root.GhinboxReviewRequests;
+    if (!reviewRequests && typeof require === 'function') {
+        reviewRequests = require('./notifications-review-requests.js');
+    }
+    const api = factory(identity, reviewRequests);
     if (typeof module === 'object' && module.exports) {
         module.exports = api;
     }
     root.GhinboxSyncMerge = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (identity) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (identity, reviewRequests) {
     const {
+        getIssueNumber,
         getNotificationDedupKey,
         getNotificationKey,
         getNotificationMatchKey,
@@ -81,12 +86,7 @@
         return null;
     }
 
-    function isSyntheticReviewRequest(notification) {
-        return (
-            notification?.responsibility_source === 'review-requested' &&
-            String(notification?.id || '').startsWith('review-request:')
-        );
-    }
+    const { isSyntheticReviewRequest } = reviewRequests;
 
     function canUseIncrementalOverlapMerge({
         syncMode,
@@ -288,7 +288,89 @@
         return Boolean(snapshot.synced_at && snapshot.synced_at !== localSyncedAt);
     }
 
+    // PR subject-state maintenance shared by quick sync and review reload.
+    function normalizePullRequestState(prState, isDraft) {
+        if (prState === 'MERGED') {
+            return 'merged';
+        }
+        if (prState === 'CLOSED') {
+            return 'closed';
+        }
+        if (isDraft) {
+            return 'draft';
+        }
+        if (prState === 'OPEN') {
+            return 'open';
+        }
+        return null;
+    }
+
+    function applyPullRequestStateUpdates(
+        notifications,
+        updates,
+        {
+            matchKeys = null,
+            repo = null,
+            requirePullRequest = true,
+        } = {}
+    ) {
+        return notifications.map((notif) => {
+            const number = getIssueNumber(notif);
+            if (!number) {
+                return notif;
+            }
+            if (requirePullRequest && notif.subject?.type !== 'PullRequest') {
+                return notif;
+            }
+            if (matchKeys && !matchKeys.has(getNotificationMatchKeyForRepo(notif, repo))) {
+                return notif;
+            }
+            const nextState = updates.get(number);
+            if (!nextState || notif.subject?.state === nextState) {
+                return notif;
+            }
+            return {
+                ...notif,
+                subject: {
+                    ...notif.subject,
+                    state: nextState,
+                },
+            };
+        });
+    }
+
+    // Merge synthetic review-request rows into the fetched list: new rows
+    // append; overlapping rows adopt the review-request payload but keep any
+    // existing ui block (action tokens) and gain the responsibility source.
+    function mergeReviewRequestNotifications(notifications, requestNotifications) {
+        if (!requestNotifications.length) {
+            return notifications;
+        }
+        const merged = notifications.map((notif) => ({ ...notif }));
+        const indexById = new Map();
+        merged.forEach((notif, index) => {
+            indexById.set(notif.id, index);
+        });
+        requestNotifications.forEach((requestNotif) => {
+            const existingIndex = indexById.get(requestNotif.id);
+            if (existingIndex === undefined) {
+                indexById.set(requestNotif.id, merged.length);
+                merged.push(requestNotif);
+                return;
+            }
+            const existing = merged[existingIndex];
+            merged[existingIndex] = {
+                ...existing,
+                ...requestNotif,
+                ui: existing.ui || requestNotif.ui,
+                responsibility_source: 'review-requested',
+            };
+        });
+        return merged;
+    }
+
     return {
+        applyPullRequestStateUpdates,
         buildServerProfileSyncEntries,
         buildIncrementalRestLookupKeys,
         buildNotificationMatchKeySet,
@@ -303,6 +385,8 @@
         getServerSnapshotSyncEntry,
         getUpdatedAtSignature,
         mergeIncrementalNotifications,
+        mergeReviewRequestNotifications,
+        normalizePullRequestState,
         shouldPruneIncrementalNotifications,
         shouldApplyServerSnapshot,
     };

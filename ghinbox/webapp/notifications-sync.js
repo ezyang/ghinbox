@@ -95,6 +95,7 @@ function getNotificationMatchKey(notification) {
 }
 
 const {
+    applyPullRequestStateUpdates,
     buildIncrementalRestLookupKeys,
     buildNotificationMatchKeySet,
     buildPreviousMatchMap,
@@ -106,6 +107,8 @@ const {
     getServerSnapshotLastSyncedRepo,
     getServerSnapshotSourceKey,
     mergeIncrementalNotifications,
+    mergeReviewRequestNotifications,
+    normalizePullRequestState,
     shouldPruneIncrementalNotifications,
     shouldApplyServerSnapshot,
 } = GhinboxSyncMerge;
@@ -245,22 +248,6 @@ function buildPullRequestStateQuery(issueNumbers) {
     `;
 }
 
-function normalizePullRequestState(state, isDraft) {
-    if (state === 'MERGED') {
-        return 'merged';
-    }
-    if (state === 'CLOSED') {
-        return 'closed';
-    }
-    if (isDraft) {
-        return 'draft';
-    }
-    if (state === 'OPEN') {
-        return 'open';
-    }
-    return null;
-}
-
 async function fetchReviewRequestNotifications(repo) {
     if (!state.currentUserLogin && typeof checkAuth === 'function') {
         await checkAuth();
@@ -355,33 +342,6 @@ async function getReviewRequestNeedsReviewNumbers(repo, reviewRequests, syncLabe
         );
         return new Set();
     }
-}
-
-function mergeReviewRequestNotifications(notifications, reviewRequests, repo) {
-    if (!reviewRequests.length) {
-        return notifications;
-    }
-    const merged = notifications.map((notif) => ({ ...notif }));
-    const indexById = new Map();
-    merged.forEach((notif, index) => {
-        indexById.set(notif.id, index);
-    });
-    reviewRequests.forEach((requestNotif) => {
-        const existingIndex = indexById.get(requestNotif.id);
-        if (existingIndex === undefined) {
-            indexById.set(requestNotif.id, merged.length);
-            merged.push(requestNotif);
-            return;
-        }
-        const existing = merged[existingIndex];
-        merged[existingIndex] = {
-            ...existing,
-            ...requestNotif,
-            ui: existing.ui || requestNotif.ui,
-            responsibility_source: 'review-requested',
-        };
-    });
-    return merged;
 }
 
 async function fetchGraphqlForSync(query, variables) {
@@ -512,40 +472,6 @@ async function refreshPullRequestStates(
         );
         return notifications;
     }
-}
-
-function applyPullRequestStateUpdates(
-    notifications,
-    updates,
-    {
-        matchKeys = null,
-        repo = null,
-        requirePullRequest = true,
-    } = {}
-) {
-    return notifications.map((notif) => {
-        const number = getIssueNumber(notif);
-        if (!number) {
-            return notif;
-        }
-        if (requirePullRequest && notif.subject?.type !== 'PullRequest') {
-            return notif;
-        }
-        if (matchKeys && !matchKeys.has(getNotificationMatchKeyForRepo(notif, repo))) {
-            return notif;
-        }
-        const nextState = updates.get(number);
-        if (!nextState || notif.subject?.state === nextState) {
-            return notif;
-        }
-        return {
-            ...notif,
-            subject: {
-                ...notif.subject,
-                state: nextState,
-            },
-        };
-    });
 }
 
 function getServerSnapshotSyncedAtKey(snapshotKey) {

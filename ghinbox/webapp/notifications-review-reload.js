@@ -5,27 +5,14 @@
         return;
     }
 
-    function readCurrentReviewEntries() {
-        if (typeof getCurrentProfileEntries === 'function') {
-            return getCurrentProfileEntries();
-        }
-        const raw = String(elements?.repoInput?.value || state?.repo || '');
-        return raw
-            .split(/\r?\n/)
-            .map((entry) => entry.trim())
-            .filter(Boolean);
-    }
-
     function getReviewReloadTarget(entries, sources) {
-        const storageValue = entries.length === 1 ? entries[0] : entries.join('\n');
+        const storageValue = GhinboxProfiles.getProfileEntriesStorageValue(entries);
         const singleRepo = sources.length === 1 && sources[0].kind === 'repo'
             ? sources[0]
             : null;
         const cacheKey = singleRepo
             ? singleRepo.fullName
-            : (typeof getProfileSignature === 'function'
-                ? getProfileSignature()
-                : storageValue);
+            : getProfileSignature();
         return {
             cacheKey,
             fullName: cacheKey,
@@ -34,20 +21,14 @@
     }
 
     function getCurrentReviewReloadConfig() {
-        const entries = readCurrentReviewEntries();
+        const entries = getCurrentProfileEntries();
         if (!entries.length) {
             return {
                 error: 'Please enter a repository or query',
             };
         }
-        if (typeof updateActiveProfileEntries === 'function') {
-            updateActiveProfileEntries(entries);
-        }
-        const sources = entries.map((entry) =>
-            typeof classifyProfileEntry === 'function'
-                ? classifyProfileEntry(entry)
-                : { kind: 'invalid', value: entry, query: entry }
-        );
+        updateActiveProfileEntries(entries);
+        const sources = entries.map(classifyProfileEntry);
         const invalid = sources.find((source) => !source.value);
         if (invalid) {
             return {
@@ -68,12 +49,7 @@
     }
 
     function getReviewQueueNotifications(notifications) {
-        const classifier = typeof makeNotificationClassifier === 'function'
-            ? makeNotificationClassifier()
-            : GhinboxFiltering.makeClassifier({
-                currentUserLogin: state.currentUserLogin,
-                commentCache: state.commentCache,
-            });
+        const classifier = makeNotificationClassifier();
         return notifications.filter((notification) =>
             classifier.isNotificationReviewQueue(notification)
         );
