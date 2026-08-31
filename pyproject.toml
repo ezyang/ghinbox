@@ -36,13 +36,12 @@ addopts = "-n auto --tb=native"
 [tool.ruff]
 target-version = "py312"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.3.5",
     "ruff>=0.11.2",
     "pytest-xdist>=3.6.1",
     "pyrefly>=0.26.1",
-    "httpx>=0.28.0",
 ]
 
 [tool.pyrefly]
