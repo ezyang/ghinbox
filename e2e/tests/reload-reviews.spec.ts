@@ -126,6 +126,86 @@ test.describe('Reload reviews button @sync', () => {
     expect(notificationReloads).toBe(0);
   });
 
+  test('hides review requests from muted repositories', async ({ page }) => {
+    await openNotificationsWithCachedData(page, {
+      notifications: [],
+      expectedCount: 0,
+    });
+
+    await page.unroute('**/github/graphql').catch(() => undefined);
+
+    await page.route('**/github/rest/review-requests**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          notifications: [
+            reviewRequestNotification({ number: 101, title: 'Review me' }),
+            reviewRequestNotification({
+              repo: 'conda-forge/onnx-feedstock',
+              number: 7,
+              title: 'Muted feedstock review',
+            }),
+            reviewRequestNotification({
+              repo: 'pytorch/pytorch-canary',
+              number: 8,
+              title: 'Muted canary review',
+            }),
+            reviewRequestNotification({
+              repo: 'facebookresearch/fairscale',
+              number: 9,
+              title: 'Muted fairscale review',
+            }),
+          ],
+        }),
+      })
+    );
+
+    await page.route('**/github/graphql', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: {
+              limit: 5000,
+              remaining: 4999,
+              resetAt: '2026-01-02T01:00:00Z',
+            },
+            repository: {
+              pr101: {
+                state: 'OPEN',
+                isDraft: false,
+                reviewDecision: null,
+                authorAssociation: 'MEMBER',
+                additions: 12,
+                deletions: 3,
+                changedFiles: 2,
+                author: { login: 'alice' },
+                labels: { nodes: [] },
+              },
+            },
+          },
+        }),
+      })
+    );
+
+    await page.route('**/github/rest/repos/**/collaborators/**/permission', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ permission: 'write' }),
+      })
+    );
+
+    await viewTab(page, 'others-prs').click();
+    await page.locator('#reload-reviews-btn').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 1 review notification');
+    await expect(page.locator('.notification-item')).toHaveCount(1);
+    await expect(page.locator('.notification-item')).toContainText('Review me');
+  });
+
   test('streams review search results before metadata refresh finishes', async ({ page }) => {
     await openNotificationsWithCachedData(page, {
       notifications: [],

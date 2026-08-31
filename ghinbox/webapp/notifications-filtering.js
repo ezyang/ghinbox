@@ -17,6 +17,12 @@
     const AI_AUTHOR_LOGIN = 'jansel';
     const PYTORCH_ORGS = new Set(['pytorch', 'meta-pytorch', 'google-pytorch']);
     const EXTERNAL_REVIEW_REPOSITORIES = new Set(['pytorch/pytorch']);
+    // Review requests from these repositories are never shown in any view.
+    const MUTED_REVIEW_REQUEST_REPOSITORIES = new Set([
+        'conda-forge/onnx-feedstock',
+        'pytorch/pytorch-canary',
+        'facebookresearch/fairscale',
+    ]);
 
     const DEFAULT_VIEW_FILTERS = viewState.DEFAULT_VIEW_FILTERS;
     const DEFAULT_VIEW_ORDERS = viewState.DEFAULT_VIEW_ORDERS;
@@ -87,7 +93,20 @@
 
         function isForcedOutsideOrgReply(notification) {
             return isOutsidePytorchProfileNotification(notification) &&
+                !isMutedReviewRequest(notification) &&
                 !isNotificationReviewQueue(notification);
+        }
+
+        function isMutedReviewRequest(notification) {
+            if (
+                !MUTED_REVIEW_REQUEST_REPOSITORIES.has(
+                    getNotificationRepositoryFullName(notification)
+                )
+            ) {
+                return false;
+            }
+            return isSyntheticResponsibilityNotification(notification) ||
+                isNotificationReviewResponsibility(notification);
         }
 
         function cachedFor(notification) {
@@ -182,6 +201,9 @@
             if (notification.subject?.type !== 'PullRequest') {
                 return false;
             }
+            if (isMutedReviewRequest(notification)) {
+                return false;
+            }
             const notifState = notification.subject?.state;
             if (notifState === 'draft' || notifState === 'closed' || notifState === 'merged') {
                 return false;
@@ -213,6 +235,7 @@
 
         function isNotificationReviewQueue(notification) {
             return notification.subject?.type === 'PullRequest' &&
+                !isMutedReviewRequest(notification) &&
                 (
                     isSyntheticResponsibilityNotification(notification) ||
                     isNotificationReviewResponsibility(notification)
@@ -280,6 +303,9 @@
         }
 
         function matchesView(notification, view) {
+            if (isMutedReviewRequest(notification)) {
+                return false;
+            }
             if (isForcedOutsideOrgReply(notification)) {
                 return view === 'pr-notifications';
             }
@@ -308,6 +334,12 @@
             const type = notification.subject?.type;
             const notifState = notification.subject?.state;
             const uninteresting = getUninterestingReason(notification) !== null;
+
+            if (isMutedReviewRequest(notification)) {
+                // Synthetic search results have no inbox thread to archive;
+                // real muted threads get swept into Cleaned.
+                return !isSyntheticResponsibilityNotification(notification);
+            }
 
             if (isForcedOutsideOrgReply(notification)) {
                 return false;
@@ -375,6 +407,7 @@
             isNotificationImportant,
             isNotificationNeedsReview,
             isNotificationOriginPullRequest,
+            isMutedReviewRequest,
             isNotificationReviewQueue,
             isNotificationReviewResponsibility,
             isSyntheticResponsibilityNotification,

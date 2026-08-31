@@ -297,6 +297,64 @@ test('all-notifications policy keeps outside-org review responsibility in Review
   assert.equal(classifier.isTrashNotification(outsideReview), false);
 });
 
+test('muted repositories never surface review requests in any view', () => {
+  const repoFields = (repo) => ({
+    owner: repo.split('/')[0],
+    name: repo.split('/')[1],
+    full_name: repo,
+  });
+  const syntheticReview = (repo) => notification(
+    `review-request:${repo}#1`,
+    'PullRequest',
+    'open',
+    'review_requested',
+    {
+      repository: repoFields(repo),
+      responsibility_source: 'review-requested',
+    }
+  );
+  const inboxReview = (repo) => notification(
+    `inbox-${repo}`,
+    'PullRequest',
+    'open',
+    'review_requested',
+    { repository: repoFields(repo) }
+  );
+  const mutedRepos = [
+    'conda-forge/onnx-feedstock',
+    'pytorch/pytorch-canary',
+    'facebookresearch/fairscale',
+  ];
+  const views = ['issues', 'my-prs', 'pr-notifications', 'others-prs'];
+
+  [false, true].forEach((routeOutsidePytorchToReplies) => {
+    const classifier = makeClassifier({
+      routeOutsidePytorchToReplies,
+      deps: baseDeps,
+    });
+    mutedRepos.forEach((repo) => {
+      const synthetic = syntheticReview(repo);
+      const inbox = inboxReview(repo);
+      views.forEach((view) => {
+        assert.equal(classifier.matchesView(synthetic, view), false, `${repo} synthetic ${view}`);
+        assert.equal(classifier.matchesView(inbox, view), false, `${repo} inbox ${view}`);
+      });
+      assert.equal(classifier.isNotificationReviewQueue(synthetic), false);
+      assert.equal(classifier.isNotificationReviewQueue(inbox), false);
+      assert.equal(classifier.isNotificationNeedsReview(synthetic), false);
+      assert.equal(classifier.isNotificationNeedsReview(inbox), false);
+      // Synthetic search results have no inbox thread to archive; real
+      // muted threads are swept into Cleaned.
+      assert.equal(classifier.isTrashNotification(synthetic), false);
+      assert.equal(classifier.isTrashNotification(inbox), true);
+    });
+
+    const unmuted = syntheticReview('conda-forge/other-feedstock');
+    assert.equal(classifier.isNotificationReviewQueue(unmuted), true);
+    assert.equal(classifier.matchesView(unmuted, 'others-prs'), true);
+  });
+});
+
 test('review importance only separates external authors for pytorch/pytorch', () => {
   const review = (id, repo) => notification(
     id,
