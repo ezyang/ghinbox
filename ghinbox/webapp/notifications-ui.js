@@ -1042,96 +1042,29 @@ function renderNotificationItem(notif, diffstatContext) {
 
 // Get icon for notification type and state
 function getNotificationIcon(notif) {
-    const type = notif.subject.type;
-    const state = notif.subject.state;
-    const stateReason = notif.subject.state_reason;
-
-    if (type === 'Issue') {
-        if (state === 'closed') {
-            if (stateReason === 'not_planned') return icons.issueNotPlanned;
-            return icons.issueClosed;
-        }
-        return icons.issue;
-    }
-    if (type === 'PullRequest') {
-        if (state === 'merged') return icons.prMerged;
-        if (state === 'closed') return icons.prClosed;
-        if (state === 'draft') return icons.prDraft;
-        return icons.pr;
-    }
-    if (type === 'Discussion') return icons.discussion;
-    if (type === 'Commit') return icons.commit;
-    if (type === 'Release') return icons.release;
-    return icons.issue; // fallback
+    return icons[GhinboxFormat.getNotificationIconName(notif.subject)];
 }
 
 // Get icon state class
 function getIconStateClass(notif) {
-    const state = notif.subject.state;
-    if (state === 'merged') return 'merged';
-    if (state === 'closed') return 'closed';
-    if (state === 'draft') return 'draft';
-    return 'open';
+    return GhinboxFormat.getIconStateClass(notif.subject);
 }
 
 // Format relative time
 function formatRelativeTime(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffSecs = Math.floor(diffMs / 1000);
-    const diffMins = Math.floor(diffSecs / 60);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-    const diffWeeks = Math.floor(diffDays / 7);
-    const diffMonths = Math.floor(diffDays / 30);
-    const diffYears = Math.floor(diffDays / 365);
-
-    if (diffSecs < 60) return 'just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    if (diffWeeks < 4) return `${diffWeeks}w ago`;
-    if (diffMonths < 12) return `${diffMonths}mo ago`;
-    return `${diffYears}y ago`;
+    return GhinboxFormat.formatRelativeTime(dateString);
 }
 
 // Format reason for display
 function formatReason(reason) {
-    const reasonMap = {
-        'author': 'Author',
-        'comment': 'Comment',
-        'mention': 'Mentioned',
-        'review_requested': 'Review requested',
-        'subscribed': 'Subscribed',
-        'team_mention': 'Team mentioned',
-        'assign': 'Assigned',
-        'state_change': 'State change',
-        'ci_activity': 'CI activity',
-    };
-    return reasonMap[reason] || reason;
+    return GhinboxFormat.formatReason(reason);
 }
 
 // Get state badge HTML
 function getStateBadge(notif) {
-    const type = notif.subject.type;
-    const state = notif.subject.state;
-    const stateReason = notif.subject.state_reason;
-
-    if (!state) return '';
-
-    let label = state.charAt(0).toUpperCase() + state.slice(1);
-    let cssClass = state;
-
-    if (state === 'closed' && stateReason === 'completed') {
-        cssClass = 'closed completed';
-    }
-
-    if (type === 'PullRequest' && state === 'merged') {
-        label = 'Merged';
-    }
-
-    return `<span class="state-badge ${cssClass}" data-state="${state}">${label}</span>`;
+    const badge = GhinboxFormat.getStateBadgeInfo(notif.subject);
+    if (!badge) return '';
+    return `<span class="state-badge ${badge.cssClass}" data-state="${badge.state}">${badge.label}</span>`;
 }
 
 function getPullRequestAuthorLogin(notification) {
@@ -1195,14 +1128,7 @@ function handleNotificationListClick(event) {
 elements.notificationsList.addEventListener('click', handleNotificationListClick);
 
 function getDiffstatHue(total, range) {
-    if (!range || range.min === null || range.max === null) {
-        return null;
-    }
-    if (range.min === range.max) {
-        return 60;
-    }
-    const scale = (total - range.min) / (range.max - range.min);
-    return Math.round(120 * (1 - scale));
+    return GhinboxFormat.getDiffstatHue(total, range);
 }
 
 // Render the UI
