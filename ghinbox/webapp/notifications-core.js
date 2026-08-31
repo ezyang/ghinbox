@@ -97,34 +97,7 @@ const ORDER_KEY = STORAGE_KEYS.order;
 const ORDER_BY_VIEW_KEY = STORAGE_KEYS.orderByView;
 const AUTO_MARK_TRASH_KEY = STORAGE_KEYS.autoMarkTrash;
 const RATE_LIMIT_LOG_MAX = 300;
-const DEFAULT_PROFILE_ID = 'pytorch';
-const PYTORCH_ORG_QUERIES = [
-    'org:pytorch',
-    'org:meta-pytorch',
-    'org:google-pytorch',
-];
-const EVERYTHING_ELSE_QUERY =
-    '-org:pytorch -org:meta-pytorch -org:google-pytorch';
-const DEFAULT_PROFILES = [
-    {
-        id: 'pytorch',
-        name: 'All notifications',
-        entries: [...PYTORCH_ORG_QUERIES, EVERYTHING_ELSE_QUERY],
-        system: true,
-    },
-    {
-        id: 'everything-else',
-        name: 'Everything else',
-        entries: [EVERYTHING_ELSE_QUERY],
-        system: true,
-    },
-    {
-        id: 'custom',
-        name: 'Custom',
-        entries: ['pytorch/pytorch'],
-        system: false,
-    },
-];
+const DEFAULT_PROFILE_ID = GhinboxProfiles.DEFAULT_PROFILE_ID;
 
 // Application state
 const state = {
@@ -248,65 +221,19 @@ const elements = {
     notificationsContainer: document.querySelector('.notifications-container'),
 };
 
-function splitProfileEntries(value) {
-    return String(value || '')
-        .split(/[\n,]+/)
-        .map((entry) => entry.trim())
-        .filter(Boolean);
-}
-
-function normalizeProfile(profile, fallback) {
-    const base = fallback || {};
-    const id = String(profile?.id || base.id || '').trim();
-    const name = String(profile?.name || base.name || id).trim();
-    const entries = Array.isArray(profile?.entries)
-        ? profile.entries.map((entry) => String(entry || '').trim()).filter(Boolean)
-        : Array.isArray(base.entries)
-            ? base.entries.slice()
-            : [];
-    if (!id || !name) {
-        return null;
-    }
-    return {
-        id,
-        name,
-        entries,
-        system: Boolean(profile?.system ?? base.system),
-    };
-}
+const { classifyProfileEntry, splitProfileEntries } = GhinboxProfiles;
 
 function readProfiles() {
-    const defaults = DEFAULT_PROFILES.map((profile) => ({ ...profile, entries: profile.entries.slice() }));
-    const byId = new Map(defaults.map((profile) => [profile.id, profile]));
+    let saved = null;
     const raw = localStorage.getItem(PROFILES_KEY);
     if (raw) {
         try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                parsed.forEach((profile) => {
-                    const fallback = byId.get(String(profile?.id || ''));
-                    // Built-in query scopes are policy, not user configuration.
-                    if (!fallback || fallback.system) {
-                        return;
-                    }
-                    const normalized = normalizeProfile(profile, fallback);
-                    if (normalized) {
-                        byId.set(normalized.id, normalized);
-                    }
-                });
-            }
+            saved = JSON.parse(raw);
         } catch (error) {
             console.error('Failed to parse saved profiles:', error);
         }
     }
-
-    const legacyRepo = String(localStorage.getItem(REPO_KEY) || '').trim();
-    const custom = byId.get('custom');
-    if (legacyRepo && custom && custom.entries.join('\n') === 'pytorch/pytorch') {
-        custom.entries = splitProfileEntries(legacyRepo);
-    }
-
-    return DEFAULT_PROFILES.map((profile) => byId.get(profile.id)).filter(Boolean);
+    return GhinboxProfiles.buildProfiles(saved, localStorage.getItem(REPO_KEY));
 }
 
 function saveProfiles() {
@@ -318,20 +245,19 @@ function getActiveProfile() {
 }
 
 function getProfileEntriesText(profile = getActiveProfile()) {
-    return (profile?.entries || []).join('\n');
+    return GhinboxProfiles.getProfileEntriesText(profile);
 }
 
 function getProfileSignature(profile = getActiveProfile()) {
-    const id = profile?.id || 'unknown';
-    return `${id}:${getProfileEntriesText(profile)}`;
+    return GhinboxProfiles.getProfileSignature(profile);
 }
 
 function getNotificationsCacheKey(profile = getActiveProfile()) {
-    return `profile:${getProfileSignature(profile)}`;
+    return GhinboxProfiles.getNotificationsCacheKey(profile);
 }
 
 function mirrorRepoStorage(entries) {
-    const value = entries.length === 1 ? entries[0] : entries.join('\n');
+    const value = GhinboxProfiles.getProfileEntriesStorageValue(entries);
     localStorage.setItem(REPO_KEY, value);
     state.repo = value || null;
 }
@@ -396,44 +322,6 @@ function updateActiveProfileEntries(entries) {
     profile.entries = entries.slice();
     mirrorRepoStorage(profile.entries);
     saveProfiles();
-}
-
-function classifyProfileEntry(entry) {
-    const value = String(entry || '').trim();
-    const repo = parseRepoInput(value);
-    if (repo) {
-        return {
-            kind: 'repo',
-            value,
-            owner: repo.owner,
-            repo: repo.repo,
-            fullName: `${repo.owner}/${repo.repo}`,
-            query: `repo:${repo.owner}/${repo.repo}`,
-        };
-    }
-    const repoQuery = value.match(/^repo:([^/\s]+)\/([^/\s]+)$/);
-    if (repoQuery) {
-        return {
-            kind: 'repo',
-            value,
-            owner: repoQuery[1],
-            repo: repoQuery[2],
-            fullName: `${repoQuery[1]}/${repoQuery[2]}`,
-            query: value,
-        };
-    }
-    if (!value.includes(':') && !value.includes(' ') && !value.startsWith('-')) {
-        return {
-            kind: 'invalid',
-            value,
-            query: value,
-        };
-    }
-    return {
-        kind: 'query',
-        value,
-        query: value,
-    };
 }
 
 function getCurrentProfileEntries() {
@@ -768,13 +656,11 @@ async function init() {
     instrumentFetchForRateLimit();
 
     state.profiles = readProfiles();
-    const savedProfileId = localStorage.getItem(PROFILE_KEY);
-    const legacyRepo = String(localStorage.getItem(REPO_KEY) || '').trim();
-    state.profileId = state.profiles.some((profile) => profile.id === savedProfileId)
-        ? savedProfileId
-        : legacyRepo
-            ? 'custom'
-            : DEFAULT_PROFILE_ID;
+    state.profileId = GhinboxProfiles.resolveInitialProfileId(
+        state.profiles,
+        localStorage.getItem(PROFILE_KEY),
+        localStorage.getItem(REPO_KEY)
+    );
     renderProfileSelect();
     applyActiveProfileToInput();
     saveProfiles();

@@ -578,10 +578,6 @@ function applyPullRequestStateUpdates(
     });
 }
 
-function getProfileEntriesStorageValue(entries) {
-    return entries.length === 1 ? entries[0] : entries.join('\n');
-}
-
 function getServerSnapshotSyncedAtKey(snapshotKey) {
     return `ghnotif_server_snapshot_synced_at:${snapshotKey}`;
 }
@@ -636,7 +632,7 @@ function getServerSnapshotStorageValue(entries, sources) {
     if (sources.length === 1 && sources[0].kind === 'repo') {
         return sources[0].fullName;
     }
-    return getProfileEntriesStorageValue(entries);
+    return GhinboxProfiles.getProfileEntriesStorageValue(entries);
 }
 
 function getServerSnapshotApplyConfig(entries, sources) {
