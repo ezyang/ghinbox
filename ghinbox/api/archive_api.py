@@ -12,12 +12,12 @@ from ghinbox.api.fetcher import ActionResult
 from ghinbox.api.github_proxy import (
     GITHUB_API_BASE,
     _github_get_json_with_headers,
-    _next_link_url,
     check_github_rate_governor,
     get_client,
     get_token,
     update_github_rate_governor_from_headers,
 )
+from ghinbox.github_headers import next_link_url
 from ghinbox.api.observability import emit_github_api_call_audit
 from ghinbox.api.snapshot_store import (
     get_snapshot,
@@ -266,7 +266,7 @@ async def _rest_thread_ids_by_subject_key(
             if repo_keys.issubset(thread_ids.keys()):
                 break
 
-            next_url = _next_link_url(headers.get("link"))
+            next_url = next_link_url(headers.get("link"))
             if next_url is None:
                 break
             path_or_url = next_url
@@ -465,17 +465,4 @@ async def _submit_notification_action_with_github_api(
         status="ok",
         github_status_code=last_status_code,
         successful_notification_ids=successful_notification_ids,
-    )
-
-
-async def _submit_archive_with_github_api(
-    notification_ids: list[str],
-    *,
-    request_id: str | None = None,
-) -> ActionResult | None:
-    """Compatibility wrapper for callers that submit archive actions directly."""
-    return await _submit_notification_action_with_github_api(
-        "archive",
-        notification_ids,
-        request_id=request_id,
     )

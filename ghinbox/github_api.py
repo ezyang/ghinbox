@@ -11,7 +11,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ghinbox.github_headers import github_graphql_headers, github_rest_headers
+from ghinbox.github_headers import (
+    github_graphql_headers,
+    github_rest_headers,
+    next_link_url,
+)
 
 RESPONSES_DIR = Path("responses")
 MAX_GITHUB_API_PAGES = 20
@@ -21,22 +25,6 @@ logger = logging.getLogger(__name__)
 
 class GitHubPaginationLimitError(RuntimeError):
     """Raised when a GitHub API pagination walk hits a hard safety stop."""
-
-
-def _next_link_url(link_header: str | None) -> str | None:
-    if not link_header:
-        return None
-    for part in link_header.split(","):
-        section = part.strip()
-        if 'rel="next"' not in section:
-            continue
-        if not section.startswith("<"):
-            continue
-        end_index = section.find(">")
-        if end_index <= 1:
-            continue
-        return section[1:end_index]
-    return None
 
 
 def _header_value(headers: Any, name: str) -> str | None:
@@ -160,7 +148,7 @@ class GitHubAPI:
                 return []
 
             items.extend(payload)
-            next_url = _next_link_url(_header_value(headers, "Link"))
+            next_url = next_link_url(_header_value(headers, "Link"))
             if not next_url:
                 logger.info(
                     "GitHubAPI pagination fetched %s page(s) from %s; request_count=%s",

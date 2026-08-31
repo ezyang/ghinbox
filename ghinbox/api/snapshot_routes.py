@@ -1,7 +1,6 @@
 """Server-owned notification snapshots and background sync jobs."""
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
@@ -14,6 +13,7 @@ from ghinbox.api.github_proxy import (
     get_token,
 )
 from ghinbox.api.notification_shapes import (
+    utc_now_iso,
     build_comment_cache_entry as _build_comment_cache_entry,
     notification_to_bulk_comment_item as _notification_to_bulk_comment_item,
 )
@@ -74,10 +74,6 @@ def _profile_key(name: str) -> str:
     Prefixed to avoid ever colliding with an ``owner/repo`` key.
     """
     return f"profile:{name}"
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _deduplicate_notifications_by_id(notifications: list[dict]) -> list[dict]:
@@ -158,7 +154,7 @@ async def _fetch_snapshot_comment_cache(
         str(notification.get("id") or ""): notification
         for notification in notifications
     }
-    fetched_at = _now()
+    fetched_at = utc_now_iso()
     threads = {}
     for key, result in results:
         notification = notifications_by_key.get(key)
@@ -254,7 +250,7 @@ async def _fetch_one_entry_notifications(
 
 
 async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> None:
-    started_at = _now()
+    started_at = utc_now_iso()
     all_notifications: list[dict] = []
     authenticity_token: str | None = None
     source_url: str | None = None
@@ -420,7 +416,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
             mode="full",
             phase="complete",
             started_at=started_at,
-            finished_at=_now(),
+            finished_at=utc_now_iso(),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
             comments_total=comments_total,
@@ -435,7 +431,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
             mode="full",
             phase=phase,
             started_at=started_at,
-            finished_at=_now(),
+            finished_at=utc_now_iso(),
             error=str(error),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),
@@ -452,7 +448,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
             mode="full",
             phase=phase,
             started_at=started_at,
-            finished_at=_now(),
+            finished_at=utc_now_iso(),
             error=str(error),
             pages_fetched=pages_fetched,
             notifications_count=len(all_notifications),

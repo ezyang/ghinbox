@@ -292,7 +292,8 @@ def evaluate(
     )
 
 
-def _mapping_header_value(headers: Mapping[str, str] | None, name: str) -> str | None:
+def mapping_header_value(headers: Mapping[str, str] | None, name: str) -> str | None:
+    """Case-insensitive header lookup over a plain mapping or httpx headers."""
     if headers is None:
         return None
     value = headers.get(name) or headers.get(name.lower())
@@ -327,12 +328,12 @@ def pool_state_from_headers(
     A partial or malformed header set is ignored so bad test doubles or unusual
     GitHub responses cannot poison the governor state.
     """
-    resource = _mapping_header_value(headers, "x-ratelimit-resource")
+    resource = mapping_header_value(headers, "x-ratelimit-resource")
     remaining = _parse_nonnegative_int(
-        _mapping_header_value(headers, "x-ratelimit-remaining")
+        mapping_header_value(headers, "x-ratelimit-remaining")
     )
     reset_epoch = _parse_nonnegative_int(
-        _mapping_header_value(headers, "x-ratelimit-reset")
+        mapping_header_value(headers, "x-ratelimit-reset")
     )
     if not resource or remaining is None or reset_epoch is None:
         return None
@@ -340,16 +341,16 @@ def pool_state_from_headers(
     return RateLimitPoolState(
         resource=resource,
         limit=_parse_nonnegative_int(
-            _mapping_header_value(headers, "x-ratelimit-limit")
+            mapping_header_value(headers, "x-ratelimit-limit")
         ),
         remaining=remaining,
-        used=_parse_nonnegative_int(_mapping_header_value(headers, "x-ratelimit-used")),
+        used=_parse_nonnegative_int(mapping_header_value(headers, "x-ratelimit-used")),
         reset_at=datetime.fromtimestamp(reset_epoch, UTC),
         updated_at=observed_at or utc_now(),
     )
 
 
-def _endpoint_from_url(url: str) -> tuple[str, list[str]]:
+def endpoint_from_url(url: str) -> tuple[str, list[str]]:
     parsed = urlparse(url)
     endpoint = parsed.path or url
     query_keys = sorted({key for key, _value in parse_qsl(parsed.query)})
@@ -510,7 +511,7 @@ class RateGovernor:
         method: str,
         url: str,
     ) -> None:
-        endpoint, query_keys = _endpoint_from_url(url)
+        endpoint, query_keys = endpoint_from_url(url)
         entry: dict[str, Any] = {
             "timestamp": isoformat_utc(utc_now()),
             "event": "github_rate_governor_denial",

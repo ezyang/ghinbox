@@ -534,14 +534,3 @@ class DoneThenCloseFlow(BaseFlow):
             print("\n✗ last_read_at is None after the close event.")
             print("  No timestamp is available to filter 'new' activity.")
             print("  All comments would be fetched when notification returns.")
-
-    def _parse_iso(self, ts: str | None) -> datetime | None:
-        """Parse ISO datetime string."""
-        if not ts:
-            return None
-        try:
-            if ts.endswith("Z"):
-                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            return datetime.fromisoformat(ts)
-        except ValueError:
-            return None

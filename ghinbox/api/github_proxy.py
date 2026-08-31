@@ -14,7 +14,11 @@ from urllib.parse import urlencode, urlparse
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from ghinbox.github_headers import github_graphql_headers, github_rest_headers
+from ghinbox.github_headers import (
+    github_graphql_headers,
+    github_rest_headers,
+    next_link_url,
+)
 from ghinbox.api.notification_shapes import (
     REVIEW_REQUEST_SEARCH_PER_PAGE,
     build_review_request_search_query,
@@ -192,22 +196,6 @@ async def _github_get_json(
     return status, payload
 
 
-def _next_link_url(link_header: str | None) -> str | None:
-    if not link_header:
-        return None
-    for part in link_header.split(","):
-        section = part.strip()
-        if 'rel="next"' not in section:
-            continue
-        if not section.startswith("<"):
-            continue
-        end_index = section.find(">")
-        if end_index <= 1:
-            continue
-        return section[1:end_index]
-    return None
-
-
 async def _github_get_paginated_list(
     client: httpx.AsyncClient,
     token: str,
@@ -241,7 +229,7 @@ async def _github_get_paginated_list(
         if not isinstance(payload, list):
             return status, payload
         items.extend(payload)
-        next_url = _next_link_url(headers.get("link"))
+        next_url = next_link_url(headers.get("link"))
         if not next_url:
             return status, items
         path_or_url = next_url

@@ -3,10 +3,10 @@
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from ghinbox.api.notification_shapes import (
+    utc_now_iso,
     get_notification_repo,
     notification_to_bulk_comment_item,
     parse_repo_input,
@@ -17,10 +17,6 @@ SyncStatus = Literal["idle", "running", "success", "error"]
 _BOOL_LOCAL_STATE_FIELDS = {"bookmarked", "replies_muted"}
 _TEXT_LOCAL_STATE_FIELDS = {"read_comment_watermark_at"}
 _LOCAL_STATE_FIELDS = _BOOL_LOCAL_STATE_FIELDS | _TEXT_LOCAL_STATE_FIELDS
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _default_db_path() -> str:
@@ -274,7 +270,7 @@ def save_snapshot(
     db_path: str | None = None,
 ) -> None:
     """Replace the stored snapshot for a repo."""
-    now = _now()
+    now = utc_now_iso()
     conn = _connect(db_path)
     try:
         with conn:
@@ -511,7 +507,7 @@ def set_notification_read_comment_watermark(
     db_path: str | None = None,
 ) -> dict:
     """Persist the timestamp after which comments should be shown."""
-    watermark = read_comment_watermark_at or _now()
+    watermark = read_comment_watermark_at or utc_now_iso()
     return _set_local_state_value(
         repo,
         notification_id,
@@ -565,7 +561,7 @@ def _set_local_state_value(
     else:
         returned_value = str(value) if value is not None else None
         stored_value = returned_value
-    now = _now()
+    now = utc_now_iso()
     conn = _connect(db_path)
     try:
         with conn:

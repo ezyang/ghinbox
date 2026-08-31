@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 REVIEW_REQUEST_SEARCH_PER_PAGE = 100
 
 
-def _now() -> str:
+def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -206,7 +206,7 @@ def search_item_to_review_request_notification(
         "unread": False,
         "reason": "review_requested",
         "responsibility_source": "review-requested",
-        "updated_at": item.get("updated_at") or item.get("created_at") or _now(),
+        "updated_at": item.get("updated_at") or item.get("created_at") or utc_now_iso(),
         "last_read_at": None,
         "repository": repository_dict(repo_owner, repo_name),
         "subject": {

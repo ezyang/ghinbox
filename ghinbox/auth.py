@@ -18,7 +18,6 @@ from ghinbox.auth_common import (
     USER_MENU_SELECTOR,
     extract_username,
     get_auth_state_path,
-    get_username_path as get_username_path,
     load_username,
     save_auth_state,
     save_username,

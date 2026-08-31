@@ -323,40 +323,6 @@ class ReadVsDoneFlow(BaseFlow):
         save_response("graphql_notifications", result, "json")
         return result
 
-    def _try_alternative_graphql_queries(self) -> dict[str, Any]:
-        """Try alternative GraphQL queries to find notification data."""
-        assert self.owner_api is not None, "Must call validate_prerequisites first"
-
-        results: dict[str, Any] = {}
-
-        # Try querying the issue directly to see if there's notification state
-        query_issue = """
-        query($owner: String!, $repo: String!, $number: Int!) {
-          repository(owner: $owner, name: $repo) {
-            issue(number: $number) {
-              id
-              title
-              viewerSubscription
-              viewerCanSubscribe
-            }
-          }
-        }
-        """
-
-        result = self.owner_api.graphql(
-            query_issue,
-            {
-                "owner": self.owner_username,
-                "repo": self.repo_name,
-                "number": 1,
-            },
-        )
-        print(f"Issue subscription state: {json.dumps(result, indent=2)}")
-        results["issue_subscription"] = result
-
-        save_response("graphql_alternatives", results, "json")
-        return results
-
     def _analyze_states(
         self,
         state_unread: dict,

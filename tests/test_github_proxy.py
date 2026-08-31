@@ -358,7 +358,8 @@ def test_archive_delete_is_governed_before_direct_httpx_call(
 
     with pytest.raises(RateGovernorDeniedError) as error:
         asyncio.run(
-            archive_api._submit_archive_with_github_api(
+            archive_api._submit_notification_action_with_github_api(
+                "archive",
                 ["12345"],
                 request_id="req-archive",
             )

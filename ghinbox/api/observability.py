@@ -21,12 +21,15 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from urllib.parse import parse_qsl, urlparse
 
 from fastapi import APIRouter
 
 from ghinbox.api.fetcher import get_fetcher
-from ghinbox.api.rate_governor import get_rate_governor
+from ghinbox.api.rate_governor import (
+    endpoint_from_url,
+    get_rate_governor,
+    mapping_header_value,
+)
 
 MAX_RECENT_REQUESTS = 200
 REQUEST_ID_HEADER = b"x-ghinbox-request-id"
@@ -237,21 +240,6 @@ def emit_deployment_audit(
         request_logger.info(json.dumps(entry, separators=(",", ":")))
 
 
-def _mapping_header_value(headers: Mapping[str, str] | None, name: str) -> str | None:
-    if headers is None:
-        return None
-
-    value = headers.get(name) or headers.get(name.lower())
-    if value is not None:
-        return str(value)
-
-    normalized_name = name.lower()
-    for key, value in headers.items():
-        if key.lower() == normalized_name:
-            return str(value)
-    return None
-
-
 def _github_rate_limit_from_headers(
     headers: Mapping[str, str] | None,
 ) -> dict[str, str] | None:
@@ -265,16 +253,9 @@ def _github_rate_limit_from_headers(
     values = {
         key: value
         for key, header in rate_limit_headers.items()
-        if (value := _mapping_header_value(headers, header)) is not None
+        if (value := mapping_header_value(headers, header)) is not None
     }
     return values or None
-
-
-def _github_endpoint_from_url(url: str) -> tuple[str, list[str]]:
-    parsed = urlparse(url)
-    endpoint = parsed.path or url
-    query_keys = sorted({key for key, _value in parse_qsl(parsed.query)})
-    return endpoint, query_keys
 
 
 def emit_github_api_call_audit(
@@ -290,7 +271,7 @@ def emit_github_api_call_audit(
     governor_denial: Mapping[str, Any] | None = None,
 ) -> None:
     """Record a sanitized outbound GitHub API call audit event."""
-    endpoint, query_keys = _github_endpoint_from_url(url)
+    endpoint, query_keys = endpoint_from_url(url)
     entry: dict[str, Any] = {
         "timestamp": _utc_now_iso(),
         "event": "github_api_call",
