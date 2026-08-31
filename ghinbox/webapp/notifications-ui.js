@@ -1,1456 +1,1456 @@
-        const renderHooks = [];
+const renderHooks = [];
 
-        function registerRenderHook(hook) {
-            if (typeof hook === 'function') {
-                renderHooks.push(hook);
-            }
+function registerRenderHook(hook) {
+    if (typeof hook === 'function') {
+        renderHooks.push(hook);
+    }
+}
+
+function runRenderHooks() {
+    renderHooks.forEach((hook) => {
+        try {
+            hook();
+        } catch (error) {
+            console.error('Render hook failed:', error);
         }
+    });
+}
 
-        function runRenderHooks() {
-            renderHooks.forEach((hook) => {
-                try {
-                    hook();
-                } catch (error) {
-                    console.error('Render hook failed:', error);
-                }
-            });
+function isMobileViewport() {
+    return window.innerWidth <= 640;
+}
+
+function getSelectableNotifications() {
+    return getFilteredNotifications();
+}
+
+function getNotificationElement(notifId) {
+    return elements.notificationsList.querySelector(
+        `[data-id="${CSS.escape(String(notifId))}"]`
+    );
+}
+
+function scrollActiveNotificationIntoView() {
+    if (!state.activeNotificationId) {
+        return;
+    }
+    const item = getNotificationElement(state.activeNotificationId);
+    if (item) {
+        item.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function setActiveNotification(notifId, { scroll = false } = {}) {
+    if (state.activeNotificationId === notifId) {
+        return;
+    }
+    updateActiveNotificationClass(state.activeNotificationId, notifId);
+    state.activeNotificationId = notifId;
+    if (scroll) {
+        scrollActiveNotificationIntoView();
+    }
+}
+
+function moveActiveNotification(delta) {
+    const selectable = getSelectableNotifications();
+    if (selectable.length === 0) {
+        return;
+    }
+    let index = selectable.findIndex(notif => notif.id === state.activeNotificationId);
+    if (index === -1) {
+        index = delta > 0 ? -1 : selectable.length;
+    }
+    const nextIndex = Math.min(
+        selectable.length - 1,
+        Math.max(0, index + delta)
+    );
+    const newActiveId = selectable[nextIndex].id;
+    updateActiveNotificationClass(state.activeNotificationId, newActiveId);
+    state.activeNotificationId = newActiveId;
+    scrollActiveNotificationIntoView();
+}
+
+// Update keyboard-selected class directly on DOM elements without full re-render
+function updateActiveNotificationClass(oldId, newId) {
+    if (oldId === newId) {
+        return;
+    }
+    if (oldId) {
+        const oldItem = getNotificationElement(oldId);
+        if (oldItem) {
+            oldItem.classList.remove('keyboard-selected');
+            oldItem.removeAttribute('aria-current');
         }
-
-        function isMobileViewport() {
-            return window.innerWidth <= 640;
+    }
+    if (newId) {
+        const newItem = getNotificationElement(newId);
+        if (newItem) {
+            newItem.classList.add('keyboard-selected');
+            newItem.setAttribute('aria-current', 'true');
         }
+    }
+}
 
-        function getSelectableNotifications() {
-            return getFilteredNotifications();
-        }
+function smoothScrollTo(targetY, duration = 150) {
+    const startY = window.scrollY;
+    const distance = targetY - startY;
+    const startTime = performance.now();
 
-        function getNotificationElement(notifId) {
-            return elements.notificationsList.querySelector(
-                `[data-id="${CSS.escape(String(notifId))}"]`
-            );
-        }
-
-        function scrollActiveNotificationIntoView() {
-            if (!state.activeNotificationId) {
-                return;
-            }
-            const item = getNotificationElement(state.activeNotificationId);
-            if (item) {
-                item.scrollIntoView({ block: 'nearest' });
-            }
-        }
-
-        function setActiveNotification(notifId, { scroll = false } = {}) {
-            if (state.activeNotificationId === notifId) {
-                return;
-            }
-            updateActiveNotificationClass(state.activeNotificationId, notifId);
-            state.activeNotificationId = notifId;
-            if (scroll) {
-                scrollActiveNotificationIntoView();
-            }
-        }
-
-        function moveActiveNotification(delta) {
-            const selectable = getSelectableNotifications();
-            if (selectable.length === 0) {
-                return;
-            }
-            let index = selectable.findIndex(notif => notif.id === state.activeNotificationId);
-            if (index === -1) {
-                index = delta > 0 ? -1 : selectable.length;
-            }
-            const nextIndex = Math.min(
-                selectable.length - 1,
-                Math.max(0, index + delta)
-            );
-            const newActiveId = selectable[nextIndex].id;
-            updateActiveNotificationClass(state.activeNotificationId, newActiveId);
-            state.activeNotificationId = newActiveId;
-            scrollActiveNotificationIntoView();
-        }
-
-        // Update keyboard-selected class directly on DOM elements without full re-render
-        function updateActiveNotificationClass(oldId, newId) {
-            if (oldId === newId) {
-                return;
-            }
-            if (oldId) {
-                const oldItem = getNotificationElement(oldId);
-                if (oldItem) {
-                    oldItem.classList.remove('keyboard-selected');
-                    oldItem.removeAttribute('aria-current');
-                }
-            }
-            if (newId) {
-                const newItem = getNotificationElement(newId);
-                if (newItem) {
-                    newItem.classList.add('keyboard-selected');
-                    newItem.setAttribute('aria-current', 'true');
-                }
-            }
-        }
-
-        function smoothScrollTo(targetY, duration = 150) {
-            const startY = window.scrollY;
-            const distance = targetY - startY;
-            const startTime = performance.now();
-
-            function step(currentTime) {
-                const elapsed = currentTime - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                // Ease-out cubic for smooth deceleration
-                const eased = 1 - Math.pow(1 - progress, 3);
-                window.scrollTo(0, startY + distance * eased);
-                if (progress < 1) {
-                    requestAnimationFrame(step);
-                }
-            }
+    function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + distance * eased);
+        if (progress < 1) {
             requestAnimationFrame(step);
         }
+    }
+    requestAnimationFrame(step);
+}
 
-        function scrollToTop() {
-            smoothScrollTo(0);
-        }
+function scrollToTop() {
+    smoothScrollTo(0);
+}
 
-        function scrollToBottom() {
-            smoothScrollTo(document.body.scrollHeight);
-        }
+function scrollToBottom() {
+    smoothScrollTo(document.body.scrollHeight);
+}
 
-        // Scroll anchoring: before removing notifications, capture the first
-        // surviving item visible in the viewport so we can restore its position
-        // after render() rebuilds the DOM.
-        function captureScrollAnchor(removedIds) {
-            const removedSet = removedIds instanceof Set ? removedIds : new Set(Array.isArray(removedIds) ? removedIds : [removedIds]);
-            const items = elements.notificationsList.querySelectorAll('.notification-item');
-            // Find the first surviving item that appears AFTER the last removed item.
-            // This ensures we anchor to content below the removal point, which is
-            // what shifts when items are removed.
-            let pastRemoved = false;
-            let hasSurvivingItemBeforeRemoval = false;
-            let alignNextItemToTop = false;
-            for (const item of items) {
-                const id = item.getAttribute('data-id');
-                if (removedSet.has(id)) {
-                    if (!isMobileViewport() && !hasSurvivingItemBeforeRemoval) {
-                        const rect = item.getBoundingClientRect();
-                        if (rect.top < 0) {
-                            alignNextItemToTop = true;
-                            pastRemoved = true;
-                            continue;
-                        }
-                        return { type: 'scroll-position', scrollY: window.scrollY };
-                    }
+// Scroll anchoring: before removing notifications, capture the first
+// surviving item visible in the viewport so we can restore its position
+// after render() rebuilds the DOM.
+function captureScrollAnchor(removedIds) {
+    const removedSet = removedIds instanceof Set ? removedIds : new Set(Array.isArray(removedIds) ? removedIds : [removedIds]);
+    const items = elements.notificationsList.querySelectorAll('.notification-item');
+    // Find the first surviving item that appears AFTER the last removed item.
+    // This ensures we anchor to content below the removal point, which is
+    // what shifts when items are removed.
+    let pastRemoved = false;
+    let hasSurvivingItemBeforeRemoval = false;
+    let alignNextItemToTop = false;
+    for (const item of items) {
+        const id = item.getAttribute('data-id');
+        if (removedSet.has(id)) {
+            if (!isMobileViewport() && !hasSurvivingItemBeforeRemoval) {
+                const rect = item.getBoundingClientRect();
+                if (rect.top < 0) {
+                    alignNextItemToTop = true;
                     pastRemoved = true;
                     continue;
                 }
-                if (pastRemoved) {
-                    const rect = item.getBoundingClientRect();
-                    if (alignNextItemToTop) {
-                        return { type: 'item-top', id };
-                    }
-                    return { type: 'item', id, viewportTop: rect.top };
-                }
-                hasSurvivingItemBeforeRemoval = true;
+                return { type: 'scroll-position', scrollY: window.scrollY };
             }
-            return null;
+            pastRemoved = true;
+            continue;
         }
-
-        function restoreScrollAnchor(anchor) {
-            if (!anchor) return;
-            if (anchor.type === 'scroll-position') {
-                window.scrollTo(0, anchor.scrollY);
-                return;
+        if (pastRemoved) {
+            const rect = item.getBoundingClientRect();
+            if (alignNextItemToTop) {
+                return { type: 'item-top', id };
             }
-            const item = getNotificationElement(anchor.id);
-            if (!item) return;
-            const newTop = item.getBoundingClientRect().top;
-            if (anchor.type === 'item-top') {
-                if (Math.abs(newTop) > 1) {
-                    window.scrollTo(0, window.scrollY + newTop);
-                }
-                return;
-            }
-            const drift = newTop - anchor.viewportTop;
-            if (Math.abs(drift) > 1) {
-                window.scrollTo(0, window.scrollY + drift);
-            }
+            return { type: 'item', id, viewportTop: rect.top };
         }
+        hasSurvivingItemBeforeRemoval = true;
+    }
+    return null;
+}
 
-        async function triggerActiveNotificationAction(action) {
-            if (!state.activeNotificationId) {
-                return;
-            }
-            const item = getNotificationElement(state.activeNotificationId);
-            if (!item) {
-                return;
-            }
-            if (action === 'done') {
-                const doneButton = item.querySelector('.notification-done-btn');
-                if (doneButton) {
-                    await withActionContext('Mark done (inline)', () =>
-                        handleInlineMarkDone(state.activeNotificationId, doneButton)
-                    );
-                }
-                return;
-            }
-            if (action === 'unsubscribe') {
-                const unsubscribeButton = item.querySelector('.notification-unsubscribe-btn');
-                if (!unsubscribeButton) {
-                    showStatus('Unsubscribe is not available for this notification.', 'info');
-                    return;
-                }
-                await withActionContext('Unsubscribe (inline)', () =>
-                    handleInlineUnsubscribe(state.activeNotificationId, unsubscribeButton)
-                );
-            }
+function restoreScrollAnchor(anchor) {
+    if (!anchor) return;
+    if (anchor.type === 'scroll-position') {
+        window.scrollTo(0, anchor.scrollY);
+        return;
+    }
+    const item = getNotificationElement(anchor.id);
+    if (!item) return;
+    const newTop = item.getBoundingClientRect().top;
+    if (anchor.type === 'item-top') {
+        if (Math.abs(newTop) > 1) {
+            window.scrollTo(0, window.scrollY + newTop);
         }
+        return;
+    }
+    const drift = newTop - anchor.viewportTop;
+    if (Math.abs(drift) > 1) {
+        window.scrollTo(0, window.scrollY + drift);
+    }
+}
 
-        function ensureActiveNotification(filteredNotifications) {
-            if (filteredNotifications.length === 0) {
-                state.activeNotificationId = null;
-                return;
-            }
-            if (!state.activeNotificationId) {
-                return;
-            }
-            const exists = filteredNotifications.some(
-                notif => notif.id === state.activeNotificationId
+async function triggerActiveNotificationAction(action) {
+    if (!state.activeNotificationId) {
+        return;
+    }
+    const item = getNotificationElement(state.activeNotificationId);
+    if (!item) {
+        return;
+    }
+    if (action === 'done') {
+        const doneButton = item.querySelector('.notification-done-btn');
+        if (doneButton) {
+            await withActionContext('Mark done (inline)', () =>
+                handleInlineMarkDone(state.activeNotificationId, doneButton)
             );
-            if (!exists) {
-                state.activeNotificationId = filteredNotifications[0].id;
-            }
         }
-
-        // Move active notification to the next one before removing a notification.
-        // This ensures the selection moves to the next notification, not the first.
-        function advanceActiveNotificationBeforeRemoval(removedId, filteredNotifications) {
-            if (state.activeNotificationId !== removedId) {
-                return;
-            }
-            const index = filteredNotifications.findIndex(n => n.id === removedId);
-            if (index === -1) {
-                return;
-            }
-            // Try to move to the next notification, or the previous if at the end
-            if (index + 1 < filteredNotifications.length) {
-                state.activeNotificationId = filteredNotifications[index + 1].id;
-            } else if (index > 0) {
-                state.activeNotificationId = filteredNotifications[index - 1].id;
-            } else {
-                state.activeNotificationId = null;
-            }
+        return;
+    }
+    if (action === 'unsubscribe') {
+        const unsubscribeButton = item.querySelector('.notification-unsubscribe-btn');
+        if (!unsubscribeButton) {
+            showStatus('Unsubscribe is not available for this notification.', 'info');
+            return;
         }
+        await withActionContext('Unsubscribe (inline)', () =>
+            handleInlineUnsubscribe(state.activeNotificationId, unsubscribeButton)
+        );
+    }
+}
 
-        // Handle keyboard shortcuts
-        async function handleKeyDown(e) {
-            // Don't handle shortcuts when typing in inputs
-            if (
-                e.target.tagName === 'INPUT' ||
-                e.target.tagName === 'TEXTAREA' ||
-                e.target.isContentEditable
-            ) {
-                return;
+function ensureActiveNotification(filteredNotifications) {
+    if (filteredNotifications.length === 0) {
+        state.activeNotificationId = null;
+        return;
+    }
+    if (!state.activeNotificationId) {
+        return;
+    }
+    const exists = filteredNotifications.some(
+        notif => notif.id === state.activeNotificationId
+    );
+    if (!exists) {
+        state.activeNotificationId = filteredNotifications[0].id;
+    }
+}
+
+// Move active notification to the next one before removing a notification.
+// This ensures the selection moves to the next notification, not the first.
+function advanceActiveNotificationBeforeRemoval(removedId, filteredNotifications) {
+    if (state.activeNotificationId !== removedId) {
+        return;
+    }
+    const index = filteredNotifications.findIndex(n => n.id === removedId);
+    if (index === -1) {
+        return;
+    }
+    // Try to move to the next notification, or the previous if at the end
+    if (index + 1 < filteredNotifications.length) {
+        state.activeNotificationId = filteredNotifications[index + 1].id;
+    } else if (index > 0) {
+        state.activeNotificationId = filteredNotifications[index - 1].id;
+    } else {
+        state.activeNotificationId = null;
+    }
+}
+
+// Handle keyboard shortcuts
+async function handleKeyDown(e) {
+    // Don't handle shortcuts when typing in inputs
+    if (
+        e.target.tagName === 'INPUT' ||
+        e.target.tagName === 'TEXTAREA' ||
+        e.target.isContentEditable
+    ) {
+        return;
+    }
+
+    const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+    if (!hasModifier && !e.shiftKey) {
+        if (e.key === 'j') {
+            if (!isMobileViewport()) {
+                moveActiveNotification(1);
+                e.preventDefault();
             }
-
-            const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
-            if (!hasModifier && !e.shiftKey) {
-                if (e.key === 'j') {
-                    if (!isMobileViewport()) {
-                        moveActiveNotification(1);
-                        e.preventDefault();
-                    }
-                    return;
-                }
-                if (e.key === 'k') {
-                    if (!isMobileViewport()) {
-                        moveActiveNotification(-1);
-                        e.preventDefault();
-                    }
-                    return;
-                }
-                if (e.key === 'g') {
-                    const now = Date.now();
-                    if (now - state.lastGKeyTime < 500) {
-                        // gg - scroll to top
-                        scrollToTop();
-                        state.lastGKeyTime = 0;
-                        state.scrollLock = null;
-                        e.preventDefault();
-                        return;
-                    }
-                    const scrollTop = window.scrollY;
-                    const guardUntil = now + 700;
-                    state.lastGKeyTime = now;
-                    state.scrollLock = { top: scrollTop, until: guardUntil };
-                    const guardId = setInterval(() => {
-                        if (state.lastGKeyTime !== now) {
-                            clearInterval(guardId);
-                            return;
-                        }
-                        if (Date.now() > guardUntil) {
-                            clearInterval(guardId);
-                            state.lastGKeyTime = 0;
-                            return;
-                        }
-                        if (window.scrollY !== scrollTop) {
-                            window.scrollTo(0, scrollTop);
-                        }
-                    }, 50);
-                    e.preventDefault();
-                    return;
-                }
-                if (e.key === 'e') {
-                    e.preventDefault();
-                    await triggerActiveNotificationAction('done');
-                    return;
-                }
-                if (e.key === 'm') {
-                    e.preventDefault();
-                    await triggerActiveNotificationAction('unsubscribe');
-                    return;
-                }
-                if (e.key === 'r') {
-                    e.preventDefault();
-                    location.reload();
-                    return;
-                }
-                if (e.key === 'u') {
-                    e.preventDefault();
-                    handleUndo();
-                    return;
-                }
-                if (e.key === 't') {
-                    if (state.activeNotificationId) {
-                        e.preventDefault();
-                        toggleSelection(state.activeNotificationId);
-                        render();
-                    }
-                    return;
-                }
-                if (e.key === 'Enter') {
-                    const item = getNotificationElement(state.activeNotificationId);
-                    const link = item?.querySelector('.notification-title');
-                    if (link?.href) {
-                        e.preventDefault();
-                        window.open(link.href, '_blank');
-                    }
-                    return;
-                }
+            return;
+        }
+        if (e.key === 'k') {
+            if (!isMobileViewport()) {
+                moveActiveNotification(-1);
+                e.preventDefault();
             }
-
-            // G (shift+g) - scroll to bottom
-            if (!hasModifier && e.shiftKey && e.key === 'G') {
-                scrollToBottom();
+            return;
+        }
+        if (e.key === 'g') {
+            const now = Date.now();
+            if (now - state.lastGKeyTime < 500) {
+                // gg - scroll to top
+                scrollToTop();
+                state.lastGKeyTime = 0;
+                state.scrollLock = null;
                 e.preventDefault();
                 return;
             }
-
-            // ? (shift+/) - show keyboard shortcuts help
-            if (!hasModifier && e.key === '?') {
-                showKeyboardShortcutsOverlay();
-                e.preventDefault();
-                return;
-            }
-
-            // Escape: Close keyboard shortcuts overlay first, then clear selection
-            if (e.key === 'Escape') {
-                if (isKeyboardShortcutsOverlayOpen()) {
-                    hideKeyboardShortcutsOverlay();
-                    e.preventDefault();
+            const scrollTop = window.scrollY;
+            const guardUntil = now + 700;
+            state.lastGKeyTime = now;
+            state.scrollLock = { top: scrollTop, until: guardUntil };
+            const guardId = setInterval(() => {
+                if (state.lastGKeyTime !== now) {
+                    clearInterval(guardId);
                     return;
                 }
-                if (state.selected.size > 0) {
-                    clearSelection();
-                    e.preventDefault();
+                if (Date.now() > guardUntil) {
+                    clearInterval(guardId);
+                    state.lastGKeyTime = 0;
+                    return;
                 }
-                return;
-            }
-
-            // Ctrl/Cmd + A: Select all (when notifications exist)
-            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-                const filtered = getFilteredNotifications();
-                if (filtered.length > 0) {
-                    e.preventDefault();
-                    filtered.forEach(n => state.selected.add(n.id));
-                    render();
+                if (window.scrollY !== scrollTop) {
+                    window.scrollTo(0, scrollTop);
                 }
-            }
+            }, 50);
+            e.preventDefault();
+            return;
         }
-
-        // Keyboard shortcuts overlay functions
-        function isKeyboardShortcutsOverlayOpen() {
-            return elements.keyboardShortcutsOverlay.classList.contains('visible');
+        if (e.key === 'e') {
+            e.preventDefault();
+            await triggerActiveNotificationAction('done');
+            return;
         }
-
-        function showKeyboardShortcutsOverlay() {
-            elements.keyboardShortcutsOverlay.classList.add('visible');
+        if (e.key === 'm') {
+            e.preventDefault();
+            await triggerActiveNotificationAction('unsubscribe');
+            return;
         }
-
-        function hideKeyboardShortcutsOverlay() {
-            elements.keyboardShortcutsOverlay.classList.remove('visible');
+        if (e.key === 'r') {
+            e.preventDefault();
+            location.reload();
+            return;
         }
-
-        // Check authentication status
-        async function checkAuth() {
-            let authenticated = false;
-            try {
-                const response = await fetch('/github/rest/user');
-                const data = await response.json();
-
-                if (response.ok && data.login) {
-                    elements.authStatus.textContent = `Signed in as ${data.login}`;
-                    elements.authStatus.className = 'auth-status authenticated';
-                    state.currentUserLogin = data.login;
-                    // Cache auth for use by other functions
-                    if (typeof setCachedAuth === 'function') {
-                        setCachedAuth(data.login);
-                    }
-                    authenticated = true;
-                } else {
-                    elements.authStatus.textContent = 'Not authenticated';
-                    elements.authStatus.className = 'auth-status error';
-                    state.currentUserLogin = null;
-                    if (typeof setCachedAuth === 'function') {
-                        setCachedAuth(null);
-                    }
-                }
-            } catch (e) {
-                elements.authStatus.textContent = 'Auth check failed';
-                elements.authStatus.className = 'auth-status error';
-                state.currentUserLogin = null;
-            }
-
-            // Keep rendering failures separate from the auth request. Otherwise an
-            // unrelated UI exception overwrites a successful sign-in state with
-            // the misleading "Auth check failed" message.
-            if (authenticated) {
+        if (e.key === 'u') {
+            e.preventDefault();
+            handleUndo();
+            return;
+        }
+        if (e.key === 't') {
+            if (state.activeNotificationId) {
+                e.preventDefault();
+                toggleSelection(state.activeNotificationId);
                 render();
             }
+            return;
         }
-
-        async function fetchReviewRequestsForSources(sources) {
-            const perSourceResults = await Promise.all(sources.map(async (source) => {
-                try {
-                    if (source.kind === 'repo') {
-                        return {
-                            notifications: await fetchReviewRequestNotifications({
-                                owner: source.owner,
-                                repo: source.repo,
-                                fullName: source.fullName,
-                            }),
-                            error: null,
-                        };
-                    }
-                    return {
-                        notifications: await fetchReviewRequestNotificationsForSource(source),
-                        error: null,
-                    };
-                } catch (error) {
-                    console.error('Review request sync failed:', error);
-                    return {
-                        notifications: [],
-                        error,
-                    };
-                }
-            }));
-            return perSourceResults.reduce((acc, result) => {
-                acc.notifications.push(...result.notifications);
-                if (result.error) {
-                    acc.errors.push(result.error);
-                }
-                return acc;
-            }, { notifications: [], errors: [] });
+        if (e.key === 'Enter') {
+            const item = getNotificationElement(state.activeNotificationId);
+            const link = item?.querySelector('.notification-title');
+            if (link?.href) {
+                e.preventDefault();
+                window.open(link.href, '_blank');
+            }
+            return;
         }
+    }
 
-        function showReviewRequestSyncErrors(errors, syncLabel) {
-            errors.forEach((error) => {
-                showStatus(
-                    `${syncLabel}: review request check failed: ${error.message || error}`,
-                    'error',
-                    { flash: true }
-                );
-            });
+    // G (shift+g) - scroll to bottom
+    if (!hasModifier && e.shiftKey && e.key === 'G') {
+        scrollToBottom();
+        e.preventDefault();
+        return;
+    }
+
+    // ? (shift+/) - show keyboard shortcuts help
+    if (!hasModifier && e.key === '?') {
+        showKeyboardShortcutsOverlay();
+        e.preventDefault();
+        return;
+    }
+
+    // Escape: Close keyboard shortcuts overlay first, then clear selection
+    if (e.key === 'Escape') {
+        if (isKeyboardShortcutsOverlayOpen()) {
+            hideKeyboardShortcutsOverlay();
+            e.preventDefault();
+            return;
         }
+        if (state.selected.size > 0) {
+            clearSelection();
+            e.preventDefault();
+        }
+        return;
+    }
 
-        // Handle sync button click
-        async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
-            const entries = getCurrentProfileEntries();
-            if (!entries.length) {
-                showStatus('Please enter a repository or query', 'error');
-                return;
-            }
-            updateActiveProfileEntries(entries);
-            if (state.loading) {
-                return;
-            }
-
-            const sources = entries.map(classifyProfileEntry);
-            const invalid = sources.find((source) => !source.value);
-            if (invalid) {
-                showStatus('Invalid empty profile entry', 'error');
-                return;
-            }
-            const invalidFormat = sources.find((source) => source.kind === 'invalid');
-            if (invalidFormat) {
-                showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
-                return;
-            }
-
-            const concreteRepos = sources
-                .filter((source) => source.kind === 'repo')
-                .map((source) => ({
-                    owner: source.owner,
-                    repo: source.repo,
-                    fullName: source.fullName,
-                }));
-            const profileSignature = getProfileSignature();
-            const previousNotifications = state.notifications.slice();
-            const previousSelected = new Set(state.selected);
-            const syncMode = mode === 'full' ? 'full' : 'incremental';
-            const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
-            if (
-                allowServer &&
-                syncMode === 'incremental' &&
-                typeof tryServerQuickSync === 'function'
-            ) {
-                const handledByServer = await tryServerQuickSync(sources);
-                if (handledByServer) {
-                    return;
-                }
-            }
-            const previousMatchMap = canUseIncrementalOverlapMerge({
-                syncMode,
-                sources,
-                previousNotifications,
-                lastSyncedRepo: state.lastSyncedRepo,
-                profileSignature,
-            })
-                ? buildPreviousMatchMap(previousNotifications)
-                : null;
-            state.loading = true;
-            state.error = null;
-            state.notifications = [];
-            state.trashNotifications = [];
-            state.selected.clear();
-            state.commentQueue = [];
-            state.commentQueueKeys.clear();
-            state.commentPrefetchProgress.active = false;
-            state.authenticity_token = null;
-            persistAuthenticityToken(null);
-            clearUndoState();
+    // Ctrl/Cmd + A: Select all (when notifications exist)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        const filtered = getFilteredNotifications();
+        if (filtered.length > 0) {
+            e.preventDefault();
+            filtered.forEach(n => state.selected.add(n.id));
             render();
+        }
+    }
+}
 
-            showStatus(`${syncLabel} in progress...`, 'info', { autoDismiss: true });
+// Keyboard shortcuts overlay functions
+function isKeyboardShortcutsOverlayOpen() {
+    return elements.keyboardShortcutsOverlay.classList.contains('visible');
+}
 
-            try {
-                const reviewRequestsPromise = fetchReviewRequestsForSources(sources);
-                const allNotifications = [];
-                let overlapIndex = null;
-                let stoppedAtOverlap = false;
+function showKeyboardShortcutsOverlay() {
+    elements.keyboardShortcutsOverlay.classList.add('visible');
+}
 
-                for (const source of sources) {
-                    let afterCursor = null;
-                    let pageCount = 0;
-                    do {
-                        pageCount++;
-                        let url;
-                        if (source.kind === 'repo') {
-                            url = `/notifications/html/repo/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}`;
-                        } else {
-                            const params = new URLSearchParams({ query: source.query });
-                            url = `/notifications/html/query?${params}`;
-                        }
-                        if (afterCursor) {
-                            url += `${url.includes('?') ? '&' : '?'}after=${encodeURIComponent(afterCursor)}`;
-                        }
+function hideKeyboardShortcutsOverlay() {
+    elements.keyboardShortcutsOverlay.classList.remove('visible');
+}
 
-                        const data = await fetchJson(url);
-                        const pageNotifications = Array.isArray(data.notifications)
-                            ? data.notifications
-                            : [];
-                        allNotifications.push(...pageNotifications);
-                        if (data.authenticity_token && !state.authenticity_token) {
-                            state.authenticity_token = data.authenticity_token;
-                            persistAuthenticityToken(data.authenticity_token);
-                        }
-                        const hasNextPage = Boolean(data.pagination?.has_next);
-                        const paginationDecision = GhinboxPagination.getNextNotificationPage({
-                            pagination: data.pagination,
-                            currentCursor: afterCursor,
-                            pagesFetched: pageCount,
-                        });
-                        if (paginationDecision.error) {
-                            throw new Error(paginationDecision.error);
-                        }
-                        afterCursor = paginationDecision.nextCursor;
-                        if (previousMatchMap && overlapIndex === null) {
-                            overlapIndex = findIncrementalOverlapIndex(
-                                pageNotifications,
-                                previousMatchMap
-                            );
-                            if (overlapIndex !== null) {
-                                showStatus(
-                                    `${syncLabel}: overlap found at index ${overlapIndex} (stopping early)`,
-                                    'info',
-                                    { flash: true }
-                                );
-                                if (hasNextPage) {
-                                    stoppedAtOverlap = true;
-                                }
-                                afterCursor = null;
-                            }
-                        }
-                        state.notifications = allNotifications.slice();
-                        render();
-                        if (syncMode === 'full') {
-                            scheduleSyncPageCommentPrefetch(pageNotifications);
-                        }
-                    } while (afterCursor);
-                }
+// Check authentication status
+async function checkAuth() {
+    let authenticated = false;
+    try {
+        const response = await fetch('/github/rest/user');
+        const data = await response.json();
 
-                let mergedNotifications = allNotifications;
-                if (previousMatchMap && overlapIndex !== null) {
-                    const pruneMissing = shouldPruneIncrementalNotifications({
-                        syncMode,
-                        fetchedUntilEnd: !stoppedAtOverlap,
-                        stoppedAtOverlap,
-                    });
-                    mergedNotifications = mergeIncrementalNotifications(
-                        allNotifications,
-                        previousNotifications,
-                        overlapIndex + 1,
-                        { pruneMissing }
-                    );
-                }
-
-                const {
-                    notifications: reviewRequests,
-                    errors: reviewRequestErrors,
-                } = await reviewRequestsPromise;
-                showReviewRequestSyncErrors(reviewRequestErrors, syncLabel);
-                for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
-                    reviewRequests
-                )) {
-                    mergedNotifications = mergeReviewRequestNotifications(
-                        mergedNotifications,
-                        group.notifications,
-                        group.repoInfo
-                    );
-                }
-
-                const sortedNotifications = dedupAndSortNotifications(mergedNotifications);
-
-                const restLookupKeys =
-                    syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
-                        ? buildIncrementalRestLookupKeys(allNotifications, previousMatchMap)
-                        : null;
-                let notifications = await ensureLastReadAtData(sortedNotifications, {
-                    restLookupKeys,
-                });
-
-                if (syncMode === 'incremental' && overlapIndex !== null) {
-                    for (const repoInfo of concreteRepos) {
-                        const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
-                        const cachedKeys = new Set();
-                        notifications.forEach((notif) => {
-                            const key = getNotificationMatchKeyForRepo(notif, repoInfo);
-                            if (key && !fetchedKeys.has(key)) {
-                                cachedKeys.add(key);
-                            }
-                        });
-                        notifications = await refreshPullRequestStates(repoInfo, notifications, {
-                            syncLabel,
-                            matchKeys: cachedKeys,
-                        });
-                    }
-                }
-
-                const needsReviewPrNumbers = new Set();
-                for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
-                    reviewRequests
-                )) {
-                    const repoNeedsReview = await getReviewRequestNeedsReviewNumbers(
-                        group.repoInfo,
-                        group.notifications,
-                        syncLabel
-                    );
-                    repoNeedsReview.forEach((number) => needsReviewPrNumbers.add(number));
-                }
-                notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
-                    needsReviewPrNumbers,
-                });
-                notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
-
-                state.notifications = notifications;
-                state.loading = false;
-                state.lastSyncedRepo = profileSignature;
-                localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
-
-                // A full sync rebuilds the list from upstream, so drop any
-                // orphaned comment-cache threads whose notifications no longer
-                // exist. This keeps local IndexedDB state fully reconstructable
-                // from upstream and prevents stale entries from accumulating.
-                if (syncMode === 'full' && state.commentCache) {
-                    state.commentCache = pruneCommentCacheToNotifications(
-                        state.commentCache,
-                        notifications
-                    );
-                    saveCommentCache();
-                }
-
-                // Save to localStorage
-                persistNotifications();
-
-                scheduleCommentPrefetch(notifications);
-
-                showStatus(`Synced ${notifications.length} notifications`, 'success', {
-                    autoDismiss: true,
-                });
-                render();
-
-            } catch (e) {
-                state.loading = false;
-                state.error = e.message;
-                state.notifications = previousNotifications;
-                state.selected = previousSelected;
-                showStatus(`Sync failed: ${e.message}`, 'error');
-                render();
+        if (response.ok && data.login) {
+            elements.authStatus.textContent = `Signed in as ${data.login}`;
+            elements.authStatus.className = 'auth-status authenticated';
+            state.currentUserLogin = data.login;
+            // Cache auth for use by other functions
+            if (typeof setCachedAuth === 'function') {
+                setCachedAuth(data.login);
+            }
+            authenticated = true;
+        } else {
+            elements.authStatus.textContent = 'Not authenticated';
+            elements.authStatus.className = 'auth-status error';
+            state.currentUserLogin = null;
+            if (typeof setCachedAuth === 'function') {
+                setCachedAuth(null);
             }
         }
+    } catch (e) {
+        elements.authStatus.textContent = 'Auth check failed';
+        elements.authStatus.className = 'auth-status error';
+        state.currentUserLogin = null;
+    }
 
-        function getStatusBarState() {
+    // Keep rendering failures separate from the auth request. Otherwise an
+    // unrelated UI exception overwrites a successful sign-in state with
+    // the misleading "Auth check failed" message.
+    if (authenticated) {
+        render();
+    }
+}
+
+async function fetchReviewRequestsForSources(sources) {
+    const perSourceResults = await Promise.all(sources.map(async (source) => {
+        try {
+            if (source.kind === 'repo') {
+                return {
+                    notifications: await fetchReviewRequestNotifications({
+                        owner: source.owner,
+                        repo: source.repo,
+                        fullName: source.fullName,
+                    }),
+                    error: null,
+                };
+            }
             return {
-                statusState: state.statusState,
-                lastPersistentStatus: state.lastPersistentStatus,
-                statusFlashId: state.statusFlashId,
-                statusAutoDismissId: state.statusAutoDismissId,
+                notifications: await fetchReviewRequestNotificationsForSource(source),
+                error: null,
+            };
+        } catch (error) {
+            console.error('Review request sync failed:', error);
+            return {
+                notifications: [],
+                error,
             };
         }
+    }));
+    return perSourceResults.reduce((acc, result) => {
+        acc.notifications.push(...result.notifications);
+        if (result.error) {
+            acc.errors.push(result.error);
+        }
+        return acc;
+    }, { notifications: [], errors: [] });
+}
 
-        function commitStatusBarState(nextState) {
-            state.statusState = nextState.statusState;
-            state.lastPersistentStatus = nextState.lastPersistentStatus;
-            state.statusFlashId = nextState.statusFlashId;
-            state.statusAutoDismissId = nextState.statusAutoDismissId;
+function showReviewRequestSyncErrors(errors, syncLabel) {
+    errors.forEach((error) => {
+        showStatus(
+            `${syncLabel}: review request check failed: ${error.message || error}`,
+            'error',
+            { flash: true }
+        );
+    });
+}
+
+// Handle sync button click
+async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
+    const entries = getCurrentProfileEntries();
+    if (!entries.length) {
+        showStatus('Please enter a repository or query', 'error');
+        return;
+    }
+    updateActiveProfileEntries(entries);
+    if (state.loading) {
+        return;
+    }
+
+    const sources = entries.map(classifyProfileEntry);
+    const invalid = sources.find((source) => !source.value);
+    if (invalid) {
+        showStatus('Invalid empty profile entry', 'error');
+        return;
+    }
+    const invalidFormat = sources.find((source) => source.kind === 'invalid');
+    if (invalidFormat) {
+        showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
+        return;
+    }
+
+    const concreteRepos = sources
+        .filter((source) => source.kind === 'repo')
+        .map((source) => ({
+            owner: source.owner,
+            repo: source.repo,
+            fullName: source.fullName,
+        }));
+    const profileSignature = getProfileSignature();
+    const previousNotifications = state.notifications.slice();
+    const previousSelected = new Set(state.selected);
+    const syncMode = mode === 'full' ? 'full' : 'incremental';
+    const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
+    if (
+        allowServer &&
+        syncMode === 'incremental' &&
+        typeof tryServerQuickSync === 'function'
+    ) {
+        const handledByServer = await tryServerQuickSync(sources);
+        if (handledByServer) {
+            return;
+        }
+    }
+    const previousMatchMap = canUseIncrementalOverlapMerge({
+        syncMode,
+        sources,
+        previousNotifications,
+        lastSyncedRepo: state.lastSyncedRepo,
+        profileSignature,
+    })
+        ? buildPreviousMatchMap(previousNotifications)
+        : null;
+    state.loading = true;
+    state.error = null;
+    state.notifications = [];
+    state.trashNotifications = [];
+    state.selected.clear();
+    state.commentQueue = [];
+    state.commentQueueKeys.clear();
+    state.commentPrefetchProgress.active = false;
+    state.authenticity_token = null;
+    persistAuthenticityToken(null);
+    clearUndoState();
+    render();
+
+    showStatus(`${syncLabel} in progress...`, 'info', { autoDismiss: true });
+
+    try {
+        const reviewRequestsPromise = fetchReviewRequestsForSources(sources);
+        const allNotifications = [];
+        let overlapIndex = null;
+        let stoppedAtOverlap = false;
+
+        for (const source of sources) {
+            let afterCursor = null;
+            let pageCount = 0;
+            do {
+                pageCount++;
+                let url;
+                if (source.kind === 'repo') {
+                    url = `/notifications/html/repo/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.repo)}`;
+                } else {
+                    const params = new URLSearchParams({ query: source.query });
+                    url = `/notifications/html/query?${params}`;
+                }
+                if (afterCursor) {
+                    url += `${url.includes('?') ? '&' : '?'}after=${encodeURIComponent(afterCursor)}`;
+                }
+
+                const data = await fetchJson(url);
+                const pageNotifications = Array.isArray(data.notifications)
+                    ? data.notifications
+                    : [];
+                allNotifications.push(...pageNotifications);
+                if (data.authenticity_token && !state.authenticity_token) {
+                    state.authenticity_token = data.authenticity_token;
+                    persistAuthenticityToken(data.authenticity_token);
+                }
+                const hasNextPage = Boolean(data.pagination?.has_next);
+                const paginationDecision = GhinboxPagination.getNextNotificationPage({
+                    pagination: data.pagination,
+                    currentCursor: afterCursor,
+                    pagesFetched: pageCount,
+                });
+                if (paginationDecision.error) {
+                    throw new Error(paginationDecision.error);
+                }
+                afterCursor = paginationDecision.nextCursor;
+                if (previousMatchMap && overlapIndex === null) {
+                    overlapIndex = findIncrementalOverlapIndex(
+                        pageNotifications,
+                        previousMatchMap
+                    );
+                    if (overlapIndex !== null) {
+                        showStatus(
+                            `${syncLabel}: overlap found at index ${overlapIndex} (stopping early)`,
+                            'info',
+                            { flash: true }
+                        );
+                        if (hasNextPage) {
+                            stoppedAtOverlap = true;
+                        }
+                        afterCursor = null;
+                    }
+                }
+                state.notifications = allNotifications.slice();
+                render();
+                if (syncMode === 'full') {
+                    scheduleSyncPageCommentPrefetch(pageNotifications);
+                }
+            } while (afterCursor);
         }
 
-        function clearStatusAutoDismiss() {
-            applyStatusBarTransition(GhinboxStatusBar.clearAutoDismiss(getStatusBarState()));
+        let mergedNotifications = allNotifications;
+        if (previousMatchMap && overlapIndex !== null) {
+            const pruneMissing = shouldPruneIncrementalNotifications({
+                syncMode,
+                fetchedUntilEnd: !stoppedAtOverlap,
+                stoppedAtOverlap,
+            });
+            mergedNotifications = mergeIncrementalNotifications(
+                allNotifications,
+                previousNotifications,
+                overlapIndex + 1,
+                { pruneMissing }
+            );
         }
 
-        function freezeStatusAutoDismiss() {
-            applyStatusBarTransition(GhinboxStatusBar.freezeAutoDismiss(getStatusBarState()));
+        const {
+            notifications: reviewRequests,
+            errors: reviewRequestErrors,
+        } = await reviewRequestsPromise;
+        showReviewRequestSyncErrors(reviewRequestErrors, syncLabel);
+        for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
+            reviewRequests
+        )) {
+            mergedNotifications = mergeReviewRequestNotifications(
+                mergedNotifications,
+                group.notifications,
+                group.repoInfo
+            );
         }
 
-        function clearStatusBar() {
-            applyStatusBarTransition(GhinboxStatusBar.clearStatus(getStatusBarState()));
-        }
+        const sortedNotifications = dedupAndSortNotifications(mergedNotifications);
 
-        elements.statusBar.addEventListener('click', (event) => {
-            if (!elements.statusBar.classList.contains('visible')) {
-                return;
-            }
-            if (event.target.closest('.status-close-btn')) {
-                clearStatusBar();
-                return;
-            }
-            if (elements.statusBar.classList.contains('auto-dismiss')) {
-                freezeStatusAutoDismiss();
-            }
-            event.stopPropagation();
+        const restLookupKeys =
+            syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
+                ? buildIncrementalRestLookupKeys(allNotifications, previousMatchMap)
+                : null;
+        let notifications = await ensureLastReadAtData(sortedNotifications, {
+            restLookupKeys,
         });
 
-        function buildStatusMessageElement(message) {
-            const messageElement = document.createElement('span');
-            messageElement.className = 'status-message';
-            messageElement.textContent = message;
-
-            if (GhinboxHttp.isExpiredBrowserSessionMessage(message)) {
-                messageElement.append(' ');
-                const loginLink = document.createElement('a');
-                loginLink.className = 'status-login-link';
-                loginLink.href = GhinboxHttp.SESSION_REFRESH_URL;
-                loginLink.textContent = 'Log in again';
-                messageElement.append(loginLink);
-            }
-
-            return messageElement;
-        }
-
-        function applyStatusBarTransition(transition) {
-            commitStatusBarState(transition.state);
-            transition.effects.forEach((effect) => {
-                if (effect.type === 'cancelAutoDismissTimer') {
-                    if (state.statusAutoDismissTimer) {
-                        clearTimeout(state.statusAutoDismissTimer);
-                        state.statusAutoDismissTimer = null;
+        if (syncMode === 'incremental' && overlapIndex !== null) {
+            for (const repoInfo of concreteRepos) {
+                const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
+                const cachedKeys = new Set();
+                notifications.forEach((notif) => {
+                    const key = getNotificationMatchKeyForRepo(notif, repoInfo);
+                    if (key && !fetchedKeys.has(key)) {
+                        cachedKeys.add(key);
                     }
-                    return;
-                }
-                if (effect.type === 'cancelFlashTimer') {
-                    if (state.statusTimer) {
-                        clearTimeout(state.statusTimer);
-                        state.statusTimer = null;
-                    }
-                    return;
-                }
-                if (effect.type === 'clearAutoDismissVisual') {
-                    elements.statusBar.classList.remove('auto-dismiss');
-                    elements.statusBar.style.removeProperty('--status-dismiss-duration');
-                    return;
-                }
-                if (effect.type === 'setAutoDismissVisual') {
-                    elements.statusBar.classList.remove('status-pinned');
-                    elements.statusBar.classList.add('auto-dismiss');
-                    elements.statusBar.style.setProperty(
-                        '--status-dismiss-duration',
-                        `${effect.durationMs}ms`
-                    );
-                    return;
-                }
-                if (effect.type === 'setPinnedVisual') {
-                    elements.statusBar.classList.add('status-pinned');
-                    return;
-                }
-                if (effect.type === 'clearPinnedVisual') {
-                    elements.statusBar.classList.remove('status-pinned');
-                    return;
-                }
-                if (effect.type === 'setStatus') {
-                    const messageElement = buildStatusMessageElement(effect.status.message);
-
-                    const closeButton = document.createElement('button');
-                    closeButton.type = 'button';
-                    closeButton.className = 'status-close-btn';
-                    closeButton.setAttribute('aria-label', 'Dismiss status');
-                    closeButton.textContent = 'X';
-
-                    elements.statusBar.replaceChildren(messageElement, closeButton);
-                    elements.statusBar.className = `status-bar visible ${effect.status.type}`;
-                    return;
-                }
-                if (effect.type === 'clearStatus') {
-                    elements.statusBar.replaceChildren();
-                    elements.statusBar.className = 'status-bar';
-                    return;
-                }
-                if (effect.type === 'scheduleAutoDismiss') {
-                    state.statusAutoDismissTimer = setTimeout(() => {
-                        applyStatusBarTransition(GhinboxStatusBar.autoDismissTimerFired(
-                            getStatusBarState(),
-                            effect.autoDismissId
-                        ));
-                    }, effect.durationMs);
-                    return;
-                }
-                if (effect.type === 'scheduleFlashClear') {
-                    state.statusTimer = setTimeout(() => {
-                        applyStatusBarTransition(GhinboxStatusBar.flashTimerFired(
-                            getStatusBarState(),
-                            effect.flashId
-                        ));
-                    }, effect.durationMs);
-                }
-            });
-        }
-
-        // Show status message
-        function showStatus(message, type, options) {
-            applyStatusBarTransition(GhinboxStatusBar.showStatus(
-                getStatusBarState(),
-                { message, type, options }
-            ));
-        }
-
-        // SVG Icons
-        const icons = {
-            issue: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>`,
-            issueClosed: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z"></path><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z"></path></svg>`,
-            issueNotPlanned: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm9.78-2.22-5.5 5.5a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l5.5-5.5a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg>`,
-            pr: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg>`,
-            prMerged: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"></path></svg>`,
-            prClosed: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.28a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l.94-.94-2.94.001a1 1 0 0 0-1 1v2.5a.75.75 0 0 1-1.5 0V5.251a2.5 2.5 0 0 1 2.5-2.5l2.94-.001-.94-.94a.75.75 0 0 1 0-1.06ZM3.25 12.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"></path></svg>`,
-            prDraft: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM3.25 12.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"></path></svg>`,
-            discussion: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h8.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 10.25 10H7.061l-2.574 2.573A1.458 1.458 0 0 1 2 11.543V10h-.25A1.75 1.75 0 0 1 0 8.25v-5.5C0 1.784.784 1 1.75 1ZM1.5 2.75v5.5c0 .138.112.25.25.25h1a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h3.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13 2a.25.25 0 0 0-.25-.25h-.5a.75.75 0 0 1 0-1.5h.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 14.25 12H14v1.543a1.458 1.458 0 0 1-2.487 1.03L9.22 12.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.22 2.22v-2.19a.75.75 0 0 1 .75-.75h1a.25.25 0 0 0 .25-.25Z"></path></svg>`,
-            commit: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>`,
-            release: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>`,
-            check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
-            bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
-            openInNewTab: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path></svg>`,
-            personRemove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 5.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM1.5 12.5A3.5 3.5 0 0 1 5 9h2a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-.5ZM11.22 6.22a.75.75 0 0 1 1.06 0L14 7.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L15.06 9l1.72 1.72a.75.75 0 1 1-1.06 1.06L14 10.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L12.94 9l-1.72-1.72a.75.75 0 0 1 0-1.06Z"></path></svg>`,
-        };
-
-        const NOTIFICATION_ACTIONS = {
-            open: {
-                className: 'notification-open-btn', bottomClassName: 'notification-open-btn-bottom',
-                ariaLabel: 'Open notification in new tab', text: 'Open in new tab', icon: () => icons.openInNewTab,
-            },
-            unsubscribe: {
-                className: 'notification-unsubscribe-btn', bottomClassName: 'notification-unsubscribe-btn-bottom',
-                ariaLabel: 'Unsubscribe from notification', text: 'Unsubscribe', icon: () => icons.bellSlash,
-                context: 'Unsubscribe (inline)', handler: handleInlineUnsubscribe,
-            },
-            'remove-reviewer': {
-                className: 'notification-remove-reviewer-btn', bottomClassName: 'notification-remove-reviewer-btn-bottom',
-                ariaLabel: 'Remove me as reviewer', text: 'Remove me', icon: () => icons.personRemove,
-                context: 'Remove reviewer (inline)', handler: handleInlineRemoveReviewer,
-            },
-            done: {
-                className: 'notification-done-btn', bottomClassName: 'notification-done-btn-bottom',
-                ariaLabel: 'Mark notification as done', text: 'Done', icon: () => icons.check,
-                context: 'Mark done (inline)', handler: handleInlineMarkDone,
-            },
-        };
-
-        function renderNotificationActionButton(action, { bottom = false, withText = false } = {}) {
-            const config = NOTIFICATION_ACTIONS[action];
-            if (!config) {
-                return '';
-            }
-            const classes = [config.className];
-            if (bottom && config.bottomClassName) {
-                classes.push(config.bottomClassName);
-            }
-            return `<button type="button" class="${classes.join(' ')}" data-notification-action="${action}" aria-label="${escapeHtml(config.ariaLabel)}">${config.icon()}${withText ? `<span>${escapeHtml(config.text)}</span>` : ''}</button>`;
-        }
-
-        function getNotificationActionAvailability(notif) {
-            const canUseNotificationActions =
-                state.view !== 'cleaned' && (
-                    typeof hasNotificationHtmlAction !== 'function' ||
-                    hasNotificationHtmlAction(notif, 'archive')
-                );
-            return {
-                done: canUseNotificationActions,
-                unsubscribe:
-                    state.view !== 'cleaned' &&
-                    typeof hasNotificationHtmlAction === 'function' &&
-                    hasNotificationHtmlAction(notif, 'unsubscribe'),
-                'remove-reviewer':
-                    state.view !== 'cleaned' && notif.subject.type === 'PullRequest',
-            };
-        }
-
-        function renderNotificationActionsBottom(commentItems, availability) {
-            if (!commentItems) {
-                return '';
-            }
-            const actions = ['open', 'unsubscribe', 'remove-reviewer', 'done']
-                .filter((action) => action === 'open' || availability[action])
-                .map((action) => renderNotificationActionButton(action, {
-                    bottom: true,
-                    withText: true,
-                }))
-                .join('');
-            return `<div class="notification-actions-bottom">${actions}</div>`;
-        }
-
-        function renderNotificationActionsInline(availability) {
-            return ['done', 'unsubscribe', 'remove-reviewer']
-                .filter((action) => availability[action])
-                .map((action) => renderNotificationActionButton(action))
-                .join('');
-        }
-
-        function renderNotificationActors(notif) {
-            if (!Array.isArray(notif.actors) || notif.actors.length === 0) {
-                return '';
-            }
-            const actors = notif.actors.slice(0, 3).map((actor) =>
-                `<img class="actor-avatar" src="${escapeHtml(actor.avatar_url || '')}" alt="${escapeHtml(actor.login || '')}" title="${escapeHtml(actor.login || '')}">`
-            ).join('');
-            return `<div class="notification-actors">${actors}</div>`;
-        }
-
-        function getDiffstatRenderContext(notifications) {
-            const infoById = new Map();
-            const totals = [];
-            notifications.forEach((notif) => {
-                const info = getDiffstatInfo(notif);
-                if (info) {
-                    infoById.set(notif.id, info);
-                    totals.push(info.total);
-                }
-            });
-            return {
-                infoById,
-                range: totals.length
-                    ? { min: Math.min(...totals), max: Math.max(...totals) }
-                    : { min: null, max: null },
-            };
-        }
-
-        function renderNotificationItem(notif, diffstatContext) {
-            const li = document.createElement('li');
-            const isSelected = state.selected.has(notif.id);
-            const isActive = state.activeNotificationId === notif.id;
-            li.className = [
-                'notification-item',
-                notif.unread ? 'unread' : '',
-                isSelected ? 'selected' : '',
-                isActive ? 'keyboard-selected' : '',
-            ].filter(Boolean).join(' ');
-            li.dataset.id = notif.id;
-            li.dataset.url = notif.subject.url || '';
-            li.dataset.type = notif.subject.type;
-            li.dataset.state = notif.subject.state || '';
-            if (isActive) {
-                li.setAttribute('aria-current', 'true');
-            }
-
-            const iconClass = getIconStateClass(notif);
-            const iconSvg = getNotificationIcon(notif);
-            const stateBadge = getStateBadge(notif);
-            const relativeTime = formatRelativeTime(notif.updated_at);
-            const reason = formatReason(notif.reason);
-            const commentStatus = getCommentStatus(notif);
-            const commentBadge = commentStatus
-                ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
-                : '';
-            const diffstatInfo = diffstatContext.infoById.get(notif.id);
-            const diffstatHue = diffstatInfo
-                ? getDiffstatHue(diffstatInfo.total, diffstatContext.range)
-                : null;
-            const diffstatHtml = diffstatInfo
-                ? `<span class="diffstat-tag" style="--diffstat-hue: ${diffstatHue}" title="${escapeHtml(diffstatInfo.title)}">+${diffstatInfo.additions}/-${diffstatInfo.deletions}</span>`
-                : '';
-            const authorLogin = getPullRequestAuthorLogin(notif);
-            const authorHtml = authorLogin
-                ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
-                : '';
-            const commentItems = getCommentItems(notif);
-            const commentList = commentItems
-                ? `<ul class="comment-list">${commentItems}</ul>`
-                : '';
-            const actionAvailability = getNotificationActionAvailability(notif);
-
-            li.innerHTML = `
-                <input
-                    type="checkbox"
-                    class="notification-checkbox"
-                    ${isSelected ? 'checked' : ''}
-                    aria-label="Select notification: ${escapeHtml(notif.subject.title)}"
-                >
-                <div class="notification-icon ${iconClass}" data-type="${notif.subject.type}">
-                    ${iconSvg}
-                </div>
-                <div class="notification-content">
-                    <div class="notification-header">
-                        <a href="${escapeHtml(notif.subject.url)}" class="notification-title" target="_blank" rel="noopener">
-                            ${renderInlineCode(notif.subject.title)}
-                        </a>
-                        ${authorHtml}
-                        <div class="notification-meta">
-                            ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
-                            ${stateBadge}
-                            <span class="notification-reason" data-reason="${escapeHtml(notif.reason)}">${reason}</span>
-                            ${diffstatHtml}
-                            ${commentBadge}
-                        </div>
-                    </div>
-                    ${commentList}
-                    ${renderNotificationActionsBottom(commentItems, actionAvailability)}
-                </div>
-                ${renderNotificationActors(notif)}
-                <div class="notification-actions-inline">
-                    <time class="notification-time" datetime="${notif.updated_at}" title="${new Date(notif.updated_at).toLocaleString()}">
-                        ${relativeTime}
-                    </time>
-                    ${renderNotificationActionsInline(actionAvailability)}
-                </div>
-            `;
-
-            return li;
-        }
-
-        // Get icon for notification type and state
-        function getNotificationIcon(notif) {
-            const type = notif.subject.type;
-            const state = notif.subject.state;
-            const stateReason = notif.subject.state_reason;
-
-            if (type === 'Issue') {
-                if (state === 'closed') {
-                    if (stateReason === 'not_planned') return icons.issueNotPlanned;
-                    return icons.issueClosed;
-                }
-                return icons.issue;
-            }
-            if (type === 'PullRequest') {
-                if (state === 'merged') return icons.prMerged;
-                if (state === 'closed') return icons.prClosed;
-                if (state === 'draft') return icons.prDraft;
-                return icons.pr;
-            }
-            if (type === 'Discussion') return icons.discussion;
-            if (type === 'Commit') return icons.commit;
-            if (type === 'Release') return icons.release;
-            return icons.issue; // fallback
-        }
-
-        // Get icon state class
-        function getIconStateClass(notif) {
-            const state = notif.subject.state;
-            if (state === 'merged') return 'merged';
-            if (state === 'closed') return 'closed';
-            if (state === 'draft') return 'draft';
-            return 'open';
-        }
-
-        // Format relative time
-        function formatRelativeTime(dateString) {
-            const date = new Date(dateString);
-            const now = new Date();
-            const diffMs = now - date;
-            const diffSecs = Math.floor(diffMs / 1000);
-            const diffMins = Math.floor(diffSecs / 60);
-            const diffHours = Math.floor(diffMins / 60);
-            const diffDays = Math.floor(diffHours / 24);
-            const diffWeeks = Math.floor(diffDays / 7);
-            const diffMonths = Math.floor(diffDays / 30);
-            const diffYears = Math.floor(diffDays / 365);
-
-            if (diffSecs < 60) return 'just now';
-            if (diffMins < 60) return `${diffMins}m ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            if (diffDays < 7) return `${diffDays}d ago`;
-            if (diffWeeks < 4) return `${diffWeeks}w ago`;
-            if (diffMonths < 12) return `${diffMonths}mo ago`;
-            return `${diffYears}y ago`;
-        }
-
-        // Format reason for display
-        function formatReason(reason) {
-            const reasonMap = {
-                'author': 'Author',
-                'comment': 'Comment',
-                'mention': 'Mentioned',
-                'review_requested': 'Review requested',
-                'subscribed': 'Subscribed',
-                'team_mention': 'Team mentioned',
-                'assign': 'Assigned',
-                'state_change': 'State change',
-                'ci_activity': 'CI activity',
-            };
-            return reasonMap[reason] || reason;
-        }
-
-        // Get state badge HTML
-        function getStateBadge(notif) {
-            const type = notif.subject.type;
-            const state = notif.subject.state;
-            const stateReason = notif.subject.state_reason;
-
-            if (!state) return '';
-
-            let label = state.charAt(0).toUpperCase() + state.slice(1);
-            let cssClass = state;
-
-            if (state === 'closed' && stateReason === 'completed') {
-                cssClass = 'closed completed';
-            }
-
-            if (type === 'PullRequest' && state === 'merged') {
-                label = 'Merged';
-            }
-
-            return `<span class="state-badge ${cssClass}" data-state="${state}">${label}</span>`;
-        }
-
-        function getPullRequestAuthorLogin(notification) {
-            if (notification.subject?.type !== 'PullRequest') {
-                return null;
-            }
-            const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
-            if (!cached || cached.error) {
-                return null;
-            }
-            const login = cached.authorLogin;
-            if (!login) {
-                return null;
-            }
-            if (typeof isAuthorLoginFresh === 'function' && !isAuthorLoginFresh(cached)) {
-                return null;
-            }
-            return String(login);
-        }
-
-        function handleNotificationListClick(event) {
-            const target = event.target instanceof Element ? event.target : event.target.parentElement;
-            if (!target) {
-                return;
-            }
-            const item = target.closest('.notification-item');
-            if (!item || !elements.notificationsList.contains(item)) {
-                return;
-            }
-
-            const notifId = item.dataset.id;
-            const checkbox = target.closest('.notification-checkbox');
-            if (checkbox) {
-                event.stopPropagation();
-                handleNotificationCheckbox(notifId, event);
-                return;
-            }
-
-            const actionButton = target.closest('[data-notification-action]');
-            if (actionButton) {
-                event.stopPropagation();
-                const action = actionButton.dataset.notificationAction;
-                if (action === 'open') {
-                    window.open(item.dataset.url, '_blank', 'noopener');
-                    return;
-                }
-                const actionConfig = NOTIFICATION_ACTIONS[action];
-                if (actionConfig) {
-                    withActionContext(actionConfig.context, () =>
-                        actionConfig.handler(notifId, actionButton)
-                    );
-                }
-                return;
-            }
-
-            if (!isMobileViewport()) {
-                setActiveNotification(notifId);
-            }
-        }
-
-        elements.notificationsList.addEventListener('click', handleNotificationListClick);
-
-        function getDiffstatHue(total, range) {
-            if (!range || range.min === null || range.max === null) {
-                return null;
-            }
-            if (range.min === range.max) {
-                return 60;
-            }
-            const scale = (total - range.min) / (range.max - range.min);
-            return Math.round(120 * (1 - scale));
-        }
-
-        // Render the UI
-        function render() {
-            // Show/hide loading state
-            elements.loading.className = state.loading ? 'loading visible' : 'loading';
-
-            // Keep rendering already-applied notifications while async server syncs continue.
-            const filteredNotifications = getFilteredNotifications();
-            ensureActiveNotification(filteredNotifications);
-
-            // Show/hide empty state with dynamic message
-            const showEmpty =
-                !state.loading &&
-                filteredNotifications.length === 0;
-            const viewCounts = getViewCounts();
-            elements.emptyState.style.display = showEmpty ? 'block' : 'none';
-            if (showEmpty) {
-                const emptyMsg = GhinboxEmptyState.getEmptyStateMessage({
-                    view: state.view,
-                    viewFilters: state.viewFilters,
-                    viewCounts,
-                    notificationCount: state.notifications.length,
-                    trashNotificationCount: state.trashNotifications.length,
                 });
-                elements.emptyState.innerHTML = `
-                    <h3>${emptyMsg.title}</h3>
-                    <p>${emptyMsg.message}</p>
-                `;
+                notifications = await refreshPullRequestStates(repoInfo, notifications, {
+                    syncLabel,
+                    matchKeys: cachedKeys,
+                });
             }
+        }
 
-            // Update view tab counts and active state
-            elements.viewTabs.forEach(tab => {
-                const view = tab.dataset.view;
-                const isActive = view === state.view;
-                tab.classList.toggle('active', isActive);
-                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        const needsReviewPrNumbers = new Set();
+        for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(
+            reviewRequests
+        )) {
+            const repoNeedsReview = await getReviewRequestNeedsReviewNumbers(
+                group.repoInfo,
+                group.notifications,
+                syncLabel
+            );
+            repoNeedsReview.forEach((number) => needsReviewPrNumbers.add(number));
+        }
+        notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel, {
+            needsReviewPrNumbers,
+        });
+        notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
 
-                // Update count badge
-                const countSpan = tab.querySelector('.count');
-                if (countSpan) {
-                    const countKey = GhinboxViewState.getViewCountKey(view);
-                    countSpan.textContent = viewCounts[countKey] ?? 0;
-                }
-            });
+        state.notifications = notifications;
+        state.loading = false;
+        state.lastSyncedRepo = profileSignature;
+        localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
 
-            // Update subfilter tab counts and active state
-            const subfilterCounts = getSubfilterCounts();
-            const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
-            const currentStateFilter = viewFilters.state || 'all';
-            const currentAuthorFilter = viewFilters.author || 'all';
-            const currentAudienceFilter = viewFilters.audience || 'all';
-            const currentInterestFilter = viewFilters.interest || 'all';
-            const currentBookmarkFilter = viewFilters.bookmark || 'all';
-            const currentTypeFilter = viewFilters.type || 'all';
-            elements.subfilterTabs.forEach(tab => {
-                const subfilter = tab.dataset.subfilter;
-                const tabView = tab.closest('.subfilter-tabs')?.dataset.forView;
-                const group = tab.closest('.subfilter-tabs')?.dataset.subfilterGroup || 'state';
-                const currentSubfilter =
-                    group === 'author' ? currentAuthorFilter :
-                    group === 'audience' ? currentAudienceFilter :
-                    group === 'interest' ? currentInterestFilter :
-                    group === 'bookmark' ? currentBookmarkFilter :
-                    group === 'type' ? currentTypeFilter :
-                    currentStateFilter;
-                const isActive =
-                    tabView === state.view &&
-                    currentSubfilter !== 'all' &&
-                    subfilter === currentSubfilter;
-                tab.classList.toggle('active', isActive);
-                tab.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        // A full sync rebuilds the list from upstream, so drop any
+        // orphaned comment-cache threads whose notifications no longer
+        // exist. This keeps local IndexedDB state fully reconstructable
+        // from upstream and prevents stale entries from accumulating.
+        if (syncMode === 'full' && state.commentCache) {
+            state.commentCache = pruneCommentCacheToNotifications(
+                state.commentCache,
+                notifications
+            );
+            saveCommentCache();
+        }
 
-                // Update count badge for visible tabs
-                if (tabView === state.view) {
-                    const countSpan = tab.querySelector('.count');
-                    if (countSpan) {
-                        if (isActive) {
-                            countSpan.textContent = '';
-                        } else {
-                            const countMap = subfilterCounts[group] || subfilterCounts.state;
-                            const countKey = GhinboxViewState.getFilterCountKey(
-                                state.view,
-                                group,
-                                subfilter
-                            );
-                            countSpan.textContent = countMap[countKey] ?? 0;
-                        }
-                    }
-                }
-            });
+        // Save to localStorage
+        persistNotifications();
 
-            // Ensure correct subfilter tabs are visible
-            updateSubfilterVisibility();
-            updateCommentCacheStatus();
+        scheduleCommentPrefetch(notifications);
 
-            // Update data-subfilter for mobile CSS
-            if (elements.notificationsContainer) {
-                elements.notificationsContainer.dataset.subfilter = currentStateFilter;
+        showStatus(`Synced ${notifications.length} notifications`, 'success', {
+            autoDismiss: true,
+        });
+        render();
+
+    } catch (e) {
+        state.loading = false;
+        state.error = e.message;
+        state.notifications = previousNotifications;
+        state.selected = previousSelected;
+        showStatus(`Sync failed: ${e.message}`, 'error');
+        render();
+    }
+}
+
+function getStatusBarState() {
+    return {
+        statusState: state.statusState,
+        lastPersistentStatus: state.lastPersistentStatus,
+        statusFlashId: state.statusFlashId,
+        statusAutoDismissId: state.statusAutoDismissId,
+    };
+}
+
+function commitStatusBarState(nextState) {
+    state.statusState = nextState.statusState;
+    state.lastPersistentStatus = nextState.lastPersistentStatus;
+    state.statusFlashId = nextState.statusFlashId;
+    state.statusAutoDismissId = nextState.statusAutoDismissId;
+}
+
+function clearStatusAutoDismiss() {
+    applyStatusBarTransition(GhinboxStatusBar.clearAutoDismiss(getStatusBarState()));
+}
+
+function freezeStatusAutoDismiss() {
+    applyStatusBarTransition(GhinboxStatusBar.freezeAutoDismiss(getStatusBarState()));
+}
+
+function clearStatusBar() {
+    applyStatusBarTransition(GhinboxStatusBar.clearStatus(getStatusBarState()));
+}
+
+elements.statusBar.addEventListener('click', (event) => {
+    if (!elements.statusBar.classList.contains('visible')) {
+        return;
+    }
+    if (event.target.closest('.status-close-btn')) {
+        clearStatusBar();
+        return;
+    }
+    if (elements.statusBar.classList.contains('auto-dismiss')) {
+        freezeStatusAutoDismiss();
+    }
+    event.stopPropagation();
+});
+
+function buildStatusMessageElement(message) {
+    const messageElement = document.createElement('span');
+    messageElement.className = 'status-message';
+    messageElement.textContent = message;
+
+    if (GhinboxHttp.isExpiredBrowserSessionMessage(message)) {
+        messageElement.append(' ');
+        const loginLink = document.createElement('a');
+        loginLink.className = 'status-login-link';
+        loginLink.href = GhinboxHttp.SESSION_REFRESH_URL;
+        loginLink.textContent = 'Log in again';
+        messageElement.append(loginLink);
+    }
+
+    return messageElement;
+}
+
+function applyStatusBarTransition(transition) {
+    commitStatusBarState(transition.state);
+    transition.effects.forEach((effect) => {
+        if (effect.type === 'cancelAutoDismissTimer') {
+            if (state.statusAutoDismissTimer) {
+                clearTimeout(state.statusAutoDismissTimer);
+                state.statusAutoDismissTimer = null;
             }
-
-            // Update notification count header
-            if (filteredNotifications.length > 0) {
-                elements.notificationCount.textContent = `${filteredNotifications.length} notifications`;
-            } else {
-                elements.notificationCount.textContent = '';
+            return;
+        }
+        if (effect.type === 'cancelFlashTimer') {
+            if (state.statusTimer) {
+                clearTimeout(state.statusTimer);
+                state.statusTimer = null;
             }
+            return;
+        }
+        if (effect.type === 'clearAutoDismissVisual') {
+            elements.statusBar.classList.remove('auto-dismiss');
+            elements.statusBar.style.removeProperty('--status-dismiss-duration');
+            return;
+        }
+        if (effect.type === 'setAutoDismissVisual') {
+            elements.statusBar.classList.remove('status-pinned');
+            elements.statusBar.classList.add('auto-dismiss');
+            elements.statusBar.style.setProperty(
+                '--status-dismiss-duration',
+                `${effect.durationMs}ms`
+            );
+            return;
+        }
+        if (effect.type === 'setPinnedVisual') {
+            elements.statusBar.classList.add('status-pinned');
+            return;
+        }
+        if (effect.type === 'clearPinnedVisual') {
+            elements.statusBar.classList.remove('status-pinned');
+            return;
+        }
+        if (effect.type === 'setStatus') {
+            const messageElement = buildStatusMessageElement(effect.status.message);
 
-            // Show/hide select all row
-            const doneQueue = state.doneQueue;
-            const showSelectAll =
-                filteredNotifications.length > 0 ||
-                GhinboxDoneQueue.isBatchActive(doneQueue);
-            elements.selectAllRow.style.display = showSelectAll ? 'flex' : 'none';
+            const closeButton = document.createElement('button');
+            closeButton.type = 'button';
+            closeButton.className = 'status-close-btn';
+            closeButton.setAttribute('aria-label', 'Dismiss status');
+            closeButton.textContent = 'X';
 
-            // Update select all checkbox state
-            if (showSelectAll) {
-                const selectedInFilter = filteredNotifications.filter(n => state.selected.has(n.id)).length;
-                const allSelected = selectedInFilter === filteredNotifications.length;
-                const someSelected = selectedInFilter > 0 && !allSelected;
+            elements.statusBar.replaceChildren(messageElement, closeButton);
+            elements.statusBar.className = `status-bar visible ${effect.status.type}`;
+            return;
+        }
+        if (effect.type === 'clearStatus') {
+            elements.statusBar.replaceChildren();
+            elements.statusBar.className = 'status-bar';
+            return;
+        }
+        if (effect.type === 'scheduleAutoDismiss') {
+            state.statusAutoDismissTimer = setTimeout(() => {
+                applyStatusBarTransition(GhinboxStatusBar.autoDismissTimerFired(
+                    getStatusBarState(),
+                    effect.autoDismissId
+                ));
+            }, effect.durationMs);
+            return;
+        }
+        if (effect.type === 'scheduleFlashClear') {
+            state.statusTimer = setTimeout(() => {
+                applyStatusBarTransition(GhinboxStatusBar.flashTimerFired(
+                    getStatusBarState(),
+                    effect.flashId
+                ));
+            }, effect.durationMs);
+        }
+    });
+}
 
-                elements.selectAllCheckbox.checked = allSelected;
-                elements.selectAllCheckbox.indeterminate = someSelected;
+// Show status message
+function showStatus(message, type, options) {
+    applyStatusBarTransition(GhinboxStatusBar.showStatus(
+        getStatusBarState(),
+        { message, type, options }
+    ));
+}
 
-                // Update selection count
-                if (state.selected.size > 0) {
-                    elements.selectionCount.textContent = `${state.selected.size} selected`;
-                    elements.selectionCount.className = 'selection-count has-selection';
+// SVG Icons
+const icons = {
+    issue: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>`,
+    issueClosed: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z"></path><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z"></path></svg>`,
+    issueNotPlanned: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm9.78-2.22-5.5 5.5a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l5.5-5.5a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"></path></svg>`,
+    pr: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path></svg>`,
+    prMerged: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"></path></svg>`,
+    prClosed: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.28a.75.75 0 0 1 1.06 0l2 2a.75.75 0 0 1 0 1.06l-2 2a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l.94-.94-2.94.001a1 1 0 0 0-1 1v2.5a.75.75 0 0 1-1.5 0V5.251a2.5 2.5 0 0 1 2.5-2.5l2.94-.001-.94-.94a.75.75 0 0 1 0-1.06ZM3.25 12.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"></path></svg>`,
+    prDraft: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM3.25 12.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"></path></svg>`,
+    discussion: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h8.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 10.25 10H7.061l-2.574 2.573A1.458 1.458 0 0 1 2 11.543V10h-.25A1.75 1.75 0 0 1 0 8.25v-5.5C0 1.784.784 1 1.75 1ZM1.5 2.75v5.5c0 .138.112.25.25.25h1a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h3.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13 2a.25.25 0 0 0-.25-.25h-.5a.75.75 0 0 1 0-1.5h.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 14.25 12H14v1.543a1.458 1.458 0 0 1-2.487 1.03L9.22 12.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.22 2.22v-2.19a.75.75 0 0 1 .75-.75h1a.25.25 0 0 0 .25-.25Z"></path></svg>`,
+    commit: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>`,
+    release: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>`,
+    check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
+    bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
+    openInNewTab: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path></svg>`,
+    personRemove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 5.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM1.5 12.5A3.5 3.5 0 0 1 5 9h2a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-.5ZM11.22 6.22a.75.75 0 0 1 1.06 0L14 7.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L15.06 9l1.72 1.72a.75.75 0 1 1-1.06 1.06L14 10.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L12.94 9l-1.72-1.72a.75.75 0 0 1 0-1.06Z"></path></svg>`,
+};
+
+const NOTIFICATION_ACTIONS = {
+    open: {
+        className: 'notification-open-btn', bottomClassName: 'notification-open-btn-bottom',
+        ariaLabel: 'Open notification in new tab', text: 'Open in new tab', icon: () => icons.openInNewTab,
+    },
+    unsubscribe: {
+        className: 'notification-unsubscribe-btn', bottomClassName: 'notification-unsubscribe-btn-bottom',
+        ariaLabel: 'Unsubscribe from notification', text: 'Unsubscribe', icon: () => icons.bellSlash,
+        context: 'Unsubscribe (inline)', handler: handleInlineUnsubscribe,
+    },
+    'remove-reviewer': {
+        className: 'notification-remove-reviewer-btn', bottomClassName: 'notification-remove-reviewer-btn-bottom',
+        ariaLabel: 'Remove me as reviewer', text: 'Remove me', icon: () => icons.personRemove,
+        context: 'Remove reviewer (inline)', handler: handleInlineRemoveReviewer,
+    },
+    done: {
+        className: 'notification-done-btn', bottomClassName: 'notification-done-btn-bottom',
+        ariaLabel: 'Mark notification as done', text: 'Done', icon: () => icons.check,
+        context: 'Mark done (inline)', handler: handleInlineMarkDone,
+    },
+};
+
+function renderNotificationActionButton(action, { bottom = false, withText = false } = {}) {
+    const config = NOTIFICATION_ACTIONS[action];
+    if (!config) {
+        return '';
+    }
+    const classes = [config.className];
+    if (bottom && config.bottomClassName) {
+        classes.push(config.bottomClassName);
+    }
+    return `<button type="button" class="${classes.join(' ')}" data-notification-action="${action}" aria-label="${escapeHtml(config.ariaLabel)}">${config.icon()}${withText ? `<span>${escapeHtml(config.text)}</span>` : ''}</button>`;
+}
+
+function getNotificationActionAvailability(notif) {
+    const canUseNotificationActions =
+        state.view !== 'cleaned' && (
+            typeof hasNotificationHtmlAction !== 'function' ||
+            hasNotificationHtmlAction(notif, 'archive')
+        );
+    return {
+        done: canUseNotificationActions,
+        unsubscribe:
+            state.view !== 'cleaned' &&
+            typeof hasNotificationHtmlAction === 'function' &&
+            hasNotificationHtmlAction(notif, 'unsubscribe'),
+        'remove-reviewer':
+            state.view !== 'cleaned' && notif.subject.type === 'PullRequest',
+    };
+}
+
+function renderNotificationActionsBottom(commentItems, availability) {
+    if (!commentItems) {
+        return '';
+    }
+    const actions = ['open', 'unsubscribe', 'remove-reviewer', 'done']
+        .filter((action) => action === 'open' || availability[action])
+        .map((action) => renderNotificationActionButton(action, {
+            bottom: true,
+            withText: true,
+        }))
+        .join('');
+    return `<div class="notification-actions-bottom">${actions}</div>`;
+}
+
+function renderNotificationActionsInline(availability) {
+    return ['done', 'unsubscribe', 'remove-reviewer']
+        .filter((action) => availability[action])
+        .map((action) => renderNotificationActionButton(action))
+        .join('');
+}
+
+function renderNotificationActors(notif) {
+    if (!Array.isArray(notif.actors) || notif.actors.length === 0) {
+        return '';
+    }
+    const actors = notif.actors.slice(0, 3).map((actor) =>
+        `<img class="actor-avatar" src="${escapeHtml(actor.avatar_url || '')}" alt="${escapeHtml(actor.login || '')}" title="${escapeHtml(actor.login || '')}">`
+    ).join('');
+    return `<div class="notification-actors">${actors}</div>`;
+}
+
+function getDiffstatRenderContext(notifications) {
+    const infoById = new Map();
+    const totals = [];
+    notifications.forEach((notif) => {
+        const info = getDiffstatInfo(notif);
+        if (info) {
+            infoById.set(notif.id, info);
+            totals.push(info.total);
+        }
+    });
+    return {
+        infoById,
+        range: totals.length
+            ? { min: Math.min(...totals), max: Math.max(...totals) }
+            : { min: null, max: null },
+    };
+}
+
+function renderNotificationItem(notif, diffstatContext) {
+    const li = document.createElement('li');
+    const isSelected = state.selected.has(notif.id);
+    const isActive = state.activeNotificationId === notif.id;
+    li.className = [
+        'notification-item',
+        notif.unread ? 'unread' : '',
+        isSelected ? 'selected' : '',
+        isActive ? 'keyboard-selected' : '',
+    ].filter(Boolean).join(' ');
+    li.dataset.id = notif.id;
+    li.dataset.url = notif.subject.url || '';
+    li.dataset.type = notif.subject.type;
+    li.dataset.state = notif.subject.state || '';
+    if (isActive) {
+        li.setAttribute('aria-current', 'true');
+    }
+
+    const iconClass = getIconStateClass(notif);
+    const iconSvg = getNotificationIcon(notif);
+    const stateBadge = getStateBadge(notif);
+    const relativeTime = formatRelativeTime(notif.updated_at);
+    const reason = formatReason(notif.reason);
+    const commentStatus = getCommentStatus(notif);
+    const commentBadge = commentStatus
+        ? `<span class="comment-tag ${commentStatus.className}">${escapeHtml(commentStatus.label)}</span>`
+        : '';
+    const diffstatInfo = diffstatContext.infoById.get(notif.id);
+    const diffstatHue = diffstatInfo
+        ? getDiffstatHue(diffstatInfo.total, diffstatContext.range)
+        : null;
+    const diffstatHtml = diffstatInfo
+        ? `<span class="diffstat-tag" style="--diffstat-hue: ${diffstatHue}" title="${escapeHtml(diffstatInfo.title)}">+${diffstatInfo.additions}/-${diffstatInfo.deletions}</span>`
+        : '';
+    const authorLogin = getPullRequestAuthorLogin(notif);
+    const authorHtml = authorLogin
+        ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
+        : '';
+    const commentItems = getCommentItems(notif);
+    const commentList = commentItems
+        ? `<ul class="comment-list">${commentItems}</ul>`
+        : '';
+    const actionAvailability = getNotificationActionAvailability(notif);
+
+    li.innerHTML = `
+        <input
+            type="checkbox"
+            class="notification-checkbox"
+            ${isSelected ? 'checked' : ''}
+            aria-label="Select notification: ${escapeHtml(notif.subject.title)}"
+        >
+        <div class="notification-icon ${iconClass}" data-type="${notif.subject.type}">
+            ${iconSvg}
+        </div>
+        <div class="notification-content">
+            <div class="notification-header">
+                <a href="${escapeHtml(notif.subject.url)}" class="notification-title" target="_blank" rel="noopener">
+                    ${renderInlineCode(notif.subject.title)}
+                </a>
+                ${authorHtml}
+                <div class="notification-meta">
+                    ${notif.subject.number ? `<span class="notification-number">#${notif.subject.number}</span>` : ''}
+                    ${stateBadge}
+                    <span class="notification-reason" data-reason="${escapeHtml(notif.reason)}">${reason}</span>
+                    ${diffstatHtml}
+                    ${commentBadge}
+                </div>
+            </div>
+            ${commentList}
+            ${renderNotificationActionsBottom(commentItems, actionAvailability)}
+        </div>
+        ${renderNotificationActors(notif)}
+        <div class="notification-actions-inline">
+            <time class="notification-time" datetime="${notif.updated_at}" title="${new Date(notif.updated_at).toLocaleString()}">
+                ${relativeTime}
+            </time>
+            ${renderNotificationActionsInline(actionAvailability)}
+        </div>
+    `;
+
+    return li;
+}
+
+// Get icon for notification type and state
+function getNotificationIcon(notif) {
+    const type = notif.subject.type;
+    const state = notif.subject.state;
+    const stateReason = notif.subject.state_reason;
+
+    if (type === 'Issue') {
+        if (state === 'closed') {
+            if (stateReason === 'not_planned') return icons.issueNotPlanned;
+            return icons.issueClosed;
+        }
+        return icons.issue;
+    }
+    if (type === 'PullRequest') {
+        if (state === 'merged') return icons.prMerged;
+        if (state === 'closed') return icons.prClosed;
+        if (state === 'draft') return icons.prDraft;
+        return icons.pr;
+    }
+    if (type === 'Discussion') return icons.discussion;
+    if (type === 'Commit') return icons.commit;
+    if (type === 'Release') return icons.release;
+    return icons.issue; // fallback
+}
+
+// Get icon state class
+function getIconStateClass(notif) {
+    const state = notif.subject.state;
+    if (state === 'merged') return 'merged';
+    if (state === 'closed') return 'closed';
+    if (state === 'draft') return 'draft';
+    return 'open';
+}
+
+// Format relative time
+function formatRelativeTime(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const diffWeeks = Math.floor(diffDays / 7);
+    const diffMonths = Math.floor(diffDays / 30);
+    const diffYears = Math.floor(diffDays / 365);
+
+    if (diffSecs < 60) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffWeeks < 4) return `${diffWeeks}w ago`;
+    if (diffMonths < 12) return `${diffMonths}mo ago`;
+    return `${diffYears}y ago`;
+}
+
+// Format reason for display
+function formatReason(reason) {
+    const reasonMap = {
+        'author': 'Author',
+        'comment': 'Comment',
+        'mention': 'Mentioned',
+        'review_requested': 'Review requested',
+        'subscribed': 'Subscribed',
+        'team_mention': 'Team mentioned',
+        'assign': 'Assigned',
+        'state_change': 'State change',
+        'ci_activity': 'CI activity',
+    };
+    return reasonMap[reason] || reason;
+}
+
+// Get state badge HTML
+function getStateBadge(notif) {
+    const type = notif.subject.type;
+    const state = notif.subject.state;
+    const stateReason = notif.subject.state_reason;
+
+    if (!state) return '';
+
+    let label = state.charAt(0).toUpperCase() + state.slice(1);
+    let cssClass = state;
+
+    if (state === 'closed' && stateReason === 'completed') {
+        cssClass = 'closed completed';
+    }
+
+    if (type === 'PullRequest' && state === 'merged') {
+        label = 'Merged';
+    }
+
+    return `<span class="state-badge ${cssClass}" data-state="${state}">${label}</span>`;
+}
+
+function getPullRequestAuthorLogin(notification) {
+    if (notification.subject?.type !== 'PullRequest') {
+        return null;
+    }
+    const cached = state.commentCache?.threads?.[getNotificationKey(notification)];
+    if (!cached || cached.error) {
+        return null;
+    }
+    const login = cached.authorLogin;
+    if (!login) {
+        return null;
+    }
+    if (typeof isAuthorLoginFresh === 'function' && !isAuthorLoginFresh(cached)) {
+        return null;
+    }
+    return String(login);
+}
+
+function handleNotificationListClick(event) {
+    const target = event.target instanceof Element ? event.target : event.target.parentElement;
+    if (!target) {
+        return;
+    }
+    const item = target.closest('.notification-item');
+    if (!item || !elements.notificationsList.contains(item)) {
+        return;
+    }
+
+    const notifId = item.dataset.id;
+    const checkbox = target.closest('.notification-checkbox');
+    if (checkbox) {
+        event.stopPropagation();
+        handleNotificationCheckbox(notifId, event);
+        return;
+    }
+
+    const actionButton = target.closest('[data-notification-action]');
+    if (actionButton) {
+        event.stopPropagation();
+        const action = actionButton.dataset.notificationAction;
+        if (action === 'open') {
+            window.open(item.dataset.url, '_blank', 'noopener');
+            return;
+        }
+        const actionConfig = NOTIFICATION_ACTIONS[action];
+        if (actionConfig) {
+            withActionContext(actionConfig.context, () =>
+                actionConfig.handler(notifId, actionButton)
+            );
+        }
+        return;
+    }
+
+    if (!isMobileViewport()) {
+        setActiveNotification(notifId);
+    }
+}
+
+elements.notificationsList.addEventListener('click', handleNotificationListClick);
+
+function getDiffstatHue(total, range) {
+    if (!range || range.min === null || range.max === null) {
+        return null;
+    }
+    if (range.min === range.max) {
+        return 60;
+    }
+    const scale = (total - range.min) / (range.max - range.min);
+    return Math.round(120 * (1 - scale));
+}
+
+// Render the UI
+function render() {
+    // Show/hide loading state
+    elements.loading.className = state.loading ? 'loading visible' : 'loading';
+
+    // Keep rendering already-applied notifications while async server syncs continue.
+    const filteredNotifications = getFilteredNotifications();
+    ensureActiveNotification(filteredNotifications);
+
+    // Show/hide empty state with dynamic message
+    const showEmpty =
+        !state.loading &&
+        filteredNotifications.length === 0;
+    const viewCounts = getViewCounts();
+    elements.emptyState.style.display = showEmpty ? 'block' : 'none';
+    if (showEmpty) {
+        const emptyMsg = GhinboxEmptyState.getEmptyStateMessage({
+            view: state.view,
+            viewFilters: state.viewFilters,
+            viewCounts,
+            notificationCount: state.notifications.length,
+            trashNotificationCount: state.trashNotifications.length,
+        });
+        elements.emptyState.innerHTML = `
+            <h3>${emptyMsg.title}</h3>
+            <p>${emptyMsg.message}</p>
+        `;
+    }
+
+    // Update view tab counts and active state
+    elements.viewTabs.forEach(tab => {
+        const view = tab.dataset.view;
+        const isActive = view === state.view;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+        // Update count badge
+        const countSpan = tab.querySelector('.count');
+        if (countSpan) {
+            const countKey = GhinboxViewState.getViewCountKey(view);
+            countSpan.textContent = viewCounts[countKey] ?? 0;
+        }
+    });
+
+    // Update subfilter tab counts and active state
+    const subfilterCounts = getSubfilterCounts();
+    const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
+    const currentStateFilter = viewFilters.state || 'all';
+    const currentAuthorFilter = viewFilters.author || 'all';
+    const currentAudienceFilter = viewFilters.audience || 'all';
+    const currentInterestFilter = viewFilters.interest || 'all';
+    const currentBookmarkFilter = viewFilters.bookmark || 'all';
+    const currentTypeFilter = viewFilters.type || 'all';
+    elements.subfilterTabs.forEach(tab => {
+        const subfilter = tab.dataset.subfilter;
+        const tabView = tab.closest('.subfilter-tabs')?.dataset.forView;
+        const group = tab.closest('.subfilter-tabs')?.dataset.subfilterGroup || 'state';
+        const currentSubfilter =
+            group === 'author' ? currentAuthorFilter :
+            group === 'audience' ? currentAudienceFilter :
+            group === 'interest' ? currentInterestFilter :
+            group === 'bookmark' ? currentBookmarkFilter :
+            group === 'type' ? currentTypeFilter :
+            currentStateFilter;
+        const isActive =
+            tabView === state.view &&
+            currentSubfilter !== 'all' &&
+            subfilter === currentSubfilter;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+
+        // Update count badge for visible tabs
+        if (tabView === state.view) {
+            const countSpan = tab.querySelector('.count');
+            if (countSpan) {
+                if (isActive) {
+                    countSpan.textContent = '';
                 } else {
-                    elements.selectionCount.textContent = '';
-                    elements.selectionCount.className = 'selection-count';
-                }
-
-                const markDoneState = getMarkDoneTargets(filteredNotifications);
-                elements.markDoneBtn.style.display = markDoneState.show ? 'inline-block' : 'none';
-                if (markDoneState.show) {
-                    elements.markDoneBtn.textContent = markDoneState.label;
-                }
-
-                // Update bottom actions row and button
-                if (elements.bottomActionsRow) {
-                    elements.bottomActionsRow.style.display = markDoneState.show ? 'flex' : 'none';
-                }
-                if (elements.markDoneBtnBottom) {
-                    elements.markDoneBtnBottom.style.display = markDoneState.show ? 'inline-block' : 'none';
-                    if (markDoneState.show) {
-                        elements.markDoneBtnBottom.textContent = markDoneState.label;
-                    }
-                }
-
-                const openAllState = getOpenAllTargets(filteredNotifications);
-                elements.openUnreadBtn.style.display = openAllState.show ? 'inline-flex' : 'none';
-
-                const unsubscribeAllState = getUnsubscribeAllTargets(filteredNotifications);
-                elements.unsubscribeAllBtn.style.display = unsubscribeAllState.show ? 'inline-block' : 'none';
-            }
-
-            // Update progress bar
-            const doneProgress = doneQueue ? GhinboxDoneQueue.getProgressBarState(doneQueue) : null;
-            if (doneProgress) {
-                elements.progressContainer.className = 'progress-container visible';
-                elements.progressBarFill.style.width = `${doneProgress.percent}%`;
-                elements.progressText.textContent = doneProgress.message;
-            } else {
-                elements.progressContainer.className = 'progress-container';
-            }
-
-            // Render notifications list
-            elements.notificationsList.innerHTML = '';
-
-            if (filteredNotifications.length > 0) {
-                const diffstatContext = getDiffstatRenderContext(filteredNotifications);
-                const fragment = document.createDocumentFragment();
-                filteredNotifications.forEach((notif) => {
-                    fragment.appendChild(renderNotificationItem(notif, diffstatContext));
-                });
-                elements.notificationsList.appendChild(fragment);
-            }
-
-            runRenderHooks();
-
-            if (state.scrollLock) {
-                const now = Date.now();
-                if (now <= state.scrollLock.until) {
-                    if (window.scrollY !== state.scrollLock.top) {
-                        window.scrollTo(0, state.scrollLock.top);
-                    }
-                } else {
-                    state.scrollLock = null;
+                    const countMap = subfilterCounts[group] || subfilterCounts.state;
+                    const countKey = GhinboxViewState.getFilterCountKey(
+                        state.view,
+                        group,
+                        subfilter
+                    );
+                    countSpan.textContent = countMap[countKey] ?? 0;
                 }
             }
         }
+    });
 
-        let markdownConfigured = false;
+    // Ensure correct subfilter tabs are visible
+    updateSubfilterVisibility();
+    updateCommentCacheStatus();
 
-        function renderInlineCode(text) {
-            const escaped = escapeHtml(String(text || ''));
-            return escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Update data-subfilter for mobile CSS
+    if (elements.notificationsContainer) {
+        elements.notificationsContainer.dataset.subfilter = currentStateFilter;
+    }
+
+    // Update notification count header
+    if (filteredNotifications.length > 0) {
+        elements.notificationCount.textContent = `${filteredNotifications.length} notifications`;
+    } else {
+        elements.notificationCount.textContent = '';
+    }
+
+    // Show/hide select all row
+    const doneQueue = state.doneQueue;
+    const showSelectAll =
+        filteredNotifications.length > 0 ||
+        GhinboxDoneQueue.isBatchActive(doneQueue);
+    elements.selectAllRow.style.display = showSelectAll ? 'flex' : 'none';
+
+    // Update select all checkbox state
+    if (showSelectAll) {
+        const selectedInFilter = filteredNotifications.filter(n => state.selected.has(n.id)).length;
+        const allSelected = selectedInFilter === filteredNotifications.length;
+        const someSelected = selectedInFilter > 0 && !allSelected;
+
+        elements.selectAllCheckbox.checked = allSelected;
+        elements.selectAllCheckbox.indeterminate = someSelected;
+
+        // Update selection count
+        if (state.selected.size > 0) {
+            elements.selectionCount.textContent = `${state.selected.size} selected`;
+            elements.selectionCount.className = 'selection-count has-selection';
+        } else {
+            elements.selectionCount.textContent = '';
+            elements.selectionCount.className = 'selection-count';
         }
 
-        function renderMarkdown(text) {
-            if (!window.marked || !window.DOMPurify) {
-                return escapeHtml(String(text || ''));
+        const markDoneState = getMarkDoneTargets(filteredNotifications);
+        elements.markDoneBtn.style.display = markDoneState.show ? 'inline-block' : 'none';
+        if (markDoneState.show) {
+            elements.markDoneBtn.textContent = markDoneState.label;
+        }
+
+        // Update bottom actions row and button
+        if (elements.bottomActionsRow) {
+            elements.bottomActionsRow.style.display = markDoneState.show ? 'flex' : 'none';
+        }
+        if (elements.markDoneBtnBottom) {
+            elements.markDoneBtnBottom.style.display = markDoneState.show ? 'inline-block' : 'none';
+            if (markDoneState.show) {
+                elements.markDoneBtnBottom.textContent = markDoneState.label;
             }
-            if (!markdownConfigured) {
-                window.marked.setOptions({
-                    gfm: true,
-                    breaks: true,
-                    mangle: false,
-                    headerIds: false,
-                });
-                markdownConfigured = true;
+        }
+
+        const openAllState = getOpenAllTargets(filteredNotifications);
+        elements.openUnreadBtn.style.display = openAllState.show ? 'inline-flex' : 'none';
+
+        const unsubscribeAllState = getUnsubscribeAllTargets(filteredNotifications);
+        elements.unsubscribeAllBtn.style.display = unsubscribeAllState.show ? 'inline-block' : 'none';
+    }
+
+    // Update progress bar
+    const doneProgress = doneQueue ? GhinboxDoneQueue.getProgressBarState(doneQueue) : null;
+    if (doneProgress) {
+        elements.progressContainer.className = 'progress-container visible';
+        elements.progressBarFill.style.width = `${doneProgress.percent}%`;
+        elements.progressText.textContent = doneProgress.message;
+    } else {
+        elements.progressContainer.className = 'progress-container';
+    }
+
+    // Render notifications list
+    elements.notificationsList.innerHTML = '';
+
+    if (filteredNotifications.length > 0) {
+        const diffstatContext = getDiffstatRenderContext(filteredNotifications);
+        const fragment = document.createDocumentFragment();
+        filteredNotifications.forEach((notif) => {
+            fragment.appendChild(renderNotificationItem(notif, diffstatContext));
+        });
+        elements.notificationsList.appendChild(fragment);
+    }
+
+    runRenderHooks();
+
+    if (state.scrollLock) {
+        const now = Date.now();
+        if (now <= state.scrollLock.until) {
+            if (window.scrollY !== state.scrollLock.top) {
+                window.scrollTo(0, state.scrollLock.top);
             }
-            return window.DOMPurify.sanitize(window.marked.parse(String(text || '')));
+        } else {
+            state.scrollLock = null;
         }
+    }
+}
 
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+let markdownConfigured = false;
 
-        function parseRepoInput(value) {
-            const repo = GhinboxNotificationIdentity.parseRepoInput(value);
-            return repo ? { owner: repo.owner, repo: repo.repo } : null;
-        }
+function renderInlineCode(text) {
+    const escaped = escapeHtml(String(text || ''));
+    return escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function renderMarkdown(text) {
+    if (!window.marked || !window.DOMPurify) {
+        return escapeHtml(String(text || ''));
+    }
+    if (!markdownConfigured) {
+        window.marked.setOptions({
+            gfm: true,
+            breaks: true,
+            mangle: false,
+            headerIds: false,
+        });
+        markdownConfigured = true;
+    }
+    return window.DOMPurify.sanitize(window.marked.parse(String(text || '')));
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function parseRepoInput(value) {
+    const repo = GhinboxNotificationIdentity.parseRepoInput(value);
+    return repo ? { owner: repo.owner, repo: repo.repo } : null;
+}
