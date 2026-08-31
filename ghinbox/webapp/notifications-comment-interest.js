@@ -604,6 +604,27 @@
         return comments.every(isUninterestingComment);
     }
 
+    // Mark-done gate: given the comments fetched at done-time, decide whether
+    // anything is new relative to the cached thread, and whether Done should
+    // still proceed (all new comments are the user's own or uninteresting).
+    function getNewCommentsDoneDecision(comments, { cachedCommentIds, currentUserLogin } = {}) {
+        const cachedIds = cachedCommentIds instanceof Set ? cachedCommentIds : new Set();
+        const newComments = comments.filter((comment) => {
+            const commentId = comment?.id != null ? Number(comment.id) : null;
+            return commentId && !cachedIds.has(commentId);
+        });
+        if (newComments.length === 0) {
+            return { hasNew: false, allowDone: true };
+        }
+        const currentUser = normalizeLogin(currentUserLogin);
+        const allowDone = newComments.every((comment) => {
+            const author = normalizeLogin(comment?.user?.login);
+            const isOwn = Boolean(currentUser) && author === currentUser;
+            return isOwn || isUninterestingComment(comment);
+        });
+        return { hasNew: true, allowDone };
+    }
+
     return {
         areCommentsOnlyByCurrentUserOrBots,
         filterCommentsAfterOwnComment,
@@ -611,6 +632,7 @@
         getCommentTimestampMs,
         getDirectReviewThreadReplies,
         getLatestCloseEventTimestampMs,
+        getNewCommentsDoneDecision,
         getParticipationThreadKey,
         getReviewThreadKey,
         getUninterestingReason,

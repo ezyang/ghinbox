@@ -842,29 +842,11 @@ async function hasNewCommentsRelativeToCache(notification, options = {}) {
                 ? options.cachedCommentIds
                 : getCachedCommentIdSet(notification);
 
-        // Find truly new comments (IDs we haven't seen)
-        const newComments = allComments.filter(comment => {
-            const commentId = comment.id != null ? Number(comment.id) : null;
-            return commentId && !cachedCommentIds.has(commentId);
+        const decision = GhinboxCommentInterest.getNewCommentsDoneDecision(allComments, {
+            cachedCommentIds,
+            currentUserLogin: ensureCurrentUserLogin(),
         });
-
-        if (newComments.length === 0) {
-            return { status: 'ok', hasNew: false, allowDone: true };
-        }
-
-        // Check if all new comments are from current user or uninteresting
-        const currentUser = String(ensureCurrentUserLogin() || '').toLowerCase();
-        const allowDone = newComments.every((comment) => {
-            const author = String(comment?.user?.login || '').toLowerCase();
-            const isOwn = Boolean(currentUser) && author === currentUser;
-            const isUninteresting =
-                typeof isUninterestingComment === 'function'
-                    ? isUninterestingComment(comment)
-                    : false;
-            return isOwn || isUninteresting;
-        });
-
-        return { status: 'ok', hasNew: true, allowDone };
+        return { status: 'ok', ...decision };
     } catch (error) {
         console.error('[MarkDone] Comment sync failed:', error);
         return {

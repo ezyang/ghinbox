@@ -520,3 +520,54 @@ test('open PR with direct replies stays interesting even when read', () => {
 test('revert-related bot-looking comments are interesting', () => {
   assert.equal(isUninterestingComment(comment(1, 'alice', '@pytorchbot revert this')), false);
 });
+
+test('getNewCommentsDoneDecision allows done when nothing is new', () => {
+  const { getNewCommentsDoneDecision } = require('../../ghinbox/webapp/notifications-comment-interest.js');
+  const comments = [comment(1, 'alice', 'hello'), comment(2, 'bob', 'world')];
+  assert.deepEqual(
+    getNewCommentsDoneDecision(comments, {
+      cachedCommentIds: new Set([1, 2]),
+      currentUserLogin: 'me',
+    }),
+    { hasNew: false, allowDone: true }
+  );
+  assert.deepEqual(
+    getNewCommentsDoneDecision([], { cachedCommentIds: new Set(), currentUserLogin: 'me' }),
+    { hasNew: false, allowDone: true }
+  );
+});
+
+test('getNewCommentsDoneDecision blocks done on new interesting comments', () => {
+  const { getNewCommentsDoneDecision } = require('../../ghinbox/webapp/notifications-comment-interest.js');
+  assert.deepEqual(
+    getNewCommentsDoneDecision([comment(1, 'alice', 'please look')], {
+      cachedCommentIds: new Set(),
+      currentUserLogin: 'me',
+    }),
+    { hasNew: true, allowDone: false }
+  );
+});
+
+test('getNewCommentsDoneDecision still allows done for own or uninteresting comments', () => {
+  const { getNewCommentsDoneDecision } = require('../../ghinbox/webapp/notifications-comment-interest.js');
+  const cases = [
+    { comments: [comment(3, 'me', 'my own reply')], expected: { hasNew: true, allowDone: true } },
+    {
+      comments: [comment(3, 'github-actions[bot]', 'CI results')],
+      expected: { hasNew: true, allowDone: true },
+    },
+    {
+      comments: [comment(3, 'me', 'mine'), comment(4, 'alice', 'a real question')],
+      expected: { hasNew: true, allowDone: false },
+    },
+  ];
+  for (const { comments, expected } of cases) {
+    assert.deepEqual(
+      getNewCommentsDoneDecision(comments, {
+        cachedCommentIds: new Set([1]),
+        currentUserLogin: 'ME',
+      }),
+      expected
+    );
+  }
+});
