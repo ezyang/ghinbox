@@ -121,6 +121,8 @@ const state = {
     activeNotificationId: null, // Keyboard selection cursor
     lastClickedId: null, // For shift-click range selection
     unsubscribeInProgress: false, // Whether Unsubscribe All is in progress
+    reviewsReloading: false,
+    reviewsLastReloadedAt: null, // ms timestamp of the last successful Reviews reload
     autoMarkTrashDone: true,
     commentQueue: [],
     commentQueueKeys: new Set(),
@@ -283,6 +285,7 @@ function setActiveProfile(profileId, { loadCache = true } = {}) {
         return;
     }
     state.profileId = profileId;
+    state.reviewsLastReloadedAt = null;
     localStorage.setItem(PROFILE_KEY, profileId);
     if (elements.profileSelect) {
         elements.profileSelect.value = profileId;
@@ -294,6 +297,9 @@ function setActiveProfile(profileId, { loadCache = true } = {}) {
                 state.notifications = Array.isArray(cached) ? cached : [];
                 state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
                 render();
+                if (typeof maybeAutoReloadReviews === 'function') {
+                    maybeAutoReloadReviews();
+                }
             })
             .catch((error) => {
                 console.error('Failed to load profile notifications cache:', error);
@@ -778,6 +784,9 @@ async function init() {
 
     // Initial render
     render();
+    if (typeof maybeAutoReloadReviews === 'function') {
+        maybeAutoReloadReviews();
+    }
 }
 
 // Reload the page with a fresh cache-bust token so every asset is refetched.
@@ -809,6 +818,7 @@ function setView(view) {
     if (!GhinboxViewState.VALID_VIEWS.has(view)) {
         return;
     }
+    const previousView = state.view;
     state.view = view;
     localStorage.setItem(VIEW_KEY, view);
     // Set data-view attribute on container for CSS targeting
@@ -821,6 +831,9 @@ function setView(view) {
         elements.orderSelect.value = state.orderBy;
     }
     render();
+    if (previousView !== view && typeof maybeAutoReloadReviews === 'function') {
+        maybeAutoReloadReviews();
+    }
 }
 
 // Set the subfilter for the current view

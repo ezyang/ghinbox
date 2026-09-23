@@ -177,7 +177,7 @@
         reloadReviewsBtn.disabled = Boolean(state?.loading || state?.reviewsReloading);
     }
 
-    async function handleReloadReviews() {
+    async function handleReloadReviews({ auto = false } = {}) {
         const config = getCurrentReviewReloadConfig();
         if (config.error) {
             showStatus(config.error, 'error');
@@ -188,7 +188,7 @@
         }
 
         const { sources, target } = config;
-        const syncLabel = 'Reload Reviews';
+        const syncLabel = auto ? 'Refresh Reviews' : 'Reload Reviews';
         state.repo = target.storageValue;
         localStorage.setItem(REPO_KEY, target.storageValue);
         state.reviewsReloading = true;
@@ -264,6 +264,7 @@
 
             const finalReviewQueue = getReviewQueueNotifications(state.notifications);
             commitReloadedReviewNotifications(state.notifications, target, { renderNow: false });
+            state.reviewsLastReloadedAt = Date.now();
             showStatus(
                 `Reloaded ${finalReviewQueue.length} review notification${finalReviewQueue.length === 1 ? '' : 's'}`,
                 'success',
@@ -281,9 +282,28 @@
         }
     }
 
+    // Entering Reviews (or starting on it) refetches review requests so the
+    // queue reflects GitHub now rather than the last full sync.
+    function maybeAutoReloadReviews() {
+        const shouldReload = GhinboxReviewRequests.shouldAutoReloadReviews({
+            view: state.view,
+            hasProfileEntries: getCurrentProfileEntries().length > 0,
+            reloading: Boolean(state.reviewsReloading),
+            loading: Boolean(state.loading),
+            lastReloadedAt: state.reviewsLastReloadedAt ?? null,
+            nowMs: Date.now(),
+        });
+        if (!shouldReload) {
+            return;
+        }
+        withActionContext('Auto reload reviews', () => handleReloadReviews({ auto: true }));
+    }
+
     reloadReviewsBtn.addEventListener('click', () => {
-        withActionContext('Reload reviews', handleReloadReviews);
+        withActionContext('Reload reviews', () => handleReloadReviews());
     });
+
+    globalThis.maybeAutoReloadReviews = maybeAutoReloadReviews;
 
     registerRenderHook(updateReloadReviewsButton);
     updateReloadReviewsButton();

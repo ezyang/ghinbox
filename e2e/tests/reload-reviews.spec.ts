@@ -40,8 +40,8 @@ function reviewRequestNotification({
   };
 }
 
-test.describe('Reload reviews button @sync', () => {
-  test('refreshes review requests without reloading all notifications', async ({ page }) => {
+test.describe('Reload reviews @sync', () => {
+  test('entering Reviews refreshes review requests without reloading all notifications', async ({ page }) => {
     await openNotificationsWithCachedData(page, {
       notifications: [],
       expectedCount: 0,
@@ -113,17 +113,55 @@ test.describe('Reload reviews button @sync', () => {
       })
     );
 
+    // Entering Reviews queries review requests fresh.
     await viewTab(page, 'others-prs').click();
-    const reloadReviewsBtn = page.locator('#reload-reviews-btn');
-    await expect(reloadReviewsBtn).toBeVisible();
-
-    await reloadReviewsBtn.click();
 
     await expect(page.locator('.notification-item')).toHaveCount(1);
     await expect(page.locator('.notification-item')).toContainText('Review me');
     await expect(page.locator('#status-bar')).toContainText('Reloaded 1 review notification');
     expect(reviewSearches).toBe(1);
     expect(notificationReloads).toBe(0);
+
+    // Re-entering within the freshness window does not refetch.
+    await viewTab(page, 'issues').click();
+    await viewTab(page, 'others-prs').click();
+    await expect(page.locator('.notification-item')).toContainText('Review me');
+    await expect.poll(() => reviewSearches, { timeout: 500 }).toBe(1);
+
+    // The manual button still forces a reload.
+    const reloadReviewsBtn = page.locator('#reload-reviews-btn');
+    await expect(reloadReviewsBtn).toBeEnabled();
+    await reloadReviewsBtn.click();
+    await expect.poll(() => reviewSearches).toBe(2);
+    await expect(reloadReviewsBtn).toBeEnabled();
+    expect(notificationReloads).toBe(0);
+  });
+
+  test('starting on Reviews refreshes review requests on load', async ({ page }) => {
+    await openNotificationsWithCachedData(page, {
+      notifications: [],
+      expectedCount: 0,
+    });
+
+    let reviewSearches = 0;
+    await page.route('**/github/rest/review-requests**', (route) => {
+      reviewSearches++;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          notifications: [reviewRequestNotification({ number: 202, title: 'Review on load' })],
+        }),
+      });
+    });
+
+    await page.evaluate(() => localStorage.setItem('ghnotif_view', 'others-prs'));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(viewTab(page, 'others-prs')).toHaveClass(/active/);
+    await expect(page.locator('.notification-item')).toContainText('Review on load');
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 1 review notification');
+    expect(reviewSearches).toBe(1);
   });
 
   test('hides review requests from muted repositories', async ({ page }) => {
@@ -199,7 +237,6 @@ test.describe('Reload reviews button @sync', () => {
     );
 
     await viewTab(page, 'others-prs').click();
-    await page.locator('#reload-reviews-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Reloaded 1 review notification');
     await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -281,7 +318,6 @@ test.describe('Reload reviews button @sync', () => {
     );
 
     await viewTab(page, 'others-prs').click();
-    await page.locator('#reload-reviews-btn').click();
     await graphqlStarted;
 
     await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -390,7 +426,6 @@ test.describe('Reload reviews button @sync', () => {
 
     await page.locator('#profile-select').selectOption('pytorch');
     await viewTab(page, 'others-prs').click();
-    await page.locator('#reload-reviews-btn').click();
 
     await expect(page.locator('.notification-item')).toHaveCount(4);
     await expect(page.locator('.notification-item')).toContainText([

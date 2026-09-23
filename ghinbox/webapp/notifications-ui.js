@@ -661,6 +661,11 @@ async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
         state.notifications = notifications;
         state.loading = false;
         state.lastSyncedRepo = profileSignature;
+        if (reviewRequestErrors.length === 0) {
+            // The sync just fetched review requests, so entering Reviews
+            // right away should not refetch them.
+            state.reviewsLastReloadedAt = Date.now();
+        }
         localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
 
         // A full sync rebuilds the list from upstream, so drop any
