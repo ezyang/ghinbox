@@ -118,7 +118,11 @@ test.describe('Scroll Anchoring @layout', () => {
     });
     expect(removedItemTop).toBeLessThan(0);
 
-    await page.locator('[data-id="notif-0"] .notification-actions-inline .notification-done-btn').click();
+    // Dispatch the click without Playwright scrolling the (now offscreen)
+    // inline button into view, so the removal happens mid-entry.
+    await page
+      .locator('[data-id="notif-0"] .notification-actions-inline .notification-done-btn')
+      .dispatchEvent('click');
     await expect(page.locator('[data-id="notif-0"]')).toHaveCount(0);
 
     const nextItemTop = await getViewportY(page, 'notif-1');
