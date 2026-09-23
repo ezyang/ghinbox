@@ -123,6 +123,7 @@ const state = {
     unsubscribeInProgress: false, // Whether Unsubscribe All is in progress
     reviewsReloading: false,
     reviewsLastReloadedAt: null, // ms timestamp of the last successful Reviews reload
+    lastLocalMutationAt: null, // ms timestamp of the last mark-done/unsubscribe/undo
     autoMarkTrashDone: true,
     commentQueue: [],
     commentQueueKeys: new Set(),
@@ -299,6 +300,9 @@ function setActiveProfile(profileId, { loadCache = true } = {}) {
                 render();
                 if (typeof maybeAutoReloadReviews === 'function') {
                     maybeAutoReloadReviews();
+                }
+                if (typeof refreshDigest === 'function') {
+                    refreshDigest();
                 }
             })
             .catch((error) => {
@@ -786,6 +790,9 @@ async function init() {
     render();
     if (typeof maybeAutoReloadReviews === 'function') {
         maybeAutoReloadReviews();
+    }
+    if (typeof startBackgroundRefresh === 'function') {
+        startBackgroundRefresh();
     }
 }
 

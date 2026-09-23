@@ -990,6 +990,23 @@
                 </div>
             </div>
 
+            <section id="digest-panel" class="digest-panel" aria-label="Feed digest" hidden>
+                <header class="digest-header">
+                    <h3>Digest</h3>
+                    <span class="digest-status"></span>
+                    <div class="digest-actions">
+                        <button class="btn btn-small digest-open-all" type="button">Open all</button>
+                        <button class="btn btn-small digest-refresh" type="button">Refresh digest</button>
+                    </div>
+                </header>
+                <ul class="digest-look-at" role="list"></ul>
+                <p class="digest-look-at-empty">Nothing in the Feed needs you right now.</p>
+                <details class="digest-vibe-details" open>
+                    <summary>Overall vibe</summary>
+                    <div class="digest-vibe"></div>
+                </details>
+            </section>
+
             <!-- Mobile filter row: filter dropdowns on first row, sort/select on second row -->
             <div class="mobile-filter-row">
                 <div class="mobile-filter-dropdowns">
@@ -1181,6 +1198,7 @@
                 'notifications-comment-window.js',
                 'notifications-comment-status.js',
                 'notifications-comment-cache-policy.js',
+                'notifications-digest.js',
                 'notifications-comments.js',
                 'notifications-filtering.js',
                 'notifications-core.js',
@@ -1190,6 +1208,7 @@
                 'notifications-auth-cache.js',
                 'notifications-bookmarks.js',
                 'notifications-review-reload.js',
+                'notifications-background.js',
                 'notifications.js',
             ].forEach((scriptName) => {
                 document.write(`<script src="${scriptName}${bust}"><\/script>`);

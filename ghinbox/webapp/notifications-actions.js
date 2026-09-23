@@ -93,6 +93,8 @@ async function postNotificationHtmlAction({
     logLabel = null,
     successTarget = null,
 }) {
+    // Background snapshot pulls must not apply syncs that predate this action.
+    state.lastLocalMutationAt = Date.now();
     const lookup = buildNotificationActionLookup(notifIds, notificationLookup);
     const authenticityToken = getNotificationActionToken(action, notifIds, lookup);
 
@@ -257,6 +259,7 @@ function getCachedCommentIdSet(notification) {
 
 function enqueueDoneItems(ids, notificationLookup, options = {}) {
     doneQueue.sessionExpired = false;
+    state.lastLocalMutationAt = Date.now();
     const items = ids.map(id => {
         const notification = notificationLookup.get(id);
         return {
@@ -500,9 +503,11 @@ function handleOpenAllFiltered() {
     const { notifications, show } = getOpenAllTargets();
     if (!show) return;
 
-    const urls = Array.from(
-        new Set(notifications.map((notif) => notif.subject.url).filter(Boolean))
-    );
+    openUrlsInNewTabs(notifications.map((notif) => notif.subject.url));
+}
+
+function openUrlsInNewTabs(rawUrls) {
+    const urls = Array.from(new Set(rawUrls.filter(Boolean)));
     if (urls.length === 0) {
         return;
     }

@@ -314,6 +314,83 @@
             padding: 0;
         }
 
+        /* Feed digest panel */
+        .digest-panel[hidden],
+        .digest-panel [hidden] {
+            display: none !important;
+        }
+
+        .digest-panel {
+            margin: 8px 16px;
+            padding: 8px 12px;
+            border: 1px solid var(--color-border-default);
+            border-radius: 6px;
+        }
+
+        .digest-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .digest-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .digest-status {
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .digest-actions {
+            display: flex;
+            gap: 6px;
+            margin-left: auto;
+        }
+
+        .digest-look-at {
+            list-style: none;
+            margin: 8px 0 0 0;
+            padding: 0;
+        }
+
+        .digest-item {
+            padding: 4px 0;
+        }
+
+        .digest-item a,
+        .digest-vibe a {
+            color: var(--color-accent-fg);
+        }
+
+        .digest-item-ref,
+        .digest-item-why {
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .digest-look-at-empty {
+            margin: 8px 0 0 0;
+            color: var(--color-fg-muted);
+        }
+
+        .digest-vibe-details {
+            margin-top: 8px;
+        }
+
+        .digest-vibe-details summary {
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .digest-vibe-theme {
+            margin: 6px 0;
+            line-height: 1.45;
+        }
+
         /* Empty state */
         .empty-state {
             padding: 48px 16px;

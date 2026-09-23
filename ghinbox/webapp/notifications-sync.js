@@ -615,6 +615,70 @@ async function cleanCompletedServerSync(syncLabel) {
     }
     persistNotifications();
     scheduleCommentPrefetch(notifications);
+    if (typeof refreshDigest === 'function') {
+        refreshDigest();
+    }
+}
+
+function isClientBusyForBackgroundRefresh() {
+    return GhinboxDigest.isClientBusy({
+        loading: state.loading,
+        doneQueueActive: Boolean(
+            state.doneQueue &&
+            (state.doneQueue.active || state.doneQueue.pending.length || state.doneQueue.inFlight.size)
+        ),
+        undoInProgress: state.undoInProgress,
+        unsubscribeInProgress: state.unsubscribeInProgress,
+        reviewsReloading: state.reviewsReloading,
+        selectionCount: state.selected.size,
+    });
+}
+
+// Pull a newer server snapshot (from the server's periodic sync) without any
+// GitHub calls, so the page is fresh whenever the user comes back to it.
+async function refreshServerSnapshotInBackground() {
+    if (isClientBusyForBackgroundRefresh()) {
+        return false;
+    }
+    const entries = getCurrentProfileEntries();
+    if (!entries.length) {
+        return false;
+    }
+    const sources = entries.map(classifyProfileEntry);
+    if (sources.some((source) => !source.value || source.kind === 'invalid')) {
+        return false;
+    }
+    const target = getServerSnapshotTarget(sources);
+    if (!target) {
+        return false;
+    }
+    const data = await fetchServerSnapshot(target);
+    const snapshot = data?.snapshot;
+    // Re-check: the user may have acted while the fetch was in flight.
+    const shouldApply = GhinboxDigest.shouldApplyBackgroundSnapshot({
+        snapshot,
+        sync: data?.sync,
+        localSyncedAt: localStorage.getItem(
+            getServerSnapshotSyncedAtKey(target.snapshotKey)
+        ),
+        lastLocalMutationAt: state.lastLocalMutationAt,
+        busy: isClientBusyForBackgroundRefresh(),
+    });
+    if (!shouldApply) {
+        return false;
+    }
+    const { storageValue, lastSyncedRepo } = getServerSnapshotApplyConfig(entries, sources);
+    if (!applyServerSnapshot(target, snapshot, { storageValue, lastSyncedRepo })) {
+        return false;
+    }
+    await cleanCompletedServerSync('Background refresh');
+    render();
+    showStatus(
+        `Refreshed from server snapshot (${formatSnapshotTimestamp(snapshot.synced_at)})`,
+        'info',
+        { flash: true }
+    );
+    return true;
 }
 
 async function fetchServerSnapshot(target) {

@@ -752,3 +752,55 @@ export async function selectNotification(page: Page, id: string, options: { shif
 export async function expectSelectionCount(page: Page, text: string) {
   await expect(page.locator('#selection-count')).toHaveText(text);
 }
+
+export function makeDigestPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    profile: 'pytorch',
+    enabled: true,
+    status: 'idle',
+    error: null,
+    composed_at: new Date().toISOString(),
+    pending_count: 0,
+    counts: { feed_count: 0, direct_count: 0, broadcast_count: 0 },
+    snapshot_synced_at: null,
+    look_at: [],
+    vibe: [],
+    ...overrides,
+  };
+}
+
+export async function mockDigest(
+  page: Page,
+  reply: JsonBody | ((state: { getCount: number; runCount: number }) => JsonBody),
+  options: { profile?: string } = {}
+) {
+  const profile = options.profile ?? 'pytorch';
+  const state = { getCount: 0, runCount: 0 };
+  await page.route(`**/api/digest/${profile}**`, (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === `/api/digest/${profile}/run`) {
+      state.runCount += 1;
+      return fulfillJson(route, { started: true, status: 'running' });
+    }
+    state.getCount += 1;
+    const body = typeof reply === 'function' ? reply({ ...state }) : reply;
+    return fulfillJson(route, body);
+  });
+  return state;
+}
+
+// Replace window.open so "Open all" style actions are observable in tests.
+export async function captureOpenedWindows(page: Page) {
+  await page.addInitScript(() => {
+    const opened: string[] = [];
+    (window as typeof window & { openedUrls?: string[] }).openedUrls = opened;
+    window.open = ((url?: string | URL | null) => {
+      opened.push(url ? url.toString() : '');
+      return {} as Window;
+    }) as typeof window.open;
+  });
+  return () =>
+    page.evaluate(
+      () => (window as typeof window & { openedUrls?: string[] }).openedUrls ?? []
+    );
+}

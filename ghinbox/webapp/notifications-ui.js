@@ -1192,6 +1192,9 @@ function render() {
     // Ensure correct subfilter tabs are visible
     updateSubfilterVisibility();
     updateCommentCacheStatus();
+    if (typeof renderDigestPanel === 'function') {
+        renderDigestPanel();
+    }
 
     // Update data-subfilter for mobile CSS
     if (elements.notificationsContainer) {
