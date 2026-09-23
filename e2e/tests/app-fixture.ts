@@ -667,6 +667,9 @@ export async function openCleanSyncPage(page: Page, options: { login?: string } 
 
   await page.goto('notifications.html');
   await clearAppStorage(page);
+  // The reload's startup snapshot fetch must not land after a test installs
+  // its own snapshot mock (it would be counted as a test-triggered fetch).
+  await expect(page.locator('html')).toHaveAttribute('data-ghinbox-ready', 'true');
 }
 
 export async function syncNotifications(page: Page, options: {

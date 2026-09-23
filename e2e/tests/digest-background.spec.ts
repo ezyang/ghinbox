@@ -54,6 +54,20 @@ function digestItem(notification: ReturnType<typeof feedIssue>, why: string) {
   };
 }
 
+function reviewRequest(number: number, title: string) {
+  return {
+    ...makeNotification({
+      id: `review-request:pytorch/pytorch#${number}`,
+      repo: 'pytorch/pytorch',
+      repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
+      reason: 'review_requested',
+      updated_at: '2025-01-05T12:00:00Z',
+      subject: { type: 'PullRequest', title, number },
+    }),
+    responsibility_source: 'review-requested',
+  };
+}
+
 async function triggerBackgroundRefresh(page: Page) {
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 }
@@ -203,5 +217,34 @@ test.describe('Feed digest and background refresh @sync', () => {
     await triggerBackgroundRefresh(page);
     await expect(page.locator('[data-id="bg-fresh"]')).toBeVisible();
     await expect(page.locator('[data-id="bg-done"]')).toHaveCount(0);
+  });
+
+  test('background pull does not undo a fresher Reviews reload', async ({ page }) => {
+    const feed = feedIssue('bg-feed', 401, 'Feed item');
+    const stale = reviewRequest(402, 'No longer requested');
+    const pageLoadedAt = new Date().toISOString();
+    let current = profileSnapshot([feed, stale], '2025-01-05T12:01:00+00:00');
+    const server = await mockProfileSnapshot(page, { get: () => current });
+    await mockDigest(page, makeDigestPayload({ enabled: false, composed_at: null }));
+    await page.route('**/github/rest/review-requests**', (route) =>
+      route.fulfill({ contentType: 'application/json', body: JSON.stringify({ notifications: [] }) })
+    );
+    await page.reload();
+
+    // Entering Reviews reloads review requests live: the stale one is gone.
+    await viewTab(page, 'others-prs').click();
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 0 review notifications');
+    await expect(page.locator(`[data-id="${stale.id}"]`)).toHaveCount(0);
+
+    // A server sync that began before that reload still lists it.
+    current = profileSnapshot([feed, stale], new Date().toISOString(), {
+      status: 'success',
+      mode: 'full',
+      started_at: pageLoadedAt,
+    });
+    const getsBefore = server.getCount;
+    await triggerBackgroundRefresh(page);
+    await expect.poll(() => server.getCount).toBeGreaterThan(getsBefore);
+    await expect(page.locator(`[data-id="${stale.id}"]`)).toHaveCount(0, { timeout: 1200 });
   });
 });

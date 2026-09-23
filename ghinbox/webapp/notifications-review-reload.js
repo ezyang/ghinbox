@@ -214,6 +214,9 @@
                 );
             }
             commitReloadedReviewNotifications(notifications, target);
+            // Fresher than any server sync already underway; background
+            // snapshot pulls must not roll it back.
+            state.lastLocalMutationAt = Date.now();
             showStatus(
                 `${syncLabel}: loaded ${reviewRequests.length} active review request${reviewRequests.length === 1 ? '' : 's'}; refreshing metadata`,
                 'info'

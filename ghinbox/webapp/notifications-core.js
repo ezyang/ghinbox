@@ -794,6 +794,8 @@ async function init() {
     if (typeof startBackgroundRefresh === 'function') {
         startBackgroundRefresh();
     }
+    // Startup network work (snapshot load) is done; tests wait on this.
+    document.documentElement.dataset.ghinboxReady = 'true';
 }
 
 // Reload the page with a fresh cache-bust token so every asset is refetched.
