@@ -347,3 +347,41 @@ def test_snapshot_health_warns_on_sync_error() -> None:
     )
 
     assert any("session expired" in warning for warning in health["warnings"])
+
+
+def test_pytorch_profile_extract_routes_outside_orgs_to_replies() -> None:
+    """Mirror the webapp: in the pytorch profile, non-PyTorch-org
+    notifications are Replies, so they must not appear in the Feed digest."""
+
+    def notification(nid: str, repo: str) -> dict:
+        return {
+            "id": nid,
+            "reason": "subscribed",
+            "updated_at": "2026-07-01T12:00:00Z",
+            "repository": {"full_name": repo},
+            "subject": {
+                "title": f"Issue in {repo}",
+                "type": "Issue",
+                "number": 1,
+                "state": "open",
+                "url": f"https://github.com/{repo}/issues/1",
+            },
+        }
+
+    payload = {
+        "profile": {"name": "pytorch", "key": "profile:pytorch"},
+        "snapshot": {
+            "notifications": [
+                notification("in-org", "pytorch/pytorch"),
+                notification("outside", "someone/else"),
+            ],
+            "comment_cache": {"threads": {}},
+            "synced_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "sync": {"status": "success"},
+    }
+    snapshot = feed_digest._normalize_snapshot(payload, "missing")
+
+    output = feed_digest.build_extract_output(snapshot, current_user="ezyang")
+
+    assert output["feed_ids"] == ["in-org"]
