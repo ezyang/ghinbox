@@ -351,10 +351,11 @@ def main() -> int:
     parser.add_argument(
         "--snapshot-sync-interval-minutes",
         type=float,
-        default=0,
+        default=15,
         help=(
-            "Periodically refresh repos with existing server snapshots. "
-            "Disabled by default."
+            "Refresh every stored snapshot (repos and profiles) in the "
+            "background at this interval, skipping when GitHub rate-limit "
+            "headroom is low. 0 disables (default: 15)."
         ),
     )
     parser.add_argument(

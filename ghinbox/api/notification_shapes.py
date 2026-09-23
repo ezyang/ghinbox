@@ -8,6 +8,11 @@ from urllib.parse import urlparse
 
 REVIEW_REQUEST_SEARCH_PER_PAGE = 100
 
+# Oldest comment-cache thread a background sync will reuse without refetching.
+# Kept well under the client's 12h comment TTL so reused threads still look
+# fresh to the browser and do not trigger a client-side prefetch.
+COMMENT_CACHE_REUSE_MAX_AGE_SECONDS = 6 * 3600
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -138,6 +143,48 @@ def build_comment_cache_entry(
     if result.get("error"):
         entry["error"] = result.get("error")
     return entry
+
+
+def _parse_iso(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def is_comment_cache_entry_reusable(
+    entry: object,
+    notification: dict[str, Any],
+    now: datetime,
+    *,
+    max_age_seconds: int = COMMENT_CACHE_REUSE_MAX_AGE_SECONDS,
+) -> bool:
+    """Whether a cached comment thread still describes ``notification``.
+
+    GitHub bumps a notification's ``updated_at`` on every new comment or state
+    change, so an unchanged timestamp plus an unchanged fetch window (anchor /
+    last-read) means refetching would return the same thread. This is what
+    makes periodic background sync cheap: only changed threads cost API calls.
+    """
+    if not isinstance(entry, dict) or entry.get("error"):
+        return False
+    updated_at = notification.get("updated_at")
+    if not updated_at or entry.get("notificationUpdatedAt") != updated_at:
+        return False
+    anchor, last_read_at = get_comment_fetch_window(notification)
+    if (entry.get("anchor") or None) != (anchor or None):
+        return False
+    if (entry.get("lastReadAt") or None) != (last_read_at or None):
+        return False
+    fetched_at = _parse_iso(entry.get("fetchedAt"))
+    if fetched_at is None:
+        return False
+    return (now - fetched_at).total_seconds() < max_age_seconds
 
 
 def build_review_request_search_query(

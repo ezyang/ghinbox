@@ -475,6 +475,33 @@ class RateGovernor:
             self._pool_states[pool_state.resource] = pool_state
         return pool_state
 
+    def has_background_headroom(
+        self,
+        pool: str,
+        *,
+        reserve: int = 0,
+        now: datetime | None = None,
+    ) -> bool:
+        """Whether a background job may start without eating reserved quota.
+
+        Unlike ``check`` this records no denial: it gates whether to begin a
+        multi-call job at all, requiring ``reserve`` calls above the floor.
+        """
+        config = self._config()
+        if not config.enabled:
+            return True
+        with self._lock:
+            pool_state = self._pool_states.get(normalize_resource(pool))
+        decision = evaluate(
+            pool_state,
+            "background",
+            now or utc_now(),
+            pool=pool,
+            background_floor=config.background_floor + reserve,
+            interactive_floor=config.interactive_floor,
+        )
+        return decision.allowed
+
     def finish_request(self, request_id: str | None) -> None:
         if request_id is None:
             return

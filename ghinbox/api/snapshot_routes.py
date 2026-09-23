@@ -1,6 +1,10 @@
 """Server-owned notification snapshots and background sync jobs."""
 
 import asyncio
+import logging
+import os
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
@@ -12,18 +16,22 @@ from ghinbox.api.github_proxy import (
     fetch_review_request_notifications,
     get_token,
 )
+from ghinbox.api.rate_governor import get_rate_governor
 from ghinbox.api.notification_shapes import (
     utc_now_iso,
     build_comment_cache_entry as _build_comment_cache_entry,
+    is_comment_cache_entry_reusable,
     notification_to_bulk_comment_item as _notification_to_bulk_comment_item,
 )
 from ghinbox.api.repo_keys import repo_key
 from ghinbox.api.snapshot_store import (
     apply_local_state,
     get_snapshot,
+    get_snapshot_profile,
     get_sync_state,
     list_snapshot_repos,
     save_snapshot,
+    save_snapshot_profile,
     set_sync_state,
 )
 from ghinbox.api.routes import mark_github_session_expired
@@ -36,8 +44,20 @@ router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 # sync rather than burn the GitHub rate limit.
 MAX_SNAPSHOT_FETCH_PAGES = 50
 
+# Background sync wakes up this often to look for snapshots that are due.
+PERIODIC_TICK_SECONDS = 60
+# After a failed sync, wait this many intervals before retrying the key.
+PERIODIC_ERROR_BACKOFF_INTERVALS = 4
+# Extra core-pool quota (beyond the background floor) that must remain before
+# a periodic sync starts. A sync that only refetches changed threads is cheap,
+# but a cold comment cache can cost ~3 calls per notification.
+PERIODIC_CORE_RESERVE = 500
+
+logger = logging.getLogger(__name__)
+
 _running_tasks: dict[str, asyncio.Task] = {}
 _periodic_task: asyncio.Task | None = None
+_post_sync_hooks: list[Callable[[str], Awaitable[None]]] = []
 
 
 class StartSyncRequest(BaseModel):
@@ -125,25 +145,50 @@ def _merge_review_request_notifications(
     return merged
 
 
+def _partition_comment_items(
+    owner: str | None,
+    repo: str | None,
+    notifications: list[dict],
+    previous_cache: dict | None,
+    now: datetime | None = None,
+) -> tuple[dict[str, dict], list[dict]]:
+    """Split notifications into reusable cached threads and items to fetch."""
+    previous_threads = (previous_cache or {}).get("threads")
+    if not isinstance(previous_threads, dict):
+        previous_threads = {}
+    current_time = now or datetime.now(timezone.utc)
+    reused: dict[str, dict] = {}
+    to_fetch: list[dict] = []
+    for notification in notifications:
+        item = _notification_to_bulk_comment_item(notification, owner, repo)
+        if item is None:
+            continue
+        cached = previous_threads.get(item["key"])
+        if is_comment_cache_entry_reusable(cached, notification, current_time):
+            assert isinstance(cached, dict)
+            reused[item["key"]] = {**cached, "unread": notification.get("unread")}
+        else:
+            to_fetch.append(item)
+    return reused, to_fetch
+
+
 async def _fetch_snapshot_comment_cache(
     owner: str | None,
     repo: str | None,
     notifications: list[dict],
     *,
+    previous_cache: dict | None = None,
     on_progress=None,
 ) -> dict | None:
     token = get_token()
     if not token:
         return None
     token_value = token
-    items = [
-        item
-        for notification in notifications
-        if (item := _notification_to_bulk_comment_item(notification, owner, repo))
-        is not None
-    ]
+    threads, items = _partition_comment_items(
+        owner, repo, notifications, previous_cache
+    )
     if not items:
-        return {"version": 1, "threads": {}}
+        return {"version": 1, "threads": threads}
 
     results = await fetch_bulk_comment_results(
         token_value,
@@ -155,7 +200,6 @@ async def _fetch_snapshot_comment_cache(
         for notification in notifications
     }
     fetched_at = utc_now_iso()
-    threads = {}
     for key, result in results:
         notification = notifications_by_key.get(key)
         if not notification:
@@ -291,6 +335,10 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
                 )
             return merged
 
+        previous_snapshot = get_snapshot(snapshot_key)
+        previous_comment_cache = (
+            previous_snapshot.get("comment_cache") if previous_snapshot else None
+        )
         review_requests_task = asyncio.create_task(_fetch_all_review_requests())
 
         def _on_page(current_total: int) -> None:
@@ -358,11 +406,10 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
         notifications_for_comment_cache = apply_local_state(
             snapshot_key, all_notifications
         )
-        comments_total = sum(
-            1
-            for notification in notifications_for_comment_cache
-            if _notification_to_bulk_comment_item(notification) is not None
+        _, comment_items_to_fetch = _partition_comment_items(
+            None, None, notifications_for_comment_cache, previous_comment_cache
         )
+        comments_total = len(comment_items_to_fetch)
         phase = "comments" if comments_total else "complete"
         set_sync_state(
             snapshot_key,
@@ -400,6 +447,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
             None,
             None,
             notifications_for_comment_cache,
+            previous_cache=previous_comment_cache,
             on_progress=on_comment_progress,
         )
         save_snapshot(
@@ -423,6 +471,7 @@ async def _fetch_snapshot(snapshot_key: str, entries: list[SnapshotEntry]) -> No
             comments_fetched=comments_fetched,
             comments_failed=comments_failed,
         )
+        await _run_post_sync_hooks(snapshot_key)
     except SessionExpiredError as error:
         await _cancel_background_task(review_requests_task)
         set_sync_state(
@@ -469,25 +518,129 @@ def _start_sync_task(snapshot_key: str, entries: list[SnapshotEntry]) -> None:
     )
 
 
-async def _periodic_snapshot_sync(interval_seconds: int) -> None:
-    while True:
-        await asyncio.sleep(interval_seconds)
-        if get_fetcher() is None:
+def register_post_sync_hook(hook: Callable[[str], Awaitable[None]]) -> None:
+    """Run ``hook(snapshot_key)`` after every successful snapshot sync."""
+    if hook not in _post_sync_hooks:
+        _post_sync_hooks.append(hook)
+
+
+def clear_post_sync_hooks() -> None:
+    _post_sync_hooks.clear()
+
+
+async def _run_post_sync_hooks(snapshot_key: str) -> None:
+    for hook in list(_post_sync_hooks):
+        try:
+            await hook(snapshot_key)
+        except Exception:
+            logger.exception("Post-sync hook failed for %s", snapshot_key)
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def is_periodic_sync_due(
+    sync_state: dict,
+    interval_seconds: int,
+    now: datetime,
+) -> bool:
+    """Whether a snapshot's last sync is old enough to refresh in the background.
+
+    Failed syncs back off for several intervals so a persistent error (expired
+    session, GitHub outage) does not retry every tick.
+    """
+    if sync_state.get("status") == "running":
+        return False
+    last = _parse_timestamp(sync_state.get("finished_at")) or _parse_timestamp(
+        sync_state.get("started_at")
+    )
+    if last is None:
+        return True
+    wait_seconds = interval_seconds
+    if sync_state.get("status") == "error":
+        wait_seconds *= PERIODIC_ERROR_BACKOFF_INTERVALS
+    return (now - last).total_seconds() >= wait_seconds
+
+
+def _periodic_sync_targets() -> list[tuple[str, list[SnapshotEntry]]]:
+    targets: list[tuple[str, list[SnapshotEntry]]] = []
+    for snapshot_key in list_snapshot_repos():
+        if snapshot_key.startswith("profile:"):
+            stored_entries = get_snapshot_profile(snapshot_key)
+            if not stored_entries:
+                # Synced before profile entries were persisted; the next
+                # client-triggered sync records them.
+                continue
+            try:
+                entries = [SnapshotEntry.model_validate(e) for e in stored_entries]
+            except ValueError:
+                continue
+            targets.append((snapshot_key, entries))
             continue
-        for snapshot_repo_key in list_snapshot_repos():
-            # Profile snapshots need their entry list to re-sync, which is not
-            # persisted; they self-heal on the next client/digest-triggered
-            # sync instead. Periodic sync only covers owner/repo snapshots.
-            if snapshot_repo_key.startswith("profile:"):
-                continue
-            owner, sep, repo = snapshot_repo_key.partition("/")
-            if not sep or not owner or not repo:
-                continue
-            _start_sync_task(snapshot_repo_key, [_entry_for_repo(owner, repo)])
+        owner, sep, repo = snapshot_key.partition("/")
+        if not sep or not owner or not repo:
+            continue
+        targets.append((snapshot_key, [_entry_for_repo(owner, repo)]))
+    return targets
+
+
+def periodic_sync_skip_reason() -> str | None:
+    """Why background sync should not start right now, if anything."""
+    if get_fetcher() is None:
+        return "no fetcher"
+    if os.environ.get("GHINBOX_NEEDS_AUTH") == "1":
+        return "GitHub session needs re-authentication"
+    if not get_rate_governor().has_background_headroom(
+        "core", reserve=PERIODIC_CORE_RESERVE
+    ):
+        return "GitHub core rate limit headroom is low"
+    return None
+
+
+def run_due_periodic_sync(
+    interval_seconds: int,
+    now: datetime | None = None,
+) -> str | None:
+    """Start at most one due background sync; return its snapshot key.
+
+    One sync per tick spreads load across profiles rather than bursting every
+    snapshot at once, and nothing starts while any sync is already running.
+    """
+    if any(not task.done() for task in _running_tasks.values()):
+        return None
+    skip_reason = periodic_sync_skip_reason()
+    if skip_reason is not None:
+        logger.info("Skipping periodic snapshot sync: %s", skip_reason)
+        return None
+    current_time = now or datetime.now(timezone.utc)
+    for snapshot_key, entries in _periodic_sync_targets():
+        if is_periodic_sync_due(
+            get_sync_state(snapshot_key), interval_seconds, current_time
+        ):
+            _start_sync_task(snapshot_key, entries)
+            return snapshot_key
+    return None
+
+
+async def _periodic_snapshot_sync(interval_seconds: int) -> None:
+    tick = min(PERIODIC_TICK_SECONDS, interval_seconds)
+    while True:
+        await asyncio.sleep(tick)
+        try:
+            run_due_periodic_sync(interval_seconds)
+        except Exception:
+            logger.exception("Periodic snapshot sync tick failed")
 
 
 def start_periodic_snapshot_sync(interval_seconds: int) -> asyncio.Task | None:
-    """Start periodic sync for repos with existing snapshots."""
+    """Keep every stored snapshot (repo and profile) fresh in the background."""
     global _periodic_task
     if interval_seconds <= 0:
         return None
@@ -538,6 +691,9 @@ async def start_profile_snapshot_sync(name: str, body: ProfileSyncRequest) -> di
             detail="No GitHub fetcher configured. Start server with --account.",
         )
     snapshot_key = _profile_key(name)
+    save_snapshot_profile(
+        snapshot_key, [entry.model_dump(mode="json") for entry in body.entries]
+    )
     _start_sync_task(snapshot_key, list(body.entries))
     return {
         "profile": {"name": name, "key": snapshot_key},

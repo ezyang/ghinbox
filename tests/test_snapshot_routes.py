@@ -146,6 +146,7 @@ def test_snapshot_sync_merges_review_request_search_results(
         repo: str | None,
         notifications: list[dict],
         *,
+        previous_cache=None,
         on_progress=None,
     ) -> dict:
         assert owner is None
@@ -295,6 +296,7 @@ def test_full_snapshot_sync_replaces_stale_stored_notifications(
         repo: str | None,
         notifications: list[dict],
         *,
+        previous_cache=None,
         on_progress=None,
     ) -> dict:
         assert owner is None
@@ -381,6 +383,7 @@ def test_snapshot_sync_starts_review_request_search_during_notification_fetch(
         repo: str | None,
         notifications: list[dict],
         *,
+        previous_cache=None,
         on_progress=None,
     ) -> dict:
         assert owner == "test"
@@ -670,6 +673,7 @@ def test_profile_snapshot_syncs_multiple_query_entries(
         repo: str | None,
         notifications: list[dict],
         *,
+        previous_cache=None,
         on_progress=None,
     ) -> dict:
         assert owner is None

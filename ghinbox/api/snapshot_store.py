@@ -71,6 +71,11 @@ def init_snapshot_db(db_path: str | None = None) -> None:
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (repo, notification_id)
                 );
+                CREATE TABLE IF NOT EXISTS snapshot_profiles (
+                    snapshot_key TEXT PRIMARY KEY,
+                    entries TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             columns = {
@@ -595,6 +600,53 @@ def list_snapshot_repos(db_path: str | None = None) -> list[str]:
         return [row["repo"] for row in rows]
     finally:
         conn.close()
+
+
+def save_snapshot_profile(
+    snapshot_key: str,
+    entries: list[dict],
+    db_path: str | None = None,
+) -> None:
+    """Remember a profile's entry list so background sync can rebuild it.
+
+    Profile entries live in the browser; the client re-sends them on every
+    sync request, and this copy only exists so the server can refresh the
+    snapshot while no browser tab is open.
+    """
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO snapshot_profiles (snapshot_key, entries, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(snapshot_key) DO UPDATE SET
+                    entries = excluded.entries,
+                    updated_at = excluded.updated_at
+                """,
+                (snapshot_key, json.dumps(entries), utc_now_iso()),
+            )
+    finally:
+        conn.close()
+
+
+def get_snapshot_profile(
+    snapshot_key: str,
+    db_path: str | None = None,
+) -> list[dict] | None:
+    """Return the last entry list a client synced for a profile key."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT entries FROM snapshot_profiles WHERE snapshot_key = ?",
+            (snapshot_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    entries = json.loads(row["entries"])
+    return entries if isinstance(entries, list) else None
 
 
 def get_sync_state(repo: str, db_path: str | None = None) -> dict:
