@@ -34,6 +34,11 @@ def _connect(db_path: str | None = None) -> sqlite3.Connection:
     return conn
 
 
+def connect_snapshot_db(db_path: str | None = None) -> sqlite3.Connection:
+    """Open the snapshot database (shared by other disposable caches)."""
+    return _connect(db_path)
+
+
 def init_snapshot_db(db_path: str | None = None) -> None:
     """Create snapshot tables if needed."""
     path = db_path or _default_db_path()

@@ -20,7 +20,9 @@ from ghinbox.api.observability import (
     router as observability_router,
 )
 from ghinbox.api.rate_governor import RateGovernorDeniedError
+from ghinbox.api.digest_routes import router as digest_router
 from ghinbox.api.snapshot_routes import (
+    register_post_sync_hook,
     router as snapshot_router,
     start_periodic_snapshot_sync,
     stop_periodic_snapshot_sync,
@@ -28,6 +30,8 @@ from ghinbox.api.snapshot_routes import (
 from ghinbox.api.snapshot_store import init_snapshot_db
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
 from ghinbox.api.webhook_routes import router as webhook_router
+from ghinbox.digest.store import init_digest_db
+from ghinbox.digest.worker import on_snapshot_synced
 from ghinbox.api.fetcher import (
     NotificationsFetcher,
     set_fetcher,
@@ -60,6 +64,8 @@ def _get_webapp_dir() -> Path | None:
 async def lifespan(app: FastAPI):
     """Initialize fetcher on startup if account is configured."""
     init_snapshot_db()
+    init_digest_db()
+    register_post_sync_hook(on_snapshot_synced)
 
     account = os.environ.get("GHINBOX_ACCOUNT")
     if account:
@@ -122,6 +128,7 @@ app.include_router(login_router)
 app.include_router(site_auth_router)
 app.include_router(observability_router)
 app.include_router(snapshot_router)
+app.include_router(digest_router)
 app.include_router(webhook_router)
 
 
