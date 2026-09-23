@@ -6,6 +6,7 @@ import os
 import shlex
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 import pytest
 
@@ -17,7 +18,9 @@ from ghinbox.digest.store import (
     get_item_notes,
     init_digest_db,
     save_item_notes,
+    update_digest_state,
 )
+from ghinbox.api.notification_shapes import utc_now_iso
 
 PROFILE = "pytorch"
 KEY = f"profile:{PROFILE}"
@@ -296,7 +299,7 @@ def test_run_llm_can_pass_prompt_as_file(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_post_sync_hook_only_digests_configured_profiles(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, db_path: str
 ) -> None:
     scheduled: list[str] = []
     monkeypatch.setattr(
@@ -312,6 +315,45 @@ def test_post_sync_hook_only_digests_configured_profiles(
     monkeypatch.setenv("GHINBOX_DIGEST_ENABLED", "0")
     asyncio.run(worker.on_snapshot_synced("profile:other"))
     assert scheduled == ["pytorch"]
+
+
+def test_post_sync_hook_paces_background_passes(
+    monkeypatch: pytest.MonkeyPatch, db_path: str
+) -> None:
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        worker, "schedule_digest_update", lambda profile: scheduled.append(profile)
+    )
+    monkeypatch.delenv("GHINBOX_DIGEST_ENABLED", raising=False)
+    monkeypatch.delenv("GHINBOX_DIGEST_PROFILES", raising=False)
+    monkeypatch.setenv("GHINBOX_DIGEST_MIN_INTERVAL_MINUTES", "60")
+
+    update_digest_state(PROFILE, finished_at=utc_now_iso())
+    asyncio.run(worker.on_snapshot_synced(KEY))
+    assert scheduled == []
+
+    update_digest_state(PROFILE, finished_at="2026-01-01T00:00:00+00:00")
+    asyncio.run(worker.on_snapshot_synced(KEY))
+    assert scheduled == [PROFILE]
+
+
+def test_is_background_digest_due_table() -> None:
+    now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+    cases = [
+        ("never ran", {}, 3600, True),
+        ("finished 10m ago", {"finished_at": "2026-09-23T11:50:00+00:00"}, 3600, False),
+        ("finished 61m ago", {"finished_at": "2026-09-23T10:59:00+00:00"}, 3600, True),
+        ("pacing disabled", {"finished_at": "2026-09-23T11:59:00+00:00"}, 0, True),
+        ("naive timestamp", {"finished_at": "2026-09-23T11:30:00"}, 3600, False),
+        ("garbage timestamp", {"finished_at": "yesterday"}, 3600, True),
+    ]
+    for name, state, interval, expected in cases:
+        assert (
+            worker.is_background_digest_due(
+                state, now=now, min_interval_seconds=interval
+            )
+            is expected
+        ), name
 
 
 def test_digest_response_joins_snapshot_and_drops_gone_items(db_path: str) -> None:

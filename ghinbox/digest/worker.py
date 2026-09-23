@@ -21,6 +21,7 @@ import shlex
 import tempfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from ghinbox.api.notification_shapes import utc_now_iso
@@ -54,6 +55,8 @@ LLM_TIMEOUT_SECONDS = 600
 PROMPT_FILE_PLACEHOLDER = "{prompt_file}"
 TRIAGE_BATCH_SIZE = 40
 MAX_TRIAGE_BATCHES_PER_RUN = 8
+# Background passes are paced; the digest panel's Refresh bypasses this.
+DEFAULT_MIN_INTERVAL_MINUTES = 60
 
 LlmRunner = Callable[[str], Awaitable[str]]
 
@@ -68,6 +71,32 @@ def digest_profiles() -> set[str]:
         return set()
     raw = os.environ.get("GHINBOX_DIGEST_PROFILES", "pytorch")
     return {name.strip() for name in raw.split(",") if name.strip()}
+
+
+def digest_min_interval_seconds() -> float:
+    """Minimum gap between background passes (``GHINBOX_DIGEST_MIN_INTERVAL_MINUTES``)."""
+    raw = os.environ.get("GHINBOX_DIGEST_MIN_INTERVAL_MINUTES")
+    try:
+        minutes = float(raw) if raw else DEFAULT_MIN_INTERVAL_MINUTES
+    except ValueError:
+        minutes = DEFAULT_MIN_INTERVAL_MINUTES
+    return max(0.0, minutes * 60)
+
+
+def is_background_digest_due(
+    state: dict[str, Any], *, now: datetime, min_interval_seconds: float
+) -> bool:
+    """Whether a post-sync pass may run, given when the last pass finished."""
+    finished_at = state.get("finished_at")
+    if not finished_at or min_interval_seconds <= 0:
+        return True
+    try:
+        finished = datetime.fromisoformat(str(finished_at))
+    except ValueError:
+        return True
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    return (now - finished).total_seconds() >= min_interval_seconds
 
 
 def digest_current_user() -> str:
@@ -309,5 +338,12 @@ async def on_snapshot_synced(snapshot_key: str) -> None:
     if not snapshot_key.startswith(prefix):
         return
     profile = snapshot_key[len(prefix) :]
-    if profile in digest_profiles():
-        schedule_digest_update(profile)
+    if profile not in digest_profiles():
+        return
+    if not is_background_digest_due(
+        get_digest_state(profile),
+        now=datetime.now(timezone.utc),
+        min_interval_seconds=digest_min_interval_seconds(),
+    ):
+        return
+    schedule_digest_update(profile)
