@@ -51,6 +51,7 @@ DEFAULT_LLM_COMMAND = (
     "--strict-mcp-config --output-format text"
 )
 LLM_TIMEOUT_SECONDS = 600
+PROMPT_FILE_PLACEHOLDER = "{prompt_file}"
 TRIAGE_BATCH_SIZE = 40
 MAX_TRIAGE_BATCHES_PER_RUN = 8
 
@@ -82,29 +83,47 @@ def digest_current_user() -> str:
 
 
 async def run_llm(prompt: str) -> str:
-    """Run the configured tool-less LLM CLI with ``prompt`` on stdin."""
+    """Run the configured tool-less LLM CLI on ``prompt``.
+
+    The prompt goes on stdin, or into a file whose path replaces a
+    ``{prompt_file}`` argument for CLIs that cannot read stdin.
+    """
     command = shlex.split(
         os.environ.get("GHINBOX_DIGEST_LLM_COMMAND") or DEFAULT_LLM_COMMAND
     )
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            # Keep the CLI away from this repo's agent instructions.
-            cwd=tempfile.gettempdir(),
-        )
-    except OSError as error:
-        raise DigestError(f"Could not start digest LLM command: {error}") from error
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(prompt.encode()), timeout=LLM_TIMEOUT_SECONDS
-        )
-    except asyncio.TimeoutError as error:
-        process.kill()
-        await process.wait()
-        raise DigestError("Digest LLM command timed out") from error
+    # A private scratch dir keeps the CLI away from this repo's agent
+    # instructions and from anything a workspace-rooted tool could read.
+    with tempfile.TemporaryDirectory(prefix="ghinbox-digest-") as workdir:
+        stdin_data: bytes | None = prompt.encode()
+        if PROMPT_FILE_PLACEHOLDER in command:
+            prompt_path = os.path.join(workdir, "prompt.txt")
+            with open(prompt_path, "w", encoding="utf-8") as handle:
+                handle.write(prompt)
+            command = [
+                prompt_path if arg == PROMPT_FILE_PLACEHOLDER else arg
+                for arg in command
+            ]
+            stdin_data = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.PIPE
+                if stdin_data is not None
+                else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workdir,
+            )
+        except OSError as error:
+            raise DigestError(f"Could not start digest LLM command: {error}") from error
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(stdin_data), timeout=LLM_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError as error:
+            process.kill()
+            await process.wait()
+            raise DigestError("Digest LLM command timed out") from error
     if process.returncode != 0:
         detail = (stderr or stdout).decode(errors="replace").strip()[-500:]
         raise DigestError(f"Digest LLM command exited {process.returncode}: {detail}")

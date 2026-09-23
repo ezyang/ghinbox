@@ -286,6 +286,15 @@ def test_run_llm_uses_configured_command(monkeypatch: pytest.MonkeyPatch) -> Non
         asyncio.run(worker.run_llm("hello"))
 
 
+def test_run_llm_can_pass_prompt_as_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    script = "import sys; print(open(sys.argv[1]).read().upper())"
+    monkeypatch.setenv(
+        "GHINBOX_DIGEST_LLM_COMMAND",
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(script)} {{prompt_file}}",
+    )
+    assert asyncio.run(worker.run_llm("from a file")) == "FROM A FILE\n"
+
+
 def test_post_sync_hook_only_digests_configured_profiles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
