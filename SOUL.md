@@ -34,8 +34,9 @@ migration, because there is no data to migrate.
 The Python server exists only where the browser cannot go: scraping the
 notifications HTML for state the API hides (Done vs Read, saved,
 merged/draft), holding credentials and proxying REST/GraphQL, performing
-actions only the website supports, and keeping a snapshot so startup doesn't
-hammer GitHub. All product judgment — which queue a notification belongs to,
+actions only the website supports, keeping a snapshot so startup doesn't
+hammer GitHub, and doing work that must happen while no browser is open
+(periodic syncs, the rolling Feed digest). All product judgment — which queue a notification belongs to,
 which comments matter, what needs review — lives in the client.
 
 **Predicts:**
@@ -44,6 +45,10 @@ which comments matter, what needs review — lives in the client.
   and each server feature should be able to name the hole it fills.
 - If GitHub ever exposes Done state through its API, the corresponding
   scraping code gets deleted, not kept.
+- Background work is still a prosthesis: it runs the client's `Ghinbox*`
+  modules (under Node) for any queue or interest decision rather than
+  re-implementing them in Python, and what it produces (snapshots, digest
+  notes) is a disposable cache under axiom 1.
 
 ## 3. One state object rendered whole; decisions ratchet into pure modules
 
@@ -109,7 +114,7 @@ When making a change, find the axiom that governs it:
 | Decision | Axiom |
 |---|---|
 | Where should this state live? | 1 — GitHub, else a rebuildable cache |
-| Client or server? | 2 — server only for API holes |
+| Client or server? | 2 — server only for API holes or closed-browser work |
 | Where does this logic go? | 3 — a pure module, if it decides anything |
 | How do I test it? | 3 + 5 — table test for logic, one E2E for wiring |
 | Where does test data come from? | 4 — run a flow |

@@ -46,6 +46,24 @@
   - If the socket is missing, fall back to the site-auth cookie flow documented
     in `docs/PROD_QUERY_RECIPES.md`, or check whether the server was started
     with `--no-debug-socket`.
+- Background work (server):
+  - The server re-syncs every stored snapshot (repos and profiles), one per
+    tick, every `--snapshot-sync-interval-minutes` (default 15; 0 disables),
+    skipping ticks when GitHub rate-limit headroom is low. `--test` disables
+    it. Post-sync hooks run after each successful sync.
+  - The rolling Feed digest (`ghinbox/digest/`) is one such hook. It triages
+    new/updated Feed items with an LLM (notes cached per item/updated_at in
+    SQLite), re-composes "Look at these" + "Overall vibe" only when the notes
+    change, and serves it at `GET /api/digest/{profile}` (`POST .../run` to
+    force). Env: `GHINBOX_DIGEST_ENABLED=0` disables it,
+    `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses profiles, and
+    `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less `claude -p` command.
+    Queue classification still comes from the client's UMD modules (run under
+    Node), so server and UI agree on what is Feed.
+  - The client pulls a newer server snapshot every 5 minutes and when the tab
+    becomes visible again (no GitHub calls), skipping it while the user is
+    mid-action or when the sync started before the last local mark-done.
+    Reviews reloads live from GitHub when you enter the view.
 - Feed summaries:
   - When asked to generate a feed summary/digest, extract the server-owned
     snapshot over the debug socket with `uv run python scripts/feed_digest.py
@@ -125,10 +143,6 @@
   - **Use specific expected values** when fixture data is deterministic.
     `toBeTruthy()` hides bugs; `toBe('issue-open')` catches them.
 - Troubleshooting E2E tests:
-  - **Tests fail with escaped HTML (e.g., `<details>` shown as text)**: The webapp
-    loads `marked.js` and `DOMPurify` from CDN (`cdn.jsdelivr.net`). If these fail
-    to load, markdown rendering falls back to `escapeHtml()`. Ensure internet
-    access is available and proxy variables are unset.
   - **Popup tests fail with `chrome-error://chromewebdata/`**: Tests that open
     new tabs to GitHub URLs require internet access. Without it, navigation fails.
   - **Flaky tests in parallel**: Some tests (e.g., mark-done with new comments
