@@ -45,11 +45,13 @@ from ghinbox.digest.store import (
 
 logger = logging.getLogger(__name__)
 
-# `--tools ""` is load-bearing: the prompt carries untrusted GitHub content, so
-# the model must not be able to act on anything it reads.
+# Muse via pi. `--no-tools --no-extensions` is load-bearing: the prompt carries
+# untrusted GitHub content, so the model must not be able to act on anything it
+# reads. (`muse exec` cannot run tool-less, which is why this uses pi.)
 DEFAULT_LLM_COMMAND = (
-    'claude -p --model sonnet --tools "" --no-session-persistence '
-    "--strict-mcp-config --output-format text"
+    "pi -p --no-tools --no-extensions --no-skills --no-prompt-templates "
+    "--no-context-files --no-session --no-approve "
+    "--model meta/muse-spark-1.3-internal --thinking low"
 )
 LLM_TIMEOUT_SECONDS = 600
 PROMPT_FILE_PLACEHOLDER = "{prompt_file}"

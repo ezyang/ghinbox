@@ -57,7 +57,10 @@
     change, and serves it at `GET /api/digest/{profile}` (`POST .../run` to
     force). Env: `GHINBOX_DIGEST_ENABLED=0` disables it,
     `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses profiles, and
-    `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less `claude -p` command.
+    `GHINBOX_DIGEST_MIN_INTERVAL_MINUTES` (default 60) paces post-sync passes,
+    and `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less `pi -p` (Muse)
+    command; it must stay tool-less because prompts carry untrusted GitHub
+    text. Use a `{prompt_file}` argument for CLIs that can't read stdin.
     Queue classification still comes from the client's UMD modules (run under
     Node), so server and UI agree on what is Feed.
   - The client pulls a newer server snapshot every 5 minutes and when the tab
