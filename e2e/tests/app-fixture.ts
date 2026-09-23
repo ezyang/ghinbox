@@ -5,6 +5,7 @@ import {
   addAuthCacheInitScript,
   APP_STORAGE_KEYS,
   clearAppStorage,
+  readCommentCache,
   readNotificationsCache,
   seedAuthCache,
   seedCommentCache,
@@ -666,17 +667,6 @@ export async function openCleanSyncPage(page: Page, options: { login?: string } 
 
   await page.goto('notifications.html');
   await clearAppStorage(page);
-
-  for (const selector of [
-    '#comment-expand-issues-toggle',
-    '#comment-expand-prs-toggle',
-    '#comment-hide-uninteresting-toggle',
-  ]) {
-    const toggle = page.locator(selector);
-    if (await toggle.isChecked()) {
-      await toggle.uncheck();
-    }
-  }
 }
 
 export async function syncNotifications(page: Page, options: {
@@ -728,6 +718,16 @@ export async function openNotificationsWithCachedData(page: Page, options: {
   await seedNotificationsCache(page, notificationsArray(options.notifications ?? mixedFixture));
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('.notification-item')).toHaveCount(expectedCount);
+}
+
+// Bodies of the comments cached for one notification thread, in cache order.
+// Comments are no longer rendered inline, so specs assert on the cache that
+// classification reads instead.
+export async function cachedCommentBodies(page: Page, notificationId: string) {
+  const cache = (await readCommentCache(page)) as {
+    threads?: Record<string, { comments?: Array<{ body?: string }> }>;
+  } | null;
+  return (cache?.threads?.[notificationId]?.comments || []).map((comment) => comment.body);
 }
 
 export async function expectVisibleNotificationIds(page: Page, ids: string[]) {

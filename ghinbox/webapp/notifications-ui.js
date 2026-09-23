@@ -849,42 +849,33 @@ const icons = {
     release: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.752 1.752 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z"></path></svg>`,
     check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>`,
     bellSlash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="m4.182 4.31.016.011 10.104 7.316.013.01 1.375.996a.75.75 0 1 1-.88 1.214L13.626 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947V5.305L.31 3.357a.75.75 0 1 1 .88-1.214Zm7.373 7.19L4.5 6.391v1.556c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01c0 .005.002.009.005.012l.006.004.007.001ZM8 1.5c-.997 0-1.895.416-2.534 1.086A.75.75 0 1 1 4.38 1.55 5 5 0 0 1 13 5v2.373a.75.75 0 0 1-1.5 0V5A3.5 3.5 0 0 0 8 1.5ZM8 16a2 2 0 0 1-1.985-1.75c-.017-.137.097-.25.235-.25h3.5c.138 0 .252.113.235.25A2 2 0 0 1 8 16Z"></path></svg>`,
-    openInNewTab: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 3A2.25 2.25 0 0 0 1 5.25v6.5A2.25 2.25 0 0 0 3.25 14h6.5A2.25 2.25 0 0 0 12 11.75v-2.5a.75.75 0 0 0-1.5 0v2.5a.75.75 0 0 1-.75.75h-6.5a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 3.25 4.5h2.5a.75.75 0 0 0 0-1.5Zm3.5-1a.75.75 0 0 0 0 1.5h2.69L6.97 5.97a.75.75 0 1 0 1.06 1.06L10.5 4.56v2.69a.75.75 0 0 0 1.5 0V2.75A.75.75 0 0 0 11.25 2h-4.5Z"></path></svg>`,
     personRemove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 5.5a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0ZM6 7a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM1.5 12.5A3.5 3.5 0 0 1 5 9h2a3.5 3.5 0 0 1 3.5 3.5v.5a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5v-.5ZM11.22 6.22a.75.75 0 0 1 1.06 0L14 7.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L15.06 9l1.72 1.72a.75.75 0 1 1-1.06 1.06L14 10.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L12.94 9l-1.72-1.72a.75.75 0 0 1 0-1.06Z"></path></svg>`,
 };
 
 const NOTIFICATION_ACTIONS = {
-    open: {
-        className: 'notification-open-btn', bottomClassName: 'notification-open-btn-bottom',
-        ariaLabel: 'Open notification in new tab', text: 'Open in new tab', icon: () => icons.openInNewTab,
-    },
     unsubscribe: {
-        className: 'notification-unsubscribe-btn', bottomClassName: 'notification-unsubscribe-btn-bottom',
-        ariaLabel: 'Unsubscribe from notification', text: 'Unsubscribe', icon: () => icons.bellSlash,
+        className: 'notification-unsubscribe-btn',
+        ariaLabel: 'Unsubscribe from notification', icon: () => icons.bellSlash,
         context: 'Unsubscribe (inline)', handler: handleInlineUnsubscribe,
     },
     'remove-reviewer': {
-        className: 'notification-remove-reviewer-btn', bottomClassName: 'notification-remove-reviewer-btn-bottom',
-        ariaLabel: 'Remove me as reviewer', text: 'Remove me', icon: () => icons.personRemove,
+        className: 'notification-remove-reviewer-btn',
+        ariaLabel: 'Remove me as reviewer', icon: () => icons.personRemove,
         context: 'Remove reviewer (inline)', handler: handleInlineRemoveReviewer,
     },
     done: {
-        className: 'notification-done-btn', bottomClassName: 'notification-done-btn-bottom',
-        ariaLabel: 'Mark notification as done', text: 'Done', icon: () => icons.check,
+        className: 'notification-done-btn',
+        ariaLabel: 'Mark notification as done', icon: () => icons.check,
         context: 'Mark done (inline)', handler: handleInlineMarkDone,
     },
 };
 
-function renderNotificationActionButton(action, { bottom = false, withText = false } = {}) {
+function renderNotificationActionButton(action) {
     const config = NOTIFICATION_ACTIONS[action];
     if (!config) {
         return '';
     }
-    const classes = [config.className];
-    if (bottom && config.bottomClassName) {
-        classes.push(config.bottomClassName);
-    }
-    return `<button type="button" class="${classes.join(' ')}" data-notification-action="${action}" aria-label="${escapeHtml(config.ariaLabel)}">${config.icon()}${withText ? `<span>${escapeHtml(config.text)}</span>` : ''}</button>`;
+    return `<button type="button" class="${config.className}" data-notification-action="${action}" aria-label="${escapeHtml(config.ariaLabel)}">${config.icon()}</button>`;
 }
 
 function getNotificationActionAvailability(notif) {
@@ -902,20 +893,6 @@ function getNotificationActionAvailability(notif) {
         'remove-reviewer':
             state.view !== 'cleaned' && notif.subject.type === 'PullRequest',
     };
-}
-
-function renderNotificationActionsBottom(commentItems, availability) {
-    if (!commentItems) {
-        return '';
-    }
-    const actions = ['open', 'unsubscribe', 'remove-reviewer', 'done']
-        .filter((action) => action === 'open' || availability[action])
-        .map((action) => renderNotificationActionButton(action, {
-            bottom: true,
-            withText: true,
-        }))
-        .join('');
-    return `<div class="notification-actions-bottom">${actions}</div>`;
 }
 
 function renderNotificationActionsInline(availability) {
@@ -991,10 +968,6 @@ function renderNotificationItem(notif, diffstatContext) {
     const authorHtml = authorLogin
         ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
         : '';
-    const commentItems = getCommentItems(notif);
-    const commentList = commentItems
-        ? `<ul class="comment-list">${commentItems}</ul>`
-        : '';
     const actionAvailability = getNotificationActionAvailability(notif);
 
     li.innerHTML = `
@@ -1021,8 +994,6 @@ function renderNotificationItem(notif, diffstatContext) {
                     ${commentBadge}
                 </div>
             </div>
-            ${commentList}
-            ${renderNotificationActionsBottom(commentItems, actionAvailability)}
         </div>
         ${renderNotificationActors(notif)}
         <div class="notification-actions-inline">
@@ -1103,10 +1074,6 @@ function handleNotificationListClick(event) {
     if (actionButton) {
         event.stopPropagation();
         const action = actionButton.dataset.notificationAction;
-        if (action === 'open') {
-            window.open(item.dataset.url, '_blank', 'noopener');
-            return;
-        }
         const actionConfig = NOTIFICATION_ACTIONS[action];
         if (actionConfig) {
             withActionContext(actionConfig.context, () =>
@@ -1318,27 +1285,9 @@ function render() {
     }
 }
 
-let markdownConfigured = false;
-
 function renderInlineCode(text) {
     const escaped = escapeHtml(String(text || ''));
     return escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
-}
-
-function renderMarkdown(text) {
-    if (!window.marked || !window.DOMPurify) {
-        return escapeHtml(String(text || ''));
-    }
-    if (!markdownConfigured) {
-        window.marked.setOptions({
-            gfm: true,
-            breaks: true,
-            mangle: false,
-            headerIds: false,
-        });
-        markdownConfigured = true;
-    }
-    return window.DOMPurify.sanitize(window.marked.parse(String(text || '')));
 }
 
 // Escape HTML to prevent XSS

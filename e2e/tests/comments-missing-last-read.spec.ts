@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  cachedCommentBodies,
   makeNotification,
   makeNotificationsResponse,
   mockDefaultApiRoutes,
@@ -11,10 +12,6 @@ test.describe('Comments without last_read_at @sync', () => {
   });
 
   test('loads full thread when last_read_at is missing', async ({ page }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem('ghnotif_comment_expand_issues', 'true');
-    });
-
     await page.route('**/notifications/html/repo/test/repo', (route) => {
       route.fulfill({
         status: 200,
@@ -97,10 +94,9 @@ test.describe('Comments without last_read_at @sync', () => {
     await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
-    const commentItems = page.locator('.comment-item');
-    await expect(commentItems).toHaveCount(2);
-    await expect(commentItems.first()).toContainText('Initial issue post');
-    await expect(commentItems.nth(1)).toContainText('Followup comment');
+    await expect
+      .poll(() => cachedCommentBodies(page, 'notif-1'))
+      .toEqual(['Initial issue post', 'Followup comment']);
     expect(issueCalled).toBe(true);
     expect(commentUrl).not.toContain('since=');
   });

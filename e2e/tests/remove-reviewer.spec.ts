@@ -16,10 +16,6 @@ function inlineRemoveReviewerButton(notification: Locator) {
 test.describe('Remove Reviewer @mutation', () => {
   test.beforeEach(async ({ page }) => {
     await addAuthCacheInitScript(page);
-    await page.addInitScript(() => {
-      // Disable comment expansion for PRs to ensure only inline button is visible
-      localStorage.setItem('ghnotif_comment_expand_prs', 'false');
-    });
     await mockDefaultApiRoutes(page, { notifications: mixedFixture });
 
     await page.goto('notifications.html');
@@ -57,17 +53,6 @@ test.describe('Remove Reviewer @mutation', () => {
       // Button should not exist for issues
       const removeBtn = inlineRemoveReviewerButton(issueNotification);
       await expect(removeBtn).toHaveCount(0);
-    });
-
-    test('shows remove reviewer button in bottom actions for PRs', async ({ page }) => {
-      // Enable comment expansion
-      await page.locator('#comment-expand-prs-toggle').check();
-
-      const prNotification = page.locator('[data-id="notif-2"]');
-      const bottomRemoveBtn = prNotification.locator('.notification-remove-reviewer-btn-bottom');
-
-      await expect(bottomRemoveBtn).toBeVisible();
-      await expect(bottomRemoveBtn).toContainText('Remove me');
     });
   });
 
@@ -173,34 +158,6 @@ test.describe('Remove Reviewer @mutation', () => {
       expect(requestBody).toEqual({
         reviewers: ['testuser'],
       });
-    });
-
-    test('bottom remove reviewer button works correctly', async ({ page }) => {
-      let removeReviewerCalled = false;
-
-      await page.route('**/github/rest/repos/**/pulls/*/requested_reviewers', (route) => {
-        if (route.request().method() === 'DELETE') {
-          removeReviewerCalled = true;
-          route.fulfill({ status: 204 });
-        }
-      });
-
-      await page.route('**/notifications/html/action', (route) => {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
-      });
-
-      // Enable comment expansion
-      await page.locator('#comment-expand-prs-toggle').check();
-
-      const prNotification = page.locator('[data-id="notif-2"]');
-      await prNotification.locator('.notification-remove-reviewer-btn-bottom').click();
-
-      await expect(prNotification).toHaveCount(0);
-      expect(removeReviewerCalled).toBe(true);
     });
   });
 

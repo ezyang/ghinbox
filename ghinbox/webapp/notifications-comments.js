@@ -1,9 +1,9 @@
 // notifications-comments.js
-// Comment prefetching, caching, classification, and display logic
+// Comment prefetching, caching, and classification logic
 // This module expects the following globals from notifications-*.js:
 //   state, getNotificationKey, getIssueNumber, parseRepoInput,
 //   showStatus, refreshRateLimit, updateGraphqlRateLimit, setGraphqlRateLimitError,
-//   render, escapeHtml, renderMarkdown, fetchJson, fetchGraphql
+//   render, escapeHtml, fetchJson, fetchGraphql
 
 const COMMENT_CACHE_KEY = 'ghnotif_bulk_comment_cache_v1';
 const COMMENT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -20,14 +20,9 @@ const BULK_COMMENT_CHUNK_SIZE = 50;
 const COMMENT_PREFETCH_MAX_RATE_LIMIT_RETRIES = 3;
 const COMMENT_PREFETCH_RATE_LIMIT_RETRY_DELAY_MS = 750;
 const REVIEW_DECISION_BATCH_SIZE = 40;
-const COMMENT_EXPAND_ISSUES_KEY = 'ghnotif_comment_expand_issues';
-const COMMENT_EXPAND_PRS_KEY = 'ghnotif_comment_expand_prs';
-const COMMENT_HIDE_UNINTERESTING_KEY = 'ghnotif_comment_hide_uninteresting';
-const COMMENT_AGE_FILTER_KEY = 'ghnotif_comment_age_filter';
 const PREFETCH_STATUS_REFRESH_MS = 750;
 const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
 const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
-const COMMENT_WINDOW = globalThis.GhinboxCommentWindow;
 const COMMENT_STATUS = globalThis.GhinboxCommentStatus;
 const COMMENT_CACHE_POLICY = globalThis.GhinboxCommentCachePolicy;
 
@@ -944,63 +939,6 @@ function getDiffstatInfo(notification) {
         total,
         title,
     };
-}
-
-function getCommentItems(notification) {
-    const override = typeof getCommentExpansionOverride === 'function'
-        ? getCommentExpansionOverride(notification)
-        : null;
-    const shouldExpand = override !== null && override !== undefined
-        ? Boolean(override)
-        : (
-            (state.view === 'issues' && state.commentExpandIssues) ||
-            (state.view !== 'issues' && state.commentExpandPrs)
-        );
-    if (!shouldExpand) {
-        return '';
-    }
-    const cached = state.commentCache.threads[getNotificationKey(notification)];
-    const commentState = COMMENT_WINDOW.getRenderableCommentState(notification, cached, {
-        ageFilter: state.commentAgeFilter,
-        currentUserLogin: state.currentUserLogin,
-        hideUninteresting: state.commentHideUninteresting,
-    });
-    if (commentState.kind === 'error') {
-        return `<li class="comment-item">Comments error: ${escapeHtml(commentState.error)}</li>`;
-    }
-    if (commentState.kind !== 'comments') {
-        const detail = commentState.detail
-            ? `<div class="comment-empty-detail">${escapeHtml(commentState.detail)}</div>`
-            : '';
-        return `<li class="comment-item comment-empty">${escapeHtml(commentState.label)}${detail}</li>`;
-    }
-    return commentState.comments
-        .map((comment) => {
-            const author = comment.user?.login || 'unknown';
-            const timestamp = comment.updated_at || comment.created_at || '';
-            const bodyRaw = comment.body || '';
-            const renderedBody = renderMarkdown(bodyRaw);
-
-            // For review comments, show file path context
-            let fileContext = '';
-            if (comment.isReviewComment && comment.path) {
-                const line = comment.line || comment.original_line || '';
-                const lineInfo = line ? `:${line}` : '';
-                fileContext = `<div class="comment-file-context">${escapeHtml(comment.path)}${lineInfo}</div>`;
-            }
-
-            return `
-                <li class="comment-item${comment.isReviewComment ? ' review-comment' : ''}">
-                    <div class="comment-meta">
-                        <span>${escapeHtml(author)}</span>
-                        <span>${escapeHtml(new Date(timestamp).toLocaleString())}</span>
-                    </div>
-                    ${fileContext}
-                    <div class="comment-body markdown-body">${renderedBody}</div>
-                </li>
-            `;
-        })
-        .join('');
 }
 
 function getSortedNotificationComments(notification) {

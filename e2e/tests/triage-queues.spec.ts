@@ -123,27 +123,6 @@ test.describe('Triage queues @classification @mutation', () => {
     expect(actions.some((a) => a.action === 'unsubscribe')).toBe(true);
   });
 
-  test('approved queue shows bottom unsubscribe when comments are expanded', async ({
-    page,
-  }) => {
-    const actions = await captureHtmlActions(page);
-
-    await page.locator('#comment-expand-prs-toggle').check();
-    await viewTab(page, 'others-prs').click();
-    await othersPrsStateTab(page, 'approved').click();
-    await expect(page.locator('[data-id="thread-pr-2"]')).toBeVisible();
-
-    const bottomUnsubscribeButton = page.locator(
-      '[data-id="thread-pr-2"] .notification-unsubscribe-btn-bottom'
-    );
-    await expect(bottomUnsubscribeButton).toBeVisible();
-
-    await bottomUnsubscribeButton.click();
-
-    await expect(page.locator('[data-id="thread-pr-2"]')).not.toBeAttached();
-    expect(actions.some((a) => a.action === 'unsubscribe')).toBe(true);
-  });
-
   test('approved queue shows Unsubscribe All button when nothing is selected', async ({
     page,
   }) => {

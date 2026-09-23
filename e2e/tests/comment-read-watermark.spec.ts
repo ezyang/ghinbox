@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+  cachedCommentBodies,
   makeNotification,
   makeNotificationsResponse,
   mockHtmlAction,
@@ -71,9 +72,6 @@ test.describe('Read comment watermark @mutation', () => {
     page,
   }) => {
     await addAuthCacheInitScript(page);
-    await page.addInitScript(() => {
-      localStorage.setItem('ghnotif_comment_expand_issues', 'true');
-    });
 
     await mockRateLimit(page);
 
@@ -181,11 +179,11 @@ test.describe('Read comment watermark @mutation', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
-    await expect(page.locator('.comment-item')).toContainText(
-      'Already read before Done'
-    );
+    await expect
+      .poll(() => cachedCommentBodies(page, 'thread-watermark'))
+      .toEqual(['Already read before Done']);
 
-    await page.locator('.notification-done-btn-bottom').click();
+    await page.locator('[data-id="thread-watermark"] .notification-done-btn').click();
     await expect(page.locator('#status-bar')).toContainText('Marked as done');
     await expect.poll(() => savedWatermark).not.toBeNull();
 
@@ -200,12 +198,9 @@ test.describe('Read comment watermark @mutation', () => {
 
     await page.locator('#sync-btn').click();
 
-    await expect(page.locator('.comment-item')).toContainText(
-      'Only this comment is after the watermark'
-    );
-    await expect(page.locator('.comment-item')).not.toContainText(
-      'Already read before Done'
-    );
+    await expect
+      .poll(() => cachedCommentBodies(page, 'thread-watermark'))
+      .toEqual(['Only this comment is after the watermark']);
     expect(secondBulkLastReadAt).toBe(savedWatermark);
   });
 });

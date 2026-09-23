@@ -237,9 +237,6 @@ test.describe('Replies queue classification @classification', () => {
 
     await page.goto('notifications.html');
     await clearAppStorage(page);
-    await page.evaluate(() => {
-      localStorage.setItem('ghnotif_comment_expand_prs', 'true');
-    });
     await seedCommentCache(page, commentCache);
     await page.reload();
     await page.locator('#profile-select').selectOption('custom');
@@ -262,11 +259,6 @@ test.describe('Replies queue classification @classification', () => {
     await expect(page.locator('[data-id="others-pr"]')).toHaveCount(0);
     await expect(page.locator('[data-id="pr-main-thread-chatter"]')).toHaveCount(0);
 
-    const reply = page.locator('[data-id="reply-pr"]');
-    await expect(reply.locator('.comment-item')).toHaveCount(1);
-    await expect(reply.locator('.comment-item')).toContainText('Simplified in the latest push.');
-    await expect(reply.locator('.comment-item')).not.toContainText('Separate note on another thread.');
-
     await page.locator('#view-issues').click();
     await expect(page.locator('.notification-item')).toHaveCount(2);
     await expect(page.locator('[data-id="own-pr"]')).toHaveCount(0);
@@ -285,21 +277,17 @@ test.describe('Replies queue classification @classification', () => {
     await expect(page.locator('#empty-state')).toBeVisible();
   });
 
-  test('uses icon-only bottom actions on mobile Replies', async ({ page }) => {
+  test('uses icon-only inline actions on mobile Replies', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
 
     const reply = page.locator('[data-id="mentioned-pr"]');
     await expect(reply).toBeVisible();
 
-    const bottomActions = reply.locator('.notification-actions-bottom');
-    await expect(bottomActions).toBeVisible();
-    await expect(bottomActions.getByRole('button', { name: 'Open notification in new tab' })).toBeVisible();
-    await expect(bottomActions.getByRole('button', { name: 'Unsubscribe from notification' })).toBeVisible();
-    await expect(bottomActions.getByRole('button', { name: 'Remove me as reviewer' })).toBeVisible();
-
-    await expect(bottomActions.getByText('Open in new tab')).toBeHidden();
-    await expect(bottomActions.getByText('Unsubscribe')).toBeHidden();
-    await expect(bottomActions.getByText('Remove me')).toBeHidden();
+    const inlineActions = reply.locator('.notification-actions-inline');
+    await expect(inlineActions.getByRole('button', { name: 'Unsubscribe from notification' })).toBeVisible();
+    await expect(inlineActions.getByRole('button', { name: 'Remove me as reviewer' })).toBeVisible();
+    await expect(inlineActions.getByRole('button', { name: 'Mark notification as done' })).toBeVisible();
+    await expect(reply.locator('.notification-actions-bottom')).toHaveCount(0);
 
     const metrics = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,

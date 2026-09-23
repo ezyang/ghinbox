@@ -62,10 +62,6 @@ test.describe('Mobile layout @layout', () => {
       },
     };
 
-    await page.addInitScript(() => {
-      localStorage.setItem('ghnotif_comment_expand_issues', 'true');
-      localStorage.setItem('ghnotif_comment_hide_uninteresting', 'false');
-    });
     await openNotificationsWithCommentCache(page, {
       commentCache,
       expectedCount: 1,
@@ -82,33 +78,28 @@ test.describe('Mobile layout @layout', () => {
     const title = item.locator('.notification-title');
     const meta = item.locator('.notification-meta');
     const actions = item.locator('.notification-actions-inline');
-    const commentList = item.locator('.comment-list');
 
     const [
       iconBox,
       titleBox,
       metaBox,
       actionsBox,
-      commentListBox,
     ] = await Promise.all([
       icon.boundingBox(),
       title.boundingBox(),
       meta.boundingBox(),
       actions.boundingBox(),
-      commentList.boundingBox(),
     ]);
 
     expect(iconBox).not.toBeNull();
     expect(titleBox).not.toBeNull();
     expect(metaBox).not.toBeNull();
     expect(actionsBox).not.toBeNull();
-    expect(commentListBox).not.toBeNull();
 
     const safeIconBox = iconBox!;
     const safeTitleBox = titleBox!;
     const safeMetaBox = metaBox!;
     const safeActionsBox = actionsBox!;
-    const safeCommentListBox = commentListBox!;
     const titleBottom = safeTitleBox.y + safeTitleBox.height - 1;
 
     // Icon and title should be on the same row
@@ -117,12 +108,10 @@ test.describe('Mobile layout @layout', () => {
     // Meta and actions should be below the title
     expect(safeMetaBox.y).toBeGreaterThanOrEqual(titleBottom);
     expect(safeActionsBox.y).toBeGreaterThanOrEqual(titleBottom);
-    // Comments should be below the actions
-    expect(safeCommentListBox.y).toBeGreaterThanOrEqual(safeActionsBox.y);
     // Actors are hidden on mobile (display: none)
   });
 
-  test('avoids horizontal scroll and uses full comment width', async ({ page }) => {
+  test('avoids horizontal scroll', async ({ page }) => {
     await page.locator('.notification-item').first().click({ position: { x: 8, y: 8 } });
 
     const metrics = await page.evaluate(() => ({
@@ -130,25 +119,6 @@ test.describe('Mobile layout @layout', () => {
       innerWidth: window.innerWidth,
     }));
     expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.innerWidth);
-
-    const item = page.locator('.notification-item').first();
-    const commentItem = page.locator('.comment-item').first();
-    const [itemBox, commentBox] = await Promise.all([
-      item.boundingBox(),
-      commentItem.boundingBox(),
-    ]);
-
-    expect(itemBox).not.toBeNull();
-    expect(commentBox).not.toBeNull();
-
-    const safeItemBox = itemBox!;
-    const safeCommentBox = commentBox!;
-    const leftGap = safeCommentBox.x - safeItemBox.x;
-    const rightGap =
-      safeItemBox.x + safeItemBox.width - (safeCommentBox.x + safeCommentBox.width);
-
-    expect(leftGap).toBeLessThanOrEqual(16);
-    expect(rightGap).toBeLessThanOrEqual(16);
   });
 
   test('shows tab switchers instead of mobile dropdown filters', async ({ page }) => {
@@ -205,24 +175,5 @@ test.describe('Mobile layout @layout', () => {
     expect(safeBookmarkFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
     expect(safeStateFilterBox.width).toBeLessThan(safeNotificationsBox.width - 24);
     expect(safeStateFilterBox.y).toBeGreaterThan(safeBookmarkFilterBox.y);
-  });
-
-  test('toggles comments by tapping the entry but not the title link', async ({ page }) => {
-    const item = page.locator('.notification-item').first();
-    const title = item.locator('.notification-title');
-
-    await title.evaluate((element) => {
-      element.addEventListener('click', (event) => event.preventDefault());
-    });
-    await title.click();
-    await expect(item.locator('.comment-item')).toHaveCount(0);
-
-    await item.click({ position: { x: 8, y: 8 } });
-    await expect(item.locator('.comment-item')).toContainText(
-      'Please take a look at this.'
-    );
-
-    await item.click({ position: { x: 8, y: 8 } });
-    await expect(item.locator('.comment-item')).toHaveCount(0);
   });
 });

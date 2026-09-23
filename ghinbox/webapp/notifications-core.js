@@ -121,11 +121,7 @@ const state = {
     activeNotificationId: null, // Keyboard selection cursor
     lastClickedId: null, // For shift-click range selection
     unsubscribeInProgress: false, // Whether Unsubscribe All is in progress
-    commentExpandIssues: true,
-    commentExpandPrs: true,
-    commentHideUninteresting: true,
     autoMarkTrashDone: true,
-    commentAgeFilter: 'all', // 'all' | '1day' | '3days' | '1week' | '1month'
     commentQueue: [],
     commentQueueKeys: new Set(),
     commentQueueRunning: false,
@@ -154,7 +150,6 @@ const state = {
     actionContext: null,
     actionCounter: 0,
     currentUserLogin: null,
-    commentBodyExpanded: new Set(),
     lastSyncedRepo: null,
     // Keyboard navigation
     lastGKeyTime: 0, // For vim-style 'gg' sequence
@@ -175,15 +170,12 @@ const elements = {
     syncBtn: document.getElementById('sync-btn'),
     fullSyncBtn: document.getElementById('full-sync-btn'),
     serverRefreshBtn: document.getElementById('server-refresh-btn'),
+    forceRefreshBtn: document.getElementById('force-refresh-btn'),
     authStatus: document.getElementById('auth-status'),
     orderSelect: document.getElementById('order-select'),
     statusBar: document.getElementById('status-bar'),
-    commentExpandIssuesToggle: document.getElementById('comment-expand-issues-toggle'),
-    commentExpandPrsToggle: document.getElementById('comment-expand-prs-toggle'),
-    commentHideUninterestingToggle: document.getElementById('comment-hide-uninteresting-toggle'),
     autoMarkTrashToggle: document.getElementById('auto-clean-low-priority-toggle'),
     manualTrashBtn: document.getElementById('clean-now-btn'),
-    commentAgeFilterSelect: document.getElementById('comment-age-filter-select'),
     commentCacheStatus: document.getElementById('comment-cache-status'),
     clearCommentCacheBtn: document.getElementById('clear-comment-cache-btn'),
     rateLimitBox: document.getElementById('rate-limit-box'),
@@ -625,36 +617,19 @@ async function init() {
     // Migration: clean up old filter state keys
     localStorage.removeItem('ghnotif_filter');
     localStorage.removeItem('ghnotif_type_filter');
-
-    const savedCommentExpandIssues = localStorage.getItem(COMMENT_EXPAND_ISSUES_KEY);
-    if (savedCommentExpandIssues === 'false') {
-        state.commentExpandIssues = false;
-    }
-    elements.commentExpandIssuesToggle.checked = state.commentExpandIssues;
-
-    const savedCommentExpandPrs = localStorage.getItem(COMMENT_EXPAND_PRS_KEY);
-    if (savedCommentExpandPrs === 'false') {
-        state.commentExpandPrs = false;
-    }
-    elements.commentExpandPrsToggle.checked = state.commentExpandPrs;
-
-    const savedCommentHideUninteresting = localStorage.getItem(COMMENT_HIDE_UNINTERESTING_KEY);
-    if (savedCommentHideUninteresting === 'false') {
-        state.commentHideUninteresting = false;
-    }
-    elements.commentHideUninterestingToggle.checked = state.commentHideUninteresting;
+    [
+        'ghnotif_comment_expand_issues',
+        'ghnotif_comment_expand_prs',
+        'ghnotif_comment_expand_reviews',
+        'ghnotif_comment_hide_uninteresting',
+        'ghnotif_comment_age_filter',
+    ].forEach((key) => localStorage.removeItem(key));
 
     const savedAutoMarkTrash = localStorage.getItem(AUTO_MARK_TRASH_KEY);
     if (savedAutoMarkTrash === 'false') {
         state.autoMarkTrashDone = false;
     }
     elements.autoMarkTrashToggle.checked = state.autoMarkTrashDone;
-
-    const savedCommentAgeFilter = localStorage.getItem(COMMENT_AGE_FILTER_KEY);
-    if (savedCommentAgeFilter && ['all', '1day', '3days', '1week', '1month'].includes(savedCommentAgeFilter)) {
-        state.commentAgeFilter = savedCommentAgeFilter;
-    }
-    elements.commentAgeFilterSelect.value = state.commentAgeFilter;
 
     // Set up event listeners
     elements.syncBtn.addEventListener('click', () => {
@@ -667,6 +642,9 @@ async function init() {
         elements.serverRefreshBtn.addEventListener('click', () => {
             withActionContext('Server Refresh', handleServerSnapshotRefresh);
         });
+    }
+    if (elements.forceRefreshBtn) {
+        elements.forceRefreshBtn.addEventListener('click', handleForceRefresh);
     }
     if (elements.profileSelect) {
         elements.profileSelect.addEventListener('change', (event) => {
@@ -704,23 +682,11 @@ async function init() {
         });
     });
 
-    elements.commentExpandIssuesToggle.addEventListener('change', (event) => {
-        setCommentExpandIssues(event.target.checked);
-    });
-    elements.commentExpandPrsToggle.addEventListener('change', (event) => {
-        setCommentExpandPrs(event.target.checked);
-    });
-    elements.commentHideUninterestingToggle.addEventListener('change', (event) => {
-        setCommentHideUninteresting(event.target.checked);
-    });
     elements.autoMarkTrashToggle.addEventListener('change', (event) => {
         setAutoMarkTrashDone(event.target.checked);
     });
     elements.manualTrashBtn.addEventListener('click', () => {
         withActionContext('Clean now', handleManualTrash);
-    });
-    elements.commentAgeFilterSelect.addEventListener('change', (event) => {
-        setCommentAgeFilter(event.target.value);
     });
     elements.clearCommentCacheBtn.addEventListener('click', () => {
         withActionContext('Clear comment cache', handleClearCommentCache);
@@ -814,38 +780,28 @@ async function init() {
     render();
 }
 
+// Reload the page with a fresh cache-bust token so every asset is refetched.
+function handleForceRefresh() {
+    const cacheBust = Date.now().toString();
+    const cacheBustPayload =
+        globalThis.GhinboxAssetVersion?.serializeCacheBust?.(
+            globalThis.ghnotifAssetVersion,
+            cacheBust
+        ) || cacheBust;
+    localStorage.setItem(GhinboxViewState.STORAGE_KEYS.cacheBust, cacheBustPayload);
+    const url = new URL(window.location.href);
+    url.searchParams.set('cache_bust', cacheBustPayload);
+    window.location.replace(url.toString());
+}
+
 // Handle repo input changes
 function handleRepoInput() {
     updateActiveProfileEntries(getCurrentProfileEntries());
 }
 
-function setCommentExpandIssues(enabled) {
-    state.commentExpandIssues = enabled;
-    localStorage.setItem(COMMENT_EXPAND_ISSUES_KEY, String(enabled));
-    render();
-}
-
-function setCommentExpandPrs(enabled) {
-    state.commentExpandPrs = enabled;
-    localStorage.setItem(COMMENT_EXPAND_PRS_KEY, String(enabled));
-    render();
-}
-
-function setCommentHideUninteresting(enabled) {
-    state.commentHideUninteresting = enabled;
-    localStorage.setItem(COMMENT_HIDE_UNINTERESTING_KEY, String(enabled));
-    render();
-}
-
 function setAutoMarkTrashDone(enabled) {
     state.autoMarkTrashDone = enabled;
     localStorage.setItem(AUTO_MARK_TRASH_KEY, String(enabled));
-}
-
-function setCommentAgeFilter(ageFilter) {
-    state.commentAgeFilter = ageFilter;
-    localStorage.setItem(COMMENT_AGE_FILTER_KEY, ageFilter);
-    render();
 }
 
 // Set the current view

@@ -116,9 +116,6 @@
             window.ghnotifAssetVersion = ASSET_VERSION;
             // Reused by the script loader at the bottom of the page.
             window.ghnotifAssetBust = cacheBust ? `?v=${encodeURIComponent(cacheBust)}` : '';
-            document.write(
-                '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.1/github-markdown-light.css">'
-            );
             document.write(`<link rel="stylesheet" href="notifications.css${window.ghnotifAssetBust}">`);
         })();
     </script>
@@ -253,48 +250,23 @@
             accent-color: var(--color-accent-fg);
         }
 
-        .comment-file-context {
-            color: var(--color-fg-muted);
-            background-color: var(--color-bg-subtle);
-        }
-
         .notification-item.unread {
             background-color: var(--color-bg-subtle);
         }
 
-        .notification-item.selected,
-        .notification-item.selected:has(.comment-list) .notification-header,
-        .notification-item.selected:has(.comment-list) .notification-checkbox,
-        .notification-item.selected:has(.comment-list) .notification-icon,
-        .notification-item.selected:has(.comment-list) .notification-actors,
-        .notification-item.selected:has(.comment-list) .notification-actions-inline {
+        .notification-item.selected {
             background-color: var(--color-selected-bg);
         }
 
-        .notification-item.selected:hover,
-        .notification-item.selected:hover:has(.comment-list) .notification-header,
-        .notification-item.selected:hover:has(.comment-list) .notification-checkbox,
-        .notification-item.selected:hover:has(.comment-list) .notification-icon,
-        .notification-item.selected:hover:has(.comment-list) .notification-actors,
-        .notification-item.selected:hover:has(.comment-list) .notification-actions-inline {
+        .notification-item.selected:hover {
             background-color: var(--color-selected-hover-bg);
         }
 
-        .notification-item.keyboard-selected,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-header,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-checkbox,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-icon,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-actors,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-actions-inline {
+        .notification-item.keyboard-selected {
             background-color: var(--color-keyboard-selected-bg);
         }
 
-        .notification-item.keyboard-selected:hover,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-header,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-checkbox,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-icon,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actors,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actions-inline {
+        .notification-item.keyboard-selected:hover {
             background-color: var(--color-keyboard-selected-hover-bg);
         }
 
@@ -358,31 +330,6 @@
 
         .keyboard-shortcuts-modal {
             box-shadow: 0 8px 24px var(--color-shadow-large);
-        }
-
-        .comment-body.markdown-body {
-            color: var(--color-fg-default);
-        }
-
-        html[data-theme="dark"] .comment-body.markdown-body {
-            --color-canvas-default: #0d1117;
-            --color-canvas-subtle: #161b22;
-            --color-border-default: #30363d;
-            --color-border-muted: #21262d;
-            --color-fg-default: #e6edf3;
-            --color-fg-muted: #8b949e;
-        }
-
-        html[data-theme="dark"] .comment-body.markdown-body pre,
-        html[data-theme="dark"] .comment-body.markdown-body code,
-        html[data-theme="dark"] .comment-body.markdown-body table tr {
-            background-color: var(--color-bg-subtle);
-        }
-
-        html[data-theme="dark"] .comment-body.markdown-body blockquote,
-        html[data-theme="dark"] .comment-body.markdown-body table td,
-        html[data-theme="dark"] .comment-body.markdown-body table th {
-            border-color: var(--color-border-default);
         }
 
         .floating-notices {
@@ -489,63 +436,6 @@
             padding-top: calc(24px + var(--floating-notice-clearance));
         }
 
-        .comment-item {
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .comment-item .comment-meta {
-            font-size: 12px;
-        }
-
-        .comment-empty-detail {
-            color: var(--color-fg-muted);
-            font-size: 12px;
-            margin-top: 4px;
-        }
-
-        .comment-body,
-        .comment-body.markdown-body {
-            font-size: 14px;
-            line-height: 1.5;
-            overflow-x: auto;
-        }
-
-        .comment-body.markdown-body img {
-            max-width: 100%;
-            height: auto;
-        }
-
-        .comment-body details.collapsed-versions {
-            margin: 8px 0;
-        }
-
-        .comment-body details.collapsed-versions summary {
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        .comment-body details.collapsed-versions[open] summary {
-            margin-bottom: 4px;
-        }
-
-        .comment-item.review-comment {
-            border-left: 3px solid #0969da;
-            padding-left: 8px;
-            margin-left: 0;
-        }
-
-        .comment-file-context {
-            font-size: 12px;
-            font-family: monospace;
-            color: #656d76;
-            background-color: #f6f8fa;
-            padding: 2px 6px;
-            border-radius: 3px;
-            margin-bottom: 4px;
-            display: inline-block;
-        }
-
         .notification-item.unread::before {
             content: none;
         }
@@ -597,17 +487,6 @@
             height: 16px;
         }
 
-        .notification-bookmark-btn-bottom,
-        .notification-move-feed-btn-bottom {
-            gap: 6px;
-            font-size: 12px;
-            padding: 6px 10px;
-        }
-
-        .notification-bookmark-btn-bottom span,
-        .notification-move-feed-btn-bottom span {
-            line-height: 1;
-        }
 
         .subfilter-row {
             display: flex;
@@ -742,14 +621,6 @@
         .rate-limit-log-item strong {
             font-weight: 600;
             color: var(--color-fg-default);
-        }
-
-        .notification-item:has(.comment-list) .notification-header,
-        .notification-item:has(.comment-list) .notification-checkbox,
-        .notification-item:has(.comment-list) .notification-icon,
-        .notification-item:has(.comment-list) .notification-actors,
-        .notification-item:has(.comment-list) .notification-actions-inline {
-            background-color: var(--color-bg-subtle);
         }
 
         .progress-container {
@@ -915,32 +786,6 @@
                 content: none;
             }
 
-            .comment-list {
-                order: 6;
-                flex-basis: 100%;
-                margin: 0 -8px -12px -8px;
-                padding: 0;
-                gap: 0;
-            }
-
-            .comment-item {
-                padding: 10px 8px;
-                border: none;
-                border-radius: 0;
-                border-top: 1px solid var(--color-border-muted);
-                background: var(--color-bg-default);
-            }
-
-            .notification-actions-bottom {
-                order: 7;
-                width: 100%;
-                justify-content: flex-start;
-            }
-
-            .notification-actions-bottom button > span {
-                display: none;
-            }
-
             .notification-actions-inline {
                 order: 2;
                 margin-top: 0;
@@ -1098,22 +943,6 @@
                 <span id="auth-status" class="auth-status">Checking auth...</span>
             </div>
             <div class="controls-row secondary">
-                <label class="comment-expand" for="comment-expand-issues-toggle">
-                    <input type="checkbox" id="comment-expand-issues-toggle">
-                    Show Feed comments
-                </label>
-                <label class="comment-expand" for="comment-expand-prs-toggle">
-                    <input type="checkbox" id="comment-expand-prs-toggle">
-                    Show Replies comments
-                </label>
-                <label class="comment-expand" for="comment-expand-reviews-toggle">
-                    <input type="checkbox" id="comment-expand-reviews-toggle">
-                    Show Reviews comments
-                </label>
-                <label class="comment-hide" for="comment-hide-uninteresting-toggle">
-                    <input type="checkbox" id="comment-hide-uninteresting-toggle">
-                    Hide uninteresting comments
-                </label>
                 <label class="comment-hide" for="auto-clean-low-priority-toggle">
                     <input type="checkbox" id="auto-clean-low-priority-toggle">
                     Auto-clean low-priority
@@ -1121,16 +950,6 @@
                 <button id="clean-now-btn" class="btn btn-small" type="button">
                     Clean now
                 </button>
-                <div class="comment-age-filter">
-                    <label for="comment-age-filter-select">Comments from:</label>
-                    <select id="comment-age-filter-select" class="comment-age-filter-select">
-                        <option value="all">All time</option>
-                        <option value="1day">Last 1 day</option>
-                        <option value="3days">Last 3 days</option>
-                        <option value="1week">Last 1 week</option>
-                        <option value="1month">Last 1 month</option>
-                    </select>
-                </div>
                 <div class="comment-cache-actions">
                     <span id="comment-cache-status" class="comment-cache-status"></span>
                     <button id="clear-comment-cache-btn" class="btn btn-small" type="button">
@@ -1315,12 +1134,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"
-            integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+"
-            crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.8/dist/purify.min.js"
-            integrity="sha384-jrsBdrv4eDpEYIq32u13DPbvB6tRmqIDnA6UlgFBoexpetaiWi7g/VbfMEL1WVen"
-            crossorigin="anonymous"></script>
     <script>
         (function () {
             const THEME_KEY = 'ghnotif_theme';
@@ -1376,9 +1189,7 @@
                 'notifications-ui.js',
                 'notifications-auth-cache.js',
                 'notifications-bookmarks.js',
-                'notifications-mobile-comments.js',
                 'notifications-review-reload.js',
-                'notifications-markdown-enhancements.js',
                 'notifications.js',
             ].forEach((scriptName) => {
                 document.write(`<script src="${scriptName}${bust}"><\/script>`);

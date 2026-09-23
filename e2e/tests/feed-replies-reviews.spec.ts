@@ -378,46 +378,23 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
   });
 
-  test('comment expansion follows Feed and Replies queues instead of issue and PR types', async ({
-    page,
-  }) => {
-    await expect(page.locator('label[for="comment-expand-issues-toggle"]')).toContainText(
-      'Show Feed comments'
-    );
-    await expect(page.locator('label[for="comment-expand-prs-toggle"]')).toContainText(
-      'Show Replies comments'
-    );
-
-    await page.locator('#comment-expand-issues-toggle').uncheck();
-    await page.locator('#comment-expand-prs-toggle').check();
-
-    await expect(page.locator('[data-id="main-thread-later-chatter"] .comment-item')).toHaveCount(0);
+  test('does not render inline comment threads even with cached comments', async ({ page }) => {
+    for (const selector of [
+      '#comment-expand-issues-toggle',
+      '#comment-expand-prs-toggle',
+      '#comment-expand-reviews-toggle',
+      '#comment-hide-uninteresting-toggle',
+      '#comment-age-filter-select',
+    ]) {
+      await expect(page.locator(selector)).toHaveCount(0);
+    }
 
     await page.locator('#view-pr-notifications').click();
-    await expect(page.locator('[data-id="mid-thread-mention"]')).toBeVisible();
-    await expect(page.locator('[data-id="mid-thread-mention"] .comment-item')).toContainText(
-      '@testuser can you take a look at this?'
-    );
-  });
-
-  test('Review comment expansion has its own control', async ({ page }) => {
-    await expect(page.locator('label[for="comment-expand-reviews-toggle"]')).toContainText(
-      'Show Reviews comments'
-    );
-
-    await page.locator('#comment-expand-prs-toggle').uncheck();
-    await page.locator('#comment-expand-reviews-toggle').check();
-
-    await page.locator('#view-pr-notifications').click();
-    await expect(page.locator('[data-id="mid-thread-mention"] .comment-item')).toHaveCount(0);
-
-    await page.locator('#view-others-prs').click();
-    await expect(page.locator('[data-id="review-request:test/repo#3"] .comment-item')).toContainText(
-      'No comments found.'
-    );
-
-    await page.locator('#comment-expand-reviews-toggle').uncheck();
-    await expect(page.locator('[data-id="review-request:test/repo#3"] .comment-item')).toHaveCount(0);
+    const mention = page.locator('[data-id="mid-thread-mention"]');
+    await expect(mention).toBeVisible();
+    await expect(mention).not.toContainText('@testuser can you take a look at this?');
+    await expect(page.locator('.comment-list, .comment-item')).toHaveCount(0);
+    await expect(page.locator('.notification-actions-bottom')).toHaveCount(0);
   });
 
   test('moves generic participation replies back to Feed without unsubscribing', async ({

@@ -104,20 +104,13 @@
         });
     }
 
-    function makeMoveToFeedButton(notification, bottom) {
+    function makeMoveToFeedButton(notification) {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = bottom
-            ? 'notification-move-feed-btn notification-move-feed-btn-bottom'
-            : 'notification-move-feed-btn';
+        button.className = 'notification-move-feed-btn';
         button.setAttribute('aria-label', 'Move participation replies to Feed');
         button.title = 'Move participation replies to Feed';
         button.innerHTML = moveToFeedIcon;
-        if (bottom) {
-            const label = document.createElement('span');
-            label.textContent = 'Move to Feed';
-            button.appendChild(label);
-        }
         button.addEventListener('click', (event) => {
             event.stopPropagation();
             withActionContext('Move to Feed (inline)', () =>
@@ -127,13 +120,11 @@
         return button;
     }
 
-    function makeBookmarkButton(notification, bottom) {
+    function makeBookmarkButton(notification) {
         const bookmarked = isBookmarked(notification);
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = bottom
-            ? 'notification-bookmark-btn notification-bookmark-btn-bottom'
-            : 'notification-bookmark-btn';
+        button.className = 'notification-bookmark-btn';
         if (bookmarked) {
             button.classList.add('is-bookmarked');
         }
@@ -141,11 +132,6 @@
         button.setAttribute('aria-label', labelText);
         button.title = labelText;
         button.innerHTML = bookmarked ? bookmarkFilledIcon : bookmarkIcon;
-        if (bottom) {
-            const label = document.createElement('span');
-            label.textContent = bookmarked ? 'Unbookmark' : 'Bookmark';
-            button.appendChild(label);
-        }
         button.addEventListener('click', (event) => {
             event.stopPropagation();
             withActionContext('Bookmark (inline)', () =>
@@ -181,22 +167,14 @@
                 const doneButton = inlineActions.querySelector('.notification-done-btn');
                 if (shouldShowMoveToFeed(notification)) {
                     inlineActions.insertBefore(
-                        makeMoveToFeedButton(notification, false),
+                        makeMoveToFeedButton(notification),
                         doneButton || inlineActions.children[1] || null
                     );
                 }
                 inlineActions.insertBefore(
-                    makeBookmarkButton(notification, false),
+                    makeBookmarkButton(notification),
                     doneButton || inlineActions.children[1] || null
                 );
-            }
-            const bottomActions = item.querySelector('.notification-actions-bottom');
-            if (bottomActions) {
-                const doneButton = bottomActions.querySelector('.notification-done-btn-bottom');
-                if (shouldShowMoveToFeed(notification)) {
-                    bottomActions.insertBefore(makeMoveToFeedButton(notification, true), doneButton || null);
-                }
-                bottomActions.insertBefore(makeBookmarkButton(notification, true), doneButton || null);
             }
         });
     }

@@ -354,27 +354,6 @@ test.describe('Mark Done @slow @mutation', () => {
       expect(archiveCalled).toBe(true);
     });
 
-    test('bottom done button removes the notification from the list', async ({ page }) => {
-      await page.route('**/notifications/html/action', (route) => {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ok' }),
-        });
-      });
-
-      await page.locator('#comment-expand-issues-toggle').check();
-      await page.locator('#comment-expand-prs-toggle').check();
-
-      await expect(page.locator('.notification-done-btn-bottom').first()).toBeVisible();
-
-      await page.locator('[data-id="notif-1"] .notification-done-btn-bottom').click();
-
-      await expect(page.locator('#status-bar')).toContainText('Marked as done');
-      await expect(page.locator('.notification-item')).toHaveCount(3);
-      await expect(page.locator('[data-id="notif-1"]')).toHaveCount(0);
-    });
-
     test('removes notification before the Mark Done request completes', async ({ page }) => {
       let releaseResponse: (() => void) | null = null;
       const responseGate = new Promise<void>((resolve) => {

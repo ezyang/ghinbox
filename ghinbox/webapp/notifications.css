@@ -136,19 +136,6 @@
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
         }
 
-        .comment-expand {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            color: var(--color-fg-muted);
-        }
-
-        .comment-expand input {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--color-accent-fg);
-        }
 
         .comment-hide {
             display: inline-flex;
@@ -164,91 +151,7 @@
             accent-color: var(--color-accent-fg);
         }
 
-        .comment-list {
-            margin-top: 10px;
-            padding-left: 0;
-            list-style: none;
-            display: grid;
-            gap: 8px;
-        }
-
-        .comment-item {
-            border: 1px solid var(--color-border-muted);
-            border-radius: 6px;
-            padding: 8px 10px;
-            background: var(--color-bg-default);
-            font-size: 12px;
-            line-height: 1.4;
-            overflow: hidden;
-        }
-
-        .comment-item .comment-meta {
-            display: flex;
-            justify-content: space-between;
-            color: var(--color-fg-muted);
-            font-size: 11px;
-            margin-bottom: 6px;
-        }
-
-        .comment-body {
-            font-size: 12px;
-        }
-
-        .comment-body.markdown-body {
-            padding: 0;
-            background: transparent;
-            color: inherit;
-        }
-
-        .comment-body pre {
-            overflow-x: auto;
-            max-width: 100%;
-            position: relative;
-        }
-
         /* Mobile: collapse long code blocks */
-        @media (max-width: 640px) {
-            .comment-body pre.code-collapsible {
-                margin-bottom: 0;
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
-            }
-
-            .comment-body pre.code-collapsed {
-                max-height: 60vh;
-                overflow: hidden;
-            }
-
-            .code-expand-btn {
-                display: block;
-                width: 100%;
-                padding: 4px 0;
-                margin: 0;
-                border: 1px solid var(--color-border-muted);
-                border-top: none;
-                border-radius: 0 0 6px 6px;
-                background: var(--color-bg-subtle, #f6f8fa);
-                color: var(--color-fg-muted);
-                font-size: 12px;
-                font-weight: 500;
-                cursor: pointer;
-                text-align: center;
-            }
-        }
-
-        @media (min-width: 641px) {
-            .code-expand-btn {
-                display: none !important;
-            }
-        }
-
-        .comment-body code {
-            word-break: break-word;
-        }
-
-        .comment-body pre code {
-            word-break: normal;
-        }
 
         /* Form elements */
         .input-group {
@@ -527,75 +430,6 @@
             min-width: 0;
         }
 
-        /* Sticky header for notifications with expanded comments */
-        .notification-item:has(.comment-list) .notification-header,
-        .notification-item:has(.comment-list) .notification-checkbox,
-        .notification-item:has(.comment-list) .notification-icon,
-        .notification-item:has(.comment-list) .notification-actors,
-        .notification-item:has(.comment-list) .notification-actions-inline {
-            position: sticky;
-            top: 0;
-            background: var(--color-bg-default);
-            z-index: 10;
-        }
-
-        .notification-item:has(.comment-list) .notification-header {
-            padding-bottom: 8px;
-            margin-top: -4px;
-            padding-top: 4px;
-        }
-
-        .notification-item:has(.comment-list) .notification-actions-inline {
-            top: 6px;
-        }
-
-        .notification-item:has(.comment-list) .notification-checkbox,
-        .notification-item:has(.comment-list) .notification-icon,
-        .notification-item:has(.comment-list) .notification-actors {
-            top: 6px;
-        }
-
-        /* Match hover/selection background for sticky header */
-        .notification-item:hover:has(.comment-list) .notification-header,
-        .notification-item:hover:has(.comment-list) .notification-checkbox,
-        .notification-item:hover:has(.comment-list) .notification-icon,
-        .notification-item:hover:has(.comment-list) .notification-actors,
-        .notification-item:hover:has(.comment-list) .notification-actions-inline {
-            background: var(--color-bg-subtle);
-        }
-
-        .notification-item.selected:has(.comment-list) .notification-header,
-        .notification-item.selected:has(.comment-list) .notification-checkbox,
-        .notification-item.selected:has(.comment-list) .notification-icon,
-        .notification-item.selected:has(.comment-list) .notification-actors,
-        .notification-item.selected:has(.comment-list) .notification-actions-inline {
-            background-color: #ddf4ff;
-        }
-
-        .notification-item.selected:hover:has(.comment-list) .notification-header,
-        .notification-item.selected:hover:has(.comment-list) .notification-checkbox,
-        .notification-item.selected:hover:has(.comment-list) .notification-icon,
-        .notification-item.selected:hover:has(.comment-list) .notification-actors,
-        .notification-item.selected:hover:has(.comment-list) .notification-actions-inline {
-            background-color: #c8e6ff;
-        }
-
-        .notification-item.keyboard-selected:has(.comment-list) .notification-header,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-checkbox,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-icon,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-actors,
-        .notification-item.keyboard-selected:has(.comment-list) .notification-actions-inline {
-            background-color: #e7f3ff;
-        }
-
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-header,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-checkbox,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-icon,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actors,
-        .notification-item.keyboard-selected:hover:has(.comment-list) .notification-actions-inline {
-            background-color: #dbeeff;
-        }
-
         .notification-title {
             font-weight: 600;
             color: var(--color-fg-default);
@@ -780,8 +614,7 @@
 
         .notification-done-btn,
         .notification-unsubscribe-btn,
-        .notification-remove-reviewer-btn,
-        .notification-open-btn {
+        .notification-remove-reviewer-btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -795,8 +628,7 @@
 
         .notification-done-btn:hover,
         .notification-unsubscribe-btn:hover,
-        .notification-remove-reviewer-btn:hover,
-        .notification-open-btn:hover {
+        .notification-remove-reviewer-btn:hover {
             background-color: var(--color-btn-hover-bg);
             border-color: var(--color-border-default);
             color: var(--color-fg-default);
@@ -804,51 +636,16 @@
 
         .notification-done-btn:disabled,
         .notification-unsubscribe-btn:disabled,
-        .notification-remove-reviewer-btn:disabled,
-        .notification-open-btn:disabled {
+        .notification-remove-reviewer-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
         }
 
         .notification-done-btn svg,
         .notification-unsubscribe-btn svg,
-        .notification-remove-reviewer-btn svg,
-        .notification-open-btn svg {
+        .notification-remove-reviewer-btn svg {
             width: 16px;
             height: 16px;
-        }
-
-        .notification-actions-bottom {
-            display: flex;
-            gap: 8px;
-            justify-content: flex-end;
-            margin-top: 8px;
-        }
-
-        .notification-done-btn-bottom,
-        .notification-unsubscribe-btn-bottom,
-        .notification-remove-reviewer-btn-bottom,
-        .notification-open-btn-bottom {
-            gap: 6px;
-            font-size: 12px;
-            padding: 6px 10px;
-        }
-
-        .notification-done-btn-bottom span,
-        .notification-unsubscribe-btn-bottom span,
-        .notification-remove-reviewer-btn-bottom span,
-        .notification-open-btn-bottom span {
-            line-height: 1;
-        }
-
-        @media (max-width: 640px) {
-            .notification-done-btn-bottom,
-            .notification-unsubscribe-btn-bottom,
-            .notification-remove-reviewer-btn-bottom,
-            .notification-open-btn-bottom {
-                font-size: 11px;
-                padding: 5px 8px;
-            }
         }
 
         /* View tabs (primary navigation: Feed / Replies / Reviews) */
