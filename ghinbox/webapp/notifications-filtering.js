@@ -85,6 +85,12 @@
             options.routeOutsidePytorchToReplies
         );
         const notificationKey = deps.notificationKey || getNotificationKey;
+        // The full notification list lets a thread see whether the same PR is
+        // waiting in Reviews (see isReviewQueueDuplicate).
+        const allNotifications = Array.isArray(options.notifications)
+            ? options.notifications
+            : [];
+        let reviewQueuePullRequestKeys = null;
 
         function isOutsidePytorchProfileNotification(notification) {
             return routeOutsidePytorchToReplies &&
@@ -242,6 +248,45 @@
                 );
         }
 
+        function getPullRequestKey(notification) {
+            if (notification?.subject?.type !== 'PullRequest') {
+                return '';
+            }
+            const number = notification.subject.number;
+            const repository = getNotificationRepositoryFullName(notification);
+            return typeof number === 'number' && repository
+                ? `${repository}#${number}`
+                : '';
+        }
+
+        function getReviewQueuePullRequestKeys() {
+            if (reviewQueuePullRequestKeys === null) {
+                reviewQueuePullRequestKeys = new Set();
+                allNotifications.forEach((notification) => {
+                    if (
+                        isSyntheticResponsibilityNotification(notification) &&
+                        isNotificationNeedsReview(notification)
+                    ) {
+                        reviewQueuePullRequestKeys.add(getPullRequestKey(notification));
+                    }
+                });
+                reviewQueuePullRequestKeys.delete('');
+            }
+            return reviewQueuePullRequestKeys;
+        }
+
+        // A real inbox thread for a PR that is waiting in Reviews. Reviewing
+        // processes the whole PR, so its replies and Feed activity are noise
+        // until the review request goes away (e.g. after requesting changes).
+        function isReviewQueueDuplicate(notification) {
+            // Threads that are themselves in Reviews stay there, clearable.
+            if (isNotificationReviewQueue(notification)) {
+                return false;
+            }
+            const key = getPullRequestKey(notification);
+            return Boolean(key) && getReviewQueuePullRequestKeys().has(key);
+        }
+
         function isNotificationFromCommitter(notification) {
             return deps.isNotificationFromCommitter
                 ? deps.isNotificationFromCommitter(notification)
@@ -304,6 +349,12 @@
 
         function matchesView(notification, view) {
             if (isMutedReviewRequest(notification)) {
+                return false;
+            }
+            if (
+                (view === 'issues' || view === 'pr-notifications') &&
+                isReviewQueueDuplicate(notification)
+            ) {
                 return false;
             }
             if (isForcedOutsideOrgReply(notification)) {
@@ -410,6 +461,7 @@
             isMutedReviewRequest,
             isNotificationReviewQueue,
             isNotificationReviewResponsibility,
+            isReviewQueueDuplicate,
             isSyntheticResponsibilityNotification,
             isTrashNotification,
             matchesView,

@@ -446,7 +446,7 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
 });
 
 test.describe('Needs review duplicate cleanup @classification @mutation', () => {
-  test('cleans Feed duplicates for Needs review PRs while keeping directed Replies', async ({
+  test('cleans Feed and Replies duplicates of PRs waiting in Reviews', async ({
     page,
   }) => {
     const response = {
@@ -645,17 +645,15 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
-    await expect(page.locator('#status-bar')).toContainText('Synced 3 notifications');
-    expect(archivedIds).toEqual(['feed-review-duplicate']);
+    await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
+    expect([...archivedIds].sort()).toEqual(['feed-review-duplicate', 'reply-review-duplicate']);
     await expect(page.locator('#view-issues .count')).toHaveText('0');
-    await expect(page.locator('#view-pr-notifications .count')).toHaveText('1');
+    await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
     await expect(page.locator('#view-others-prs .count')).toHaveText('2');
-    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
-
-    await page.locator('#view-pr-notifications').click();
-    await expect(page.locator('[data-id="reply-review-duplicate"]')).toBeVisible();
+    await expect(page.locator('#view-cleaned .count')).toHaveText('2');
 
     await page.locator('#view-cleaned').click();
     await expect(page.locator('[data-id="feed-review-duplicate"]')).toBeVisible();
+    await expect(page.locator('[data-id="reply-review-duplicate"]')).toBeVisible();
   });
 });

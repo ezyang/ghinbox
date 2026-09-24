@@ -435,3 +435,59 @@ test('review importance only separates external authors for pytorch/pytorch', ()
   assert.equal(isPytorchCoreNotification(review('core', 'PyTorch/PyTorch')), true);
   assert.equal(isPytorchCoreNotification(review('vision', 'pytorch/vision')), false);
 });
+
+test('real threads for PRs waiting in Reviews leave Feed and Replies', () => {
+  const pr = (id, repo, number, extra = {}) => ({
+    id,
+    reason: 'comment',
+    updated_at: '2025-01-01T00:00:00Z',
+    repository: { full_name: repo },
+    subject: { type: 'PullRequest', state: 'open', number, title: id, url: `https://github.com/${repo}/pull/${number}` },
+    ui: { saved: false, done: false },
+    ...extra,
+  });
+  const request = (repo, number, extra = {}) => pr(`review-request:${repo}#${number}`, repo, number, {
+    reason: 'review_requested',
+    responsibility_source: 'review-requested',
+    ...extra,
+  });
+  const notifications = [
+    request('test/repo', 1),
+    request('test/repo', 2, { subject: { type: 'PullRequest', state: 'closed', number: 2 } }),
+    request('pytorch/pytorch-canary', 3),
+    pr('reply-waiting', 'test/repo', 1),
+    pr('feed-waiting', 'test/repo', 1),
+    pr('closed-request', 'test/repo', 2),
+    pr('muted-request', 'pytorch/pytorch-canary', 3),
+    pr('other-repo', 'test/other', 1),
+    pr('approved', 'test/repo', 4),
+    request('test/repo', 4),
+    pr('real-request', 'test/repo', 1, { reason: 'review_requested' }),
+  ];
+  const classifier = makeClassifier({
+    notifications,
+    deps: {
+      isNotificationDirectedAtCurrentUser: (n) => n.id === 'reply-waiting',
+      isNotificationApproved: (n) => n.subject.number === 4,
+    },
+  });
+  const table = Object.fromEntries(notifications.map((n) => [n.id, [
+    classifier.isReviewQueueDuplicate(n),
+    classifier.matchesView(n, 'issues'),
+    classifier.matchesView(n, 'pr-notifications'),
+  ]]));
+
+  assert.deepEqual(table, {
+    'review-request:test/repo#1': [false, false, false],
+    'review-request:test/repo#2': [false, false, false],
+    'review-request:pytorch/pytorch-canary#3': [false, false, false],
+    'reply-waiting': [true, false, false],
+    'feed-waiting': [true, false, false],
+    'closed-request': [false, true, false],
+    'muted-request': [false, true, false],
+    'other-repo': [false, true, false],
+    approved: [false, true, false],
+    'review-request:test/repo#4': [false, false, false],
+    'real-request': [false, false, false],
+  });
+});

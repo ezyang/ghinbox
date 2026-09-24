@@ -43,7 +43,7 @@ from ghinbox.digest import prompts
 from ghinbox.digest.feed import (
     DEFAULT_CURRENT_USER,
     build_report_items,
-    classify_feed,
+    classify_notifications,
     find_reply_nature_in_feed,
     item_summary,
     mention_signal,
@@ -355,6 +355,8 @@ class FeedContext:
     items: list[dict[str, Any]]
     summaries: dict[str, dict[str, Any]] = field(default_factory=dict)
     threads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Real threads for PRs waiting in Reviews (not Feed, not Replies).
+    review_duplicate_ids: list[str] = field(default_factory=list)
 
 
 def _comment_excerpt(comment: dict[str, Any]) -> dict[str, str]:
@@ -422,12 +424,14 @@ def build_feed_context(
 ) -> FeedContext:
     notifications = snapshot.get("notifications") or []
     threads = (snapshot.get("comment_cache") or {}).get("threads") or {}
-    feed = classify_feed(
+    classified = classify_notifications(
         notifications,
         threads,
         current_user,
         route_outside_pytorch_to_replies=routes_outside_pytorch_to_replies(profile),
     )
+    feed_ids = {str(nid) for nid in classified["feed_ids"]}
+    feed = [n for n in notifications if str(n.get("id", "")) in feed_ids]
     reply_nature = find_reply_nature_in_feed(feed, threads, current_user)
     items = build_report_items(feed, threads, {n["id"] for n in reply_nature})
     by_id = {str(n.get("id")): n for n in feed}
@@ -439,6 +443,9 @@ def build_feed_context(
         items=items,
         summaries={nid: item_summary(n) for nid, n in by_id.items()},
         threads=threads,
+        review_duplicate_ids=[
+            str(nid) for nid in classified.get("review_duplicate_ids") or []
+        ],
     )
 
 
@@ -606,8 +613,12 @@ async def _auto_done(
     context: FeedContext,
     now: datetime,
 ) -> dict[str, Any]:
-    """Mark triaged Feed items done; queue them for the next compose."""
-    ids = select_auto_done_ids(entries)
+    """Mark triaged Feed items done; queue them for the next compose.
+
+    Real threads for PRs waiting in Reviews are marked done too, without
+    triage: reviewing covers them, like the webapp's duplicate cleanup.
+    """
+    ids = select_auto_done_ids(entries) + context.review_duplicate_ids
     report: dict[str, Any] = {"at": utc_now_iso(), "attempted": len(ids), "done": 0}
     if not ids:
         return report
@@ -628,11 +639,16 @@ async def _auto_done(
             "item": context.summaries.get(nid) or {"id": nid},
         }
         for nid in done
+        if nid in notes_by_id
     }
     save_item_notes(profile, archived)
     for nid, note in archived.items():
         notes_by_id[nid].update(note)
     report["done"] = len(done)
+    if context.review_duplicate_ids:
+        report["review_duplicates"] = len(
+            set(done).intersection(context.review_duplicate_ids)
+        )
     if result.status != "ok":
         report["error"] = result.error or result.status
     return report

@@ -652,6 +652,34 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
     assert state["counts"]["feed_count"] == 1
 
 
+def test_auto_done_marks_threads_for_prs_waiting_in_reviews_without_triage(
+    db_path: str,
+) -> None:
+    def pr(nid: str, number: int, **extra) -> dict:
+        n = _notification(nid, number, "2026-09-01T00:00:00Z", **extra)
+        n["subject"]["type"] = "PullRequest"
+        return n
+
+    request = pr(
+        "review-request:pytorch/pytorch#5",
+        5,
+        reason="review_requested",
+        responsibility_source="review-requested",
+    )
+    _save([request, pr("reply-on-5", 5), pr("mention-on-6", 6)], db_path)
+    llm = FakeLlm({"mention-on-6": "high"})
+    archiver = FakeArchiver()
+
+    state = asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+
+    assert archiver.calls == [["reply-on-5"]]
+    assert state["auto_done"]["review_duplicates"] == 1
+    assert '"reply-on-5"' not in "".join(llm.prompts)
+    assert set(get_item_notes(PROFILE)) == {"mention-on-6"}
+
+
 def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
     _save(
         [

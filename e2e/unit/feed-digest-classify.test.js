@@ -175,3 +175,39 @@ test('feed digest keeps other people PRs the user is participating in', () => {
   assert.deepEqual(result.feed_ids, ['participating-pr']);
   assert.deepEqual(result.trash_ids, ['untouched-pr']);
 });
+
+test('feed digest reports real threads for PRs waiting in Reviews as duplicates', () => {
+  const result = classifyNotifications({
+    currentUserLogin: 'ezyang',
+    notifications: [
+      notification('review-request:test/repo#200', 'review_requested', {
+        responsibility_source: 'review-requested',
+        repository: { full_name: 'test/repo' },
+      }),
+      notification('reply-on-reviewed-pr', 'comment', {
+        repository: { full_name: 'test/repo' },
+      }),
+      notification('reply-elsewhere', 'comment', {
+        repository: { full_name: 'test/other' },
+      }),
+    ],
+    commentThreads: {
+      'reply-on-reviewed-pr': {
+        authorLogin: 'alice',
+        comments: [
+          {
+            id: 1,
+            created_at: '2026-07-01T12:01:00Z',
+            body: '@ezyang addressed your comments',
+            user: { login: 'alice' },
+          },
+        ],
+      },
+    },
+  });
+
+  assert.deepEqual(result.review_duplicate_ids, ['reply-on-reviewed-pr']);
+  assert.equal(result.classifications[1].is_directed_at_current_user, true);
+  assert.equal(result.classifications[1].is_feed, false);
+  assert.equal(result.classifications[2].is_review_duplicate, false);
+});

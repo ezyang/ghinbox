@@ -955,8 +955,9 @@ function handleMobileAuthorChange(event) {
     render();
 }
 
-function makeNotificationClassifier() {
+function makeNotificationClassifier(options = {}) {
     return GhinboxFiltering.makeClassifier({
+        notifications: options.notifications || state.notifications,
         currentUserLogin: state.currentUserLogin,
         commentCache: state.commentCache,
         routeOutsidePytorchToReplies: state.profileId === DEFAULT_PROFILE_ID,
@@ -1020,7 +1021,7 @@ function getPullRequestNumber(notification) {
 }
 
 function getNeedsReviewFeedDuplicates(notifications, options = {}) {
-    const classifier = makeNotificationClassifier();
+    const classifier = makeNotificationClassifier({ notifications });
     const needsReviewPrs = options.needsReviewPrNumbers instanceof Set
         ? options.needsReviewPrNumbers
         : new Set();
@@ -1035,10 +1036,10 @@ function getNeedsReviewFeedDuplicates(notifications, options = {}) {
             }
         });
     }
-    if (needsReviewPrs.size === 0) {
-        return [];
-    }
     return notifications.filter((notification) => {
+        if (classifier.isReviewQueueDuplicate(notification)) {
+            return true;
+        }
         const number = getPullRequestNumber(notification);
         return (
             number !== null &&
@@ -1067,7 +1068,7 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     }
 
     showStatus(
-        `${syncLabel}: cleaning ${duplicates.length} Feed duplicate${duplicates.length === 1 ? '' : 's'} already covered by Needs review`,
+        `${syncLabel}: cleaning ${duplicates.length} duplicate${duplicates.length === 1 ? '' : 's'} already covered by Reviews`,
         'info',
         { flash: true }
     );
@@ -1081,7 +1082,7 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     const successfulIds = new Set(doneQueue.successfulIds || []);
     if (successfulIds.size === 0) {
         showStatus(
-            `${syncLabel}: failed to clean Needs review Feed duplicate${duplicates.length === 1 ? '' : 's'}`,
+            `${syncLabel}: failed to clean Reviews duplicate${duplicates.length === 1 ? '' : 's'}`,
             'error',
             { flash: true }
         );
@@ -1094,7 +1095,7 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     addTrashNotifications(archivedNotifications);
     pushToUndoStack('done', archivedNotifications);
     showStatus(
-        `${syncLabel}: cleaned ${successfulIds.size} Needs review Feed duplicate${successfulIds.size === 1 ? '' : 's'}`,
+        `${syncLabel}: cleaned ${successfulIds.size} Reviews duplicate${successfulIds.size === 1 ? '' : 's'}`,
         'success',
         { flash: true }
     );

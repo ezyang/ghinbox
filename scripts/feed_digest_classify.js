@@ -100,6 +100,7 @@ function classifyNotifications(payload) {
   }
 
   const classifier = filtering.makeClassifier({
+    notifications,
     currentUserLogin,
     commentCache: { threads: commentThreads },
     routeOutsidePytorchToReplies,
@@ -146,6 +147,7 @@ function classifyNotifications(payload) {
         classifier.isSyntheticResponsibilityNotification(notification),
       is_directed_at_current_user:
         classifier.isNotificationDirectedAtCurrentUser(notification),
+      is_review_duplicate: classifier.isReviewQueueDuplicate(notification),
     };
   });
 
@@ -157,6 +159,11 @@ function classifyNotifications(payload) {
       .map((classification) => classification.id),
     trash_ids: classifications
       .filter((classification) => classification.is_trash)
+      .map((classification) => classification.id),
+    // Real threads for PRs waiting in Reviews; the webapp marks these done
+    // (cleanNeedsReviewFeedDuplicates) and so does the digest worker.
+    review_duplicate_ids: classifications
+      .filter((classification) => classification.is_review_duplicate)
       .map((classification) => classification.id),
     classifications,
   };
