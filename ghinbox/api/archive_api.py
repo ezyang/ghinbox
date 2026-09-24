@@ -466,3 +466,32 @@ async def _submit_notification_action_with_github_api(
         github_status_code=last_status_code,
         successful_notification_ids=successful_notification_ids,
     )
+
+
+async def archive_notifications_in_background(
+    notification_ids: list[str],
+) -> ActionResult | None:
+    """Mark notifications done via REST for server-side automation.
+
+    Returns None when no GitHub token is configured. Successful IDs are pruned
+    from the stored snapshots exactly as a UI-driven archive would be.
+    """
+    successful: list[str] = []
+    result: ActionResult | None = None
+    for chunk in _chunks(notification_ids, MAX_GITHUB_NOTIFICATION_ACTION_IDS):
+        result = await _submit_notification_action_with_github_api("archive", chunk)
+        if result is None:
+            return None
+        successful.extend(result.successful_notification_ids or [])
+        if result.status != "ok":
+            break
+    if successful:
+        _prune_snapshot_for_action("archive", successful)
+    if result is None or result.status == "ok":
+        return ActionResult(status="ok", successful_notification_ids=successful)
+    return ActionResult(
+        status="partial" if successful else "error",
+        error=result.error,
+        github_status_code=result.github_status_code,
+        successful_notification_ids=successful,
+    )

@@ -154,7 +154,8 @@ def build_compose_prompt(
     current_user: str,
     counts: dict[str, int],
 ) -> str:
-    """``entries`` pairs each current Feed item with its triage note."""
+    """``entries`` pairs each digested item (current Feed, or auto-marked done
+    within the digest window) with its triage note."""
     lines: list[str] = []
     for item, note in entries:
         lines.append(
@@ -162,7 +163,8 @@ def build_compose_prompt(
                 [
                     str(item["id"]),
                     f"{item.get('repo') or '?'}#{item.get('number') or '?'}",
-                    f"{item.get('type')}/{item.get('state')}",
+                    f"{item.get('type')}/{item.get('state')}"
+                    + (" (auto-done)" if note.get("archived_at") else ""),
                     note.get("attention", "low"),
                     note.get("theme", ""),
                     _compact(item.get("title"), 120),
@@ -175,14 +177,17 @@ def build_compose_prompt(
         f"You maintain a rolling digest of {current_user}'s GitHub Feed: the "
         "ambient PyTorch notifications they will skim when they get around to "
         "it. They already have a UI listing every item; your job is to curate.\n\n"
-        f"Feed size: {counts.get('feed_count', len(entries))} items; "
+        f"Digest window: {counts.get('feed_count', len(entries))} items; "
         f"{counts.get('direct_count', 0)} with a direct mention or reply after "
-        f"{current_user}; {counts.get('broadcast_count', 0)} broadcast cc's.\n\n"
+        f"{current_user}; {counts.get('broadcast_count', 0)} broadcast cc's. "
+        f"{counts.get('auto_done_count', 0)} were already marked done on GitHub "
+        "after being digested, so this digest is the only place they surface.\n\n"
         "Produce:\n"
         f"1. look_at: a short hand-picked list (aim for 5-15, hard cap {MAX_LOOK_AT}) "
         "of items that genuinely warrant attention. Prefer attention=high, then "
-        "medium; strongly prefer OPEN items. Each gets a one-line why. Fewer is "
-        "fine if little qualifies.\n"
+        "medium; strongly prefer OPEN items. Never pick an item marked "
+        "(auto-done); those only inform the vibe. Each gets a one-line why. "
+        "Fewer is fine if little qualifies.\n"
         "2. vibe: 3-6 short prose paragraphs characterizing the rest of the feed "
         "thematically (what areas are busy, notable trends, anything surprising). "
         "Synthesize; do NOT list the individual items. Give at most "
@@ -201,7 +206,10 @@ def build_compose_prompt(
 def parse_compose_response(
     response: dict[str, Any],
     known_ids: set[str],
+    look_at_ids: set[str] | None = None,
 ) -> dict[str, Any]:
+    """Validate compose output; look_at may only use ``look_at_ids``."""
+    eligible = known_ids if look_at_ids is None else look_at_ids
     look_at: list[dict[str, str]] = []
     seen: set[str] = set()
     raw_look_at = response.get("look_at")
@@ -209,7 +217,7 @@ def parse_compose_response(
         if not isinstance(raw, dict):
             continue
         notification_id = str(raw.get("id") or "")
-        if notification_id not in known_ids or notification_id in seen:
+        if notification_id not in eligible or notification_id in seen:
             continue
         seen.add(notification_id)
         look_at.append({"id": notification_id, "why": _compact(raw.get("why"), 240)})

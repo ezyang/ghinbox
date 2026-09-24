@@ -6,12 +6,19 @@ import os
 import shlex
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from ghinbox.api import digest_routes
-from ghinbox.api.snapshot_store import init_snapshot_db, save_snapshot
+from ghinbox.api.fetcher import ActionResult
+from ghinbox.api.snapshot_store import (
+    get_snapshot,
+    init_snapshot_db,
+    remove_notifications_from_snapshots,
+    save_snapshot,
+)
+from ghinbox.digest.feed import mention_signal
 from ghinbox.digest import prompts, worker
 from ghinbox.digest.store import (
     get_digest_state,
@@ -31,6 +38,8 @@ def db_path(monkeypatch: pytest.MonkeyPatch):
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     monkeypatch.setenv("GHINBOX_SNAPSHOT_DB_PATH", path)
+    # Tests opt into auto-done explicitly with a fake archiver.
+    monkeypatch.setenv("GHINBOX_DIGEST_AUTO_DONE", "0")
     init_snapshot_db(path)
     init_digest_db(path)
     yield path
@@ -388,3 +397,186 @@ def test_saved_note_round_trip(db_path: str) -> None:
     assert get_item_notes(PROFILE) == {
         "x": {"updated_at": "t", "attention": "high", "why": "w"}
     }
+
+
+class FakeArchiver:
+    """Marks ids done like the real archiver: succeed, then prune snapshots."""
+
+    def __init__(self, fail_ids: set[str] | None = None) -> None:
+        self.calls: list[list[str]] = []
+        self.fail_ids = fail_ids or set()
+
+    async def __call__(self, ids: list[str]) -> ActionResult:
+        self.calls.append(list(ids))
+        done = [nid for nid in ids if nid not in self.fail_ids]
+        remove_notifications_from_snapshots(done)
+        if len(done) < len(ids):
+            return ActionResult(
+                status="partial", error="HTTP 500", successful_notification_ids=done
+            )
+        return ActionResult(status="ok", successful_notification_ids=done)
+
+
+def test_mention_signal_table() -> None:
+    cases = [
+        ([], None),
+        (["cc'd (broadcast) by alice"], "broadcast"),
+        (["@-mentioned by alice"], "direct"),
+        (["@-mentioned by meta-codesync[bot]"], None),
+        (["cc'd (broadcast) by alice", "replied to by bob"], "direct"),
+    ]
+    for signals, expected in cases:
+        assert mention_signal(signals) == expected, signals
+
+
+def test_select_auto_done_ids_table() -> None:
+    def entry(nid: str, signals: list[str] | None = None, **note) -> tuple:
+        return ({"id": nid, "reply_signals": signals or []}, note)
+
+    entries = [
+        entry("ambient"),
+        entry("broadcast", ["cc'd (broadcast) by alice"]),
+        entry("bot-mention", ["@-mentioned by meta-codesync[bot]"]),
+        entry("look-at"),
+        entry("surfaced-before", surfaced=True),
+        entry("human-mention", ["@-mentioned by alice"]),
+        entry("replied-after", ["replied to by bob"]),
+        entry("already-done", archived_at="2026-09-01T00:00:00+00:00"),
+    ]
+    assert worker.select_auto_done_ids(entries, {"look-at"}) == [
+        "ambient",
+        "broadcast",
+        "bot-mention",
+    ]
+
+
+def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
+    db_path: str,
+) -> None:
+    now = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+            _notification("n-2", 2, "2026-09-01T00:00:00Z"),
+            _notification("n-3", 3, "2026-09-01T00:00:00Z"),
+            REVIEW,
+        ],
+        db_path,
+    )
+    llm = FakeLlm({"n-1": "high"})
+    archiver = FakeArchiver()
+
+    def run(at: datetime = now) -> dict:
+        return asyncio.run(
+            worker.update_digest(
+                PROFILE, llm=llm, archiver=archiver, current_user="ezyang", now=at
+            )
+        )
+
+    state = run()
+
+    # FakeLlm puts the first item in "Look at these"; it stays in the inbox.
+    # Review requests are not Feed and are never touched.
+    assert state["digest"]["look_at"] == [{"id": "n-1", "why": "look"}]
+    assert archiver.calls == [["n-2", "n-3"]]
+    assert state["auto_done"]["done"] == 2
+    assert state["counts"] == {
+        "feed_count": 3,
+        "direct_count": 0,
+        "broadcast_count": 0,
+        "auto_done_count": 2,
+    }
+    snapshot_ids = [n["id"] for n in (get_snapshot(KEY) or {})["notifications"]]
+    assert snapshot_ids == ["n-1", "review-pr"]
+    notes = get_item_notes(PROFILE)
+    assert notes["n-1"]["surfaced"] is True
+    assert notes["n-2"]["archived_at"] == now.isoformat()
+
+    # The next pass sees the pruned snapshot but still digests n-2/n-3; nothing
+    # changed, so there are no LLM calls and nothing new to mark done.
+    llm.prompts.clear()
+    state = run()
+    assert llm.prompts == []
+    assert len(archiver.calls) == 1
+    response = digest_routes.build_digest_response(PROFILE)
+    assert [item["id"] for item in response["look_at"]] == ["n-1"]
+    assert [e["id"] for e in response["vibe"][0]["examples"]] == ["n-1", "n-2"]
+    assert response["vibe"][0]["examples"][1]["url"] == (
+        "https://github.com/pytorch/pytorch/issues/2"
+    )
+
+    # New activity brings n-2 back to the inbox: re-triaged, marked done again.
+    # The surfaced n-1 also changed; its surfaced flag survives re-triage.
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-03T00:00:00Z"),
+            _notification("n-2", 2, "2026-09-03T00:00:00Z"),
+        ],
+        db_path,
+    )
+    llm.prompts.clear()
+    state = run()
+    assert (llm.triage_calls, llm.compose_calls) == (1, 1)
+    assert archiver.calls[-1] == ["n-2"]
+    assert get_item_notes(PROFILE)["n-1"]["surfaced"] is True
+
+    # Auto-done items age out of the digest after the window.
+    llm.prompts.clear()
+    state = run(now + timedelta(hours=25))
+    assert set(get_item_notes(PROFILE)) == {"n-1"}
+    assert state["counts"]["feed_count"] == 1
+    assert llm.compose_calls == 1
+
+
+def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+            _notification("n-2", 2, "2026-09-01T00:00:00Z"),
+            _notification("n-3", 3, "2026-09-01T00:00:00Z"),
+        ],
+        db_path,
+    )
+    llm = FakeLlm()
+    archiver = FakeArchiver(fail_ids={"n-3"})
+
+    state = asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+    assert state["auto_done"] == {
+        "at": state["auto_done"]["at"],
+        "attempted": 2,
+        "done": 1,
+        "error": "HTTP 500",
+    }
+    assert "archived_at" not in get_item_notes(PROFILE)["n-3"]
+
+    archiver.fail_ids.clear()
+    asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+    assert archiver.calls[-1] == ["n-3"]
+
+    async def no_token(ids: list[str]) -> None:
+        return None
+
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+            _notification("n-4", 4, "2026-09-01T00:00:00Z"),
+        ],
+        db_path,
+    )
+    state = asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=no_token, current_user="ezyang")
+    )
+    assert state["auto_done"]["error"] == "No GitHub token configured"
+
+
+def test_compose_never_puts_auto_done_items_in_look_at() -> None:
+    digest = prompts.parse_compose_response(
+        {"look_at": [{"id": "done", "why": "w"}, {"id": "live", "why": "w"}]},
+        {"done", "live"},
+        {"live"},
+    )
+    assert digest["look_at"] == [{"id": "live", "why": "w"}]

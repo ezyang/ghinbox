@@ -23,11 +23,12 @@ const digest = {
   ],
 };
 
-test('selectVisibleDigest drops items no longer in the live list', () => {
+test('selectVisibleDigest drops look-at items no longer live, keeps vibe examples', () => {
   const visible = selectVisibleDigest(digest, new Set(['a', 'b']));
   assert.deepEqual(visible.lookAt.map((item) => item.id), ['a']);
+  // Vibe examples are often items the server already auto-marked done.
   assert.deepEqual(visible.vibe, [
-    { title: 'Dynamo', text: 'Busy.', examples: [{ id: 'b' }] },
+    { title: 'Dynamo', text: 'Busy.', examples: [{ id: 'b' }, { id: 'done' }] },
   ]);
   assert.deepEqual(selectVisibleDigest(null, []), { lookAt: [], vibe: [] });
 });
@@ -76,6 +77,19 @@ test('formatDigestStatus summarizes freshness, split, and queue', () => {
   assert.equal(
     formatDigestStatus({ status: 'error', error: 'boom' }, visible, now),
     'last update failed: boom'
+  );
+  assert.equal(
+    formatDigestStatus(
+      {
+        ...digest,
+        counts: { ...digest.counts, auto_done_count: 25 },
+        auto_done: { attempted: 3, done: 0, error: 'No GitHub token configured' },
+      },
+      visible,
+      now
+    ),
+    'updated 10m ago · 1 of 40 worth a look (3 direct, 30 broadcast cc) · ' +
+      '25 marked done on GitHub · auto-done failed: No GitHub token configured'
   );
 });
 

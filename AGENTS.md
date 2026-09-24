@@ -63,6 +63,13 @@
     text. Use a `{prompt_file}` argument for CLIs that can't read stdin.
     Queue classification still comes from the client's UMD modules (run under
     Node), so server and UI agree on what is Feed.
+  - Digest auto-done: after composing, the worker marks digested Feed items
+    done on GitHub (REST), so the GitHub inbox/mobile app keeps only Replies,
+    reviews, and whatever the digest surfaced. It never marks done items in
+    "Look at these" (sticky once surfaced, until the user handles them), direct
+    replies from humans, or items not yet digested. Auto-done items keep feeding
+    the vibe for `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings
+    an item back through the pipeline. `GHINBOX_DIGEST_AUTO_DONE=0` disables it.
   - The client pulls a newer server snapshot every 5 minutes and when the tab
     becomes visible again (no GitHub calls), skipping it while the user is
     mid-action or when the sync started before the last local mark-done.

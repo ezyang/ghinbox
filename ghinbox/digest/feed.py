@@ -290,3 +290,41 @@ def build_report_items(
         )
 
     return items
+
+
+def mention_signal(reply_signals: list[str]) -> str | None:
+    """Collapse ``reply_signals`` into "direct", "broadcast", or None.
+
+    "direct" means a real human is talking to the user: a reply after the
+    user's last comment, or a targeted @-mention from a non-bot. Bot
+    mentions (e.g. an export bot pinging the author) are not replies.
+    """
+    for signal in reply_signals:
+        if signal.startswith("replied to by "):
+            return "direct"
+        if signal.startswith("@-mentioned by ") and not signal.endswith("[bot]"):
+            return "direct"
+    if any(signal.startswith("cc'd (broadcast)") for signal in reply_signals):
+        return "broadcast"
+    return None
+
+
+def item_summary(notification: dict) -> dict:
+    """The display fields the digest needs to link an item, snapshot or not."""
+    subject = notification.get("subject") or {}
+    repo = (notification.get("repository") or {}).get("full_name")
+    number = subject.get("number")
+    url = subject.get("url")
+    if not url and repo and number:
+        path = "pull" if subject.get("type") == "PullRequest" else "issues"
+        url = f"https://github.com/{repo}/{path}/{number}"
+    return {
+        "id": str(notification.get("id")),
+        "title": subject.get("title"),
+        "url": url,
+        "repo": repo,
+        "number": number,
+        "type": subject.get("type"),
+        "state": subject.get("state"),
+        "updated_at": notification.get("updated_at"),
+    }

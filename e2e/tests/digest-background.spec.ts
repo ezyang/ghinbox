@@ -128,6 +128,39 @@ test.describe('Feed digest and background refresh @sync', () => {
     await expect(panel).toBeHidden();
   });
 
+  test('digest keeps vibe examples the server already marked done', async ({ page }) => {
+    const surfaced = feedIssue('auto-surfaced', 401, 'Needs you');
+    const autoDone = feedIssue('auto-done', 402, 'Ambient churn');
+    await mockProfileSnapshot(page, {
+      get: profileSnapshot([surfaced], '2025-01-05T12:01:00+00:00'),
+    });
+    await mockDigest(
+      page,
+      makeDigestPayload({
+        counts: { feed_count: 9, direct_count: 0, broadcast_count: 7, auto_done_count: 8 },
+        auto_done: { at: '2025-01-05T12:02:00+00:00', attempted: 3, done: 2, error: 'HTTP 500' },
+        look_at: [digestItem(surfaced, 'worth a look')],
+        vibe: [
+          {
+            title: 'Inductor',
+            text: 'Quiet week.',
+            examples: [digestItem(autoDone, '')],
+          },
+        ],
+      })
+    );
+    await page.reload();
+
+    const panel = page.locator('#digest-panel');
+    await expect(panel.locator('.digest-item')).toContainText('Needs you');
+    await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#402)');
+    await expect(page.locator('[data-id="auto-done"]')).toHaveCount(0);
+    await expect(panel.locator('.digest-status')).toContainText(
+      '1 of 9 worth a look (0 direct, 7 broadcast cc) · 8 marked done on GitHub'
+    );
+    await expect(panel.locator('.digest-status')).toContainText('auto-done failed: HTTP 500');
+  });
+
   test('digest panel stays hidden when the server has no digest', async ({ page }) => {
     await mockProfileSnapshot(page, {
       get: profileSnapshot([feedIssue('plain-1', 1, 'Plain')], '2025-01-05T12:01:00+00:00'),
