@@ -27,6 +27,8 @@ $EDITOR auth_state/ghinbox.env
 GHINBOX_SITE_PASSWORD=<site access password>
 GHINBOX_WEBHOOK_SECRET=<output of: openssl rand -hex 32>
 GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox
+# Optional: API token from a command instead of the provisioned classic PAT
+GHINBOX_TOKEN_COMMAND=gh auth token
 ```
 
 `auth_state/` is gitignored and the server rejects an environment file

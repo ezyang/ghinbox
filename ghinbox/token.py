@@ -6,8 +6,13 @@ This script uses Playwright to automate the creation of GitHub Personal Access T
 """
 
 import argparse
+import logging
+import os
 import re
+import shlex
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -48,6 +53,75 @@ def load_token(account: str) -> str | None:
     return None
 
 
+# A command that prints a GitHub token (e.g. `gh auth token`). Orgs that
+# forbid classic PATs (meta-pytorch) accept OAuth App tokens, and unlike
+# fine-grained PATs or GitHub App tokens those work with the notifications API.
+TOKEN_COMMAND_ENV = "GHINBOX_TOKEN_COMMAND"
+# Re-run the command this often so a rotated token (gh re-login) is picked up.
+TOKEN_COMMAND_TTL_SECONDS = 300.0
+TOKEN_COMMAND_TIMEOUT_SECONDS = 10.0
+
+logger = logging.getLogger(__name__)
+
+_command_token_lock = threading.Lock()
+_command_token_cache: dict[str, tuple[float, str | None, str | None]] = {}
+
+
+def _run_token_command(command: str) -> tuple[str | None, str | None]:
+    """Run the token command; return (token, error)."""
+    try:
+        result = subprocess.run(
+            shlex.split(command),
+            capture_output=True,
+            text=True,
+            timeout=TOKEN_COMMAND_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+        return None, f"{error.__class__.__name__}: {error}"
+    token = result.stdout.strip()
+    if result.returncode != 0 or not token:
+        detail = result.stderr.strip().splitlines()[-1:] or ["no output"]
+        return None, f"exit {result.returncode}: {detail[0]}"
+    return token, None
+
+
+def load_command_token() -> str | None:
+    """Token from GHINBOX_TOKEN_COMMAND, cached for TOKEN_COMMAND_TTL_SECONDS."""
+    command = os.environ.get(TOKEN_COMMAND_ENV, "").strip()
+    if not command:
+        return None
+    with _command_token_lock:
+        cached = _command_token_cache.get(command)
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < TOKEN_COMMAND_TTL_SECONDS:
+            return cached[1]
+        token, error = _run_token_command(command)
+        if error is not None:
+            logger.warning("%s failed (%s); using the token file", command, error)
+        _command_token_cache[command] = (now, token, error)
+        return token
+
+
+def command_token_status() -> dict[str, object]:
+    """Non-secret token command state for /debug/state."""
+    command = os.environ.get(TOKEN_COMMAND_ENV, "").strip()
+    if not command:
+        return {"configured": False}
+    cached = _command_token_cache.get(command)
+    return {
+        "configured": True,
+        "command": command,
+        "ok": None if cached is None else cached[1] is not None,
+        "error": None if cached is None else cached[2],
+    }
+
+
+def clear_command_token_cache() -> None:
+    with _command_token_lock:
+        _command_token_cache.clear()
+
+
 def verify_token(account: str) -> tuple[bool, str | None]:
     """
     Verify that the stored token for an account is valid by calling GitHub's API.
@@ -61,7 +135,11 @@ def verify_token(account: str) -> tuple[bool, str | None]:
     token = load_token(account)
     if not token:
         return False, None
+    return verify_token_value(token)
 
+
+def verify_token_value(token: str) -> tuple[bool, str | None]:
+    """Check a token against GitHub; return (is_valid, github_login)."""
     try:
         response = httpx.get(
             "https://api.github.com/user",

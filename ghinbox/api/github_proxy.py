@@ -31,7 +31,7 @@ from ghinbox.api.rate_governor import (
     RateGovernorDeniedError,
     get_rate_governor,
 )
-from ghinbox.token import load_token
+from ghinbox.token import load_command_token, load_token
 
 router = APIRouter(prefix="/github", tags=["github-proxy"])
 
@@ -51,11 +51,15 @@ def get_client() -> httpx.AsyncClient:
 
 
 def get_token() -> str | None:
-    """Get the GitHub token for the configured account."""
+    """Get the GitHub token for the configured account.
+
+    GHINBOX_TOKEN_COMMAND wins over the provisioned classic PAT, which stays
+    the fallback when the command is unset or fails.
+    """
     account = os.environ.get("GHINBOX_ACCOUNT")
     if not account:
         return None
-    return load_token(account)
+    return load_command_token() or load_token(account)
 
 
 def _github_url(path_or_url: str, params: dict[str, str] | None = None) -> str:

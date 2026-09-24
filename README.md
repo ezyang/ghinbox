@@ -44,6 +44,14 @@ Only the notifications REST cannot resolve (e.g. threads in orgs such as
 meta-pytorch that forbid classic personal access tokens) are retried through
 the live browser session; the rest of the batch never goes through the browser.
 
+Orgs that forbid classic personal access tokens still accept OAuth App tokens,
+which (unlike fine-grained PATs and GitHub App tokens) also work with the
+notifications API. To use one, set `GHINBOX_TOKEN_COMMAND` to a command that
+prints a token, e.g. `GHINBOX_TOKEN_COMMAND=gh auth token` in
+`auth_state/ghinbox.env`. The server re-runs it every 5 minutes (so a `gh`
+re-login is picked up) and falls back to the provisioned token if it fails;
+`/debug/state` reports its status under `token_command`.
+
 To refresh browser authentication, use the normal command without `--force`:
 
 ```bash

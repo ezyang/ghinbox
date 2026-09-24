@@ -39,7 +39,14 @@ from ghinbox.api.rate_governor import (
     ENV_RATE_FLOOR_INTERACTIVE,
     ENV_RATE_REQUEST_BUDGET,
 )
-from ghinbox.token import has_token, provision_token, verify_token
+from ghinbox.token import (
+    TOKEN_COMMAND_ENV,
+    has_token,
+    load_command_token,
+    provision_token,
+    verify_token,
+    verify_token_value,
+)
 
 DEFAULT_DEBUG_SOCKET_PATH = Path("auth_state") / "ghinbox-debug.sock"
 DEFAULT_ENV_FILE_PATH = Path("auth_state") / "ghinbox.env"
@@ -48,6 +55,7 @@ ENV_FILE_KEYS = frozenset(
         "GHINBOX_SITE_PASSWORD",
         "GHINBOX_WEBHOOK_SECRET",
         "GHINBOX_WEBHOOK_REPOSITORY",
+        "GHINBOX_TOKEN_COMMAND",
     }
 )
 RELOAD_FILE_SUFFIXES = frozenset({".py", ".html", ".js", ".css"})
@@ -87,6 +95,22 @@ def _load_env_file(path: Path) -> None:
                 f"Invalid environment file entry at {path}:{line_number}"
             )
         os.environ.setdefault(key, value)
+
+
+def _report_token_command() -> None:
+    """Say whether GHINBOX_TOKEN_COMMAND will supply the API token."""
+    command = os.environ.get(TOKEN_COMMAND_ENV)
+    if not command:
+        return
+    token = load_command_token()
+    if token is None:
+        print(f"WARNING: {TOKEN_COMMAND_ENV} ({command}) failed; using the token file")
+        return
+    is_valid, github_login = verify_token_value(token)
+    if is_valid:
+        print(f"API token from {TOKEN_COMMAND_ENV} verified for: {github_login}")
+    else:
+        print(f"WARNING: token from {TOKEN_COMMAND_ENV} ({command}) was rejected")
 
 
 def _non_negative_int(value: str) -> int:
@@ -547,6 +571,8 @@ def main() -> int:
                     return 1
             else:
                 print(f"Token verified for GitHub user: {github_login}")
+
+        _report_token_command()
 
         # Show account info (only if not in needs-auth mode)
         if os.environ.get("GHINBOX_NEEDS_AUTH") != "1":

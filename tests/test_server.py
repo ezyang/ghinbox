@@ -46,6 +46,7 @@ def test_load_env_file_reads_private_launch_secrets(
                 "GHINBOX_SITE_PASSWORD=site-secret",
                 "GHINBOX_WEBHOOK_SECRET=hook-secret",
                 "GHINBOX_WEBHOOK_REPOSITORY=ezyang/ghinbox",
+                "GHINBOX_TOKEN_COMMAND=gh auth token",
             ]
         ),
         encoding="utf-8",
@@ -57,6 +58,7 @@ def test_load_env_file_reads_private_launch_secrets(
     assert os.environ["GHINBOX_SITE_PASSWORD"] == "site-secret"
     assert os.environ["GHINBOX_WEBHOOK_SECRET"] == "hook-secret"
     assert os.environ["GHINBOX_WEBHOOK_REPOSITORY"] == "ezyang/ghinbox"
+    assert os.environ["GHINBOX_TOKEN_COMMAND"] == "gh auth token"
 
 
 def test_load_env_file_does_not_override_explicit_environment(

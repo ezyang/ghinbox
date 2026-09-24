@@ -25,6 +25,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from ghinbox.api.fetcher import get_fetcher
+from ghinbox.token import command_token_status
 from ghinbox.api.rate_governor import (
     endpoint_from_url,
     get_rate_governor,
@@ -399,4 +400,5 @@ async def debug_state() -> dict[str, Any]:
         == "1",
         "request_log_file": log_file,
         "rate_governor": get_rate_governor().snapshot(denial_limit=5),
+        "token_command": command_token_status(),
     }
