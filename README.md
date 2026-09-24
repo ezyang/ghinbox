@@ -40,8 +40,9 @@ The long-lived API token handles API reads, marking notifications done, and
 thread subscribe/unsubscribe actions. The stored browser session is still
 required for full notification syncs because GitHub's REST API does not expose
 the HTML page's Done-vs-Read state, and for the website-only unarchive action.
-An unsupported notification kind is skipped during a REST action batch instead
-of forcing the whole batch through the browser.
+Only the notifications REST cannot resolve (e.g. threads in orgs such as
+meta-pytorch that forbid classic personal access tokens) are retried through
+the live browser session; the rest of the batch never goes through the browser.
 
 To refresh browser authentication, use the normal command without `--force`:
 

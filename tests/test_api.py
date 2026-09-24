@@ -1052,6 +1052,97 @@ class TestNotificationActions:
         assert snapshot is not None
         assert [item["id"] for item in snapshot["notifications"]] == [unsupported_id]
 
+    def test_submit_action_falls_back_to_browser_for_ids_rest_cannot_resolve(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Orgs that forbid classic PATs (meta-pytorch) 403 the REST lookup;
+        the live browser session can still archive those threads."""
+        from ghinbox.api import snapshot_store
+
+        resolvable_id = "NT_kwDOAZShobQyMTUwNzkzMzkyMToyNjUxNzkyMQ"
+        forbidden_org_id = "forbidden-org-notification-id"
+        synthetic_id = "review-request:pytorch/pytorch#1"
+        rest_calls: list[str] = []
+        browser_calls: list[dict[str, object]] = []
+        snapshot_store.save_snapshot(
+            "profile:pytorch",
+            [
+                {"id": resolvable_id, "subject": {"title": "Resolvable"}},
+                {"id": forbidden_org_id, "subject": {"title": "Forbidden org"}},
+            ],
+        )
+
+        class FakeResponse:
+            status_code = 205
+            text = ""
+            headers: dict[str, str] = {}
+
+        class FakeClient:
+            async def request(
+                self, method: str, url: str, headers: dict[str, str]
+            ) -> FakeResponse:
+                rest_calls.append(url)
+                return FakeResponse()
+
+        class FakeFetcher:
+            def submit_notification_action(
+                self,
+                action: str,
+                notification_ids: list[str],
+                authenticity_token: str,
+            ) -> ActionResult:
+                browser_calls.append(
+                    {
+                        "action": action,
+                        "notification_ids": notification_ids,
+                        "authenticity_token": authenticity_token,
+                    }
+                )
+                return ActionResult(status="ok")
+
+        monkeypatch.delenv("GHINBOX_NEEDS_AUTH", raising=False)
+        monkeypatch.setattr("ghinbox.api.routes.get_fetcher", lambda: FakeFetcher())
+        monkeypatch.setattr("ghinbox.api.archive_api.get_token", lambda: "api-token")
+        monkeypatch.setattr("ghinbox.api.archive_api.get_client", lambda: FakeClient())
+        monkeypatch.setattr("ghinbox.api.archive_api.list_snapshot_repos", lambda: [])
+
+        response = client.post(
+            "/notifications/html/action",
+            json={
+                "action": "archive",
+                "notification_ids": [resolvable_id, forbidden_org_id, synthetic_id],
+                "authenticity_token": "form-token",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "status": "partial",
+            "error": (
+                "Archived 2 of 3 notifications; 1 could not be resolved by REST "
+                "or the browser session."
+            ),
+            "successful_notification_ids": [resolvable_id, forbidden_org_id],
+            "unresolved_notification_ids": [synthetic_id],
+        }
+        assert rest_calls == [
+            "https://api.github.com/notifications/threads/21507933921"
+        ]
+        assert browser_calls == [
+            {
+                "action": "archive",
+                "notification_ids": [forbidden_org_id],
+                "authenticity_token": "form-token",
+            }
+        ]
+        snapshot = snapshot_store.get_snapshot("profile:pytorch")
+        assert snapshot is not None
+        assert snapshot["notifications"] == []
+        actions = client.get("/debug/notification-actions").json()["actions"]
+        assert actions[-1]["status"] == "partial"
+        assert actions[-1]["unresolved_count"] == 1
+        assert actions[-1]["browser_fallback_count"] == 1
+
     def test_submit_action_records_github_api_rate_limit_audit(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1204,7 +1295,7 @@ class TestNotificationActions:
     def test_submit_action_caps_current_html_id_rest_lookup(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A capped REST lookup reports the ID without falling back to browser."""
+        """A capped REST lookup sends only the unresolved ID to the browser."""
         current_html_id = (
             "NT_kwHNNPzaACRSZXBvc2l0b3J5OzY1NjAwOTc1O0lzc3VlOzQ3MjMzNjQ2Njc"
         )
@@ -1288,13 +1379,13 @@ class TestNotificationActions:
 
         assert response.status_code == 200
         assert response.json() == {
-            "status": "error",
-            "error": "Archived 0 of 1 notifications; 1 could not be resolved by REST.",
-            "successful_notification_ids": [],
-            "unresolved_notification_ids": [current_html_id],
+            "status": "ok",
+            "error": None,
+            "successful_notification_ids": [current_html_id],
+            "unresolved_notification_ids": [],
         }
         assert len(lookup_calls) == 2
-        assert fallback_calls == []
+        assert fallback_calls == [[current_html_id]]
 
     def test_submit_action_accepts_batched_notification_ids(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

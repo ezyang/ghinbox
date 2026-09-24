@@ -18,7 +18,12 @@ from ghinbox.api.archive_api import (
     _prune_snapshot_for_action,
     _submit_notification_action_with_github_api,
 )
-from ghinbox.api.fetcher import FetchResult, get_fetcher, run_fetcher_call
+from ghinbox.api.fetcher import (
+    ActionResult,
+    FetchResult,
+    get_fetcher,
+    run_fetcher_call,
+)
 from ghinbox.api.models import NotificationsResponse
 from ghinbox.api.observability import emit_notification_action_audit
 from ghinbox.api.repo_keys import repo_key
@@ -275,6 +280,77 @@ async def get_repo_notifications(
     )
 
 
+_COMPLETED_ACTION_VERBS = {
+    "archive": "Archived",
+    "subscribe": "Subscribed",
+    "unsubscribe": "Unsubscribed",
+}
+
+
+async def _retry_unresolved_with_browser(
+    request: NotificationActionRequest,
+    api_result: ActionResult,
+) -> ActionResult:
+    """Send IDs REST could not resolve through the live browser session.
+
+    Orgs that forbid classic PATs (e.g. meta-pytorch) 403 the REST thread
+    lookup, but the logged-in session that scraped the inbox can still act on
+    those threads. Only uses a fetcher that is already usable; synthetic
+    review-request rows have no inbox thread and are never sent.
+    """
+    unresolved = api_result.unresolved_notification_ids or []
+    browser_ids = [i for i in unresolved if not i.startswith("review-request:")]
+    rest_failed = (api_result.github_status_code or 0) >= 400
+    if (
+        not browser_ids
+        or rest_failed
+        or not request.authenticity_token
+        or os.environ.get("GHINBOX_NEEDS_AUTH") == "1"
+    ):
+        return api_result
+    fetcher = get_fetcher()
+    if fetcher is None:
+        return api_result
+
+    browser_done: list[str] = []
+    browser_error: str | None = None
+    for chunk in _chunks(browser_ids, MAX_GITHUB_NOTIFICATION_ACTION_IDS):
+        result = await run_fetcher_call(
+            fetcher.submit_notification_action,
+            action=request.action,
+            notification_ids=chunk,
+            authenticity_token=request.authenticity_token,
+        )
+        if result.status != "ok":
+            browser_error = result.error or result.status
+            break
+        browser_done.extend(chunk)
+
+    successful = (api_result.successful_notification_ids or []) + browser_done
+    still_unresolved = [i for i in unresolved if i not in browser_done]
+    if not still_unresolved:
+        return ActionResult(
+            status="ok",
+            github_status_code=api_result.github_status_code,
+            successful_notification_ids=successful,
+            unresolved_notification_ids=[],
+        )
+    verb = _COMPLETED_ACTION_VERBS.get(request.action, "Completed")
+    error = (
+        f"{verb} {len(successful)} of {len(request.notification_ids)} "
+        f"notifications; {len(still_unresolved)} could not be resolved by REST "
+        "or the browser session"
+    )
+    error += f": {browser_error}" if browser_error else "."
+    return ActionResult(
+        status="partial" if successful else "error",
+        error=error,
+        github_status_code=api_result.github_status_code,
+        successful_notification_ids=successful,
+        unresolved_notification_ids=still_unresolved,
+    )
+
+
 @router.post(
     "/action",
     response_model=NotificationActionResponse,
@@ -308,6 +384,8 @@ async def submit_action(
     status = "error"
     error: str | None = None
     github_status_code: int | None = None
+    unresolved_count: int | None = None
+    browser_fallback_count: int | None = None
     request_id_value = http_request.scope.get("ghinbox_request_id")
     request_id = request_id_value if isinstance(request_id_value, str) else None
 
@@ -319,6 +397,15 @@ async def submit_action(
                 request_id=request_id,
             )
             if api_result is not None:
+                if api_result.unresolved_notification_ids:
+                    rest_unresolved = len(api_result.unresolved_notification_ids)
+                    api_result = await _retry_unresolved_with_browser(
+                        request, api_result
+                    )
+                    still_unresolved = len(api_result.unresolved_notification_ids or [])
+                    browser_fallback_count = rest_unresolved - still_unresolved
+                if api_result.unresolved_notification_ids is not None:
+                    unresolved_count = len(api_result.unresolved_notification_ids)
                 status = api_result.status
                 error = api_result.error
                 github_status_code = api_result.github_status_code
@@ -397,4 +484,6 @@ async def submit_action(
             error=error,
             github_status_code=github_status_code,
             duration_ms=(time.perf_counter() - started) * 1000,
+            unresolved_count=unresolved_count,
+            browser_fallback_count=browser_fallback_count,
         )

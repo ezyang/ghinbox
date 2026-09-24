@@ -186,6 +186,8 @@ def emit_notification_action_audit(
     error: str | None,
     github_status_code: int | None,
     duration_ms: float,
+    unresolved_count: int | None = None,
+    browser_fallback_count: int | None = None,
 ) -> None:
     """Record a sanitized notification action audit event."""
     entry: dict[str, Any] = {
@@ -204,6 +206,11 @@ def emit_notification_action_audit(
         "github_status_code": github_status_code,
         "duration_ms": round(duration_ms, 2),
     }
+    # REST batches: IDs left unresolved, and IDs completed via the browser.
+    if unresolved_count is not None:
+        entry["unresolved_count"] = unresolved_count
+    if browser_fallback_count is not None:
+        entry["browser_fallback_count"] = browser_fallback_count
     recent_notification_actions.add(entry)
     if request_logger.handlers:
         request_logger.info(json.dumps(entry, separators=(",", ":")))
