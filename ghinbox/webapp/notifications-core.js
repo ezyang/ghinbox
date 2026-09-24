@@ -547,6 +547,7 @@ async function loadNotificationsFromCache() {
     return [];
 }
 
+// Returns true when the list came from the server snapshot.
 async function loadInitialNotifications() {
     if (typeof loadServerSnapshotOnInit === 'function') {
         try {
@@ -554,13 +555,14 @@ async function loadInitialNotifications() {
                 forceApply: true,
             });
             if (loadedFromServer) {
-                return;
+                return true;
             }
         } catch (error) {
             console.error('Failed to load server snapshot:', error);
         }
     }
     state.notifications = await loadNotificationsFromCache();
+    return false;
 }
 
 // Initialize app
@@ -757,7 +759,7 @@ async function init() {
     // Prefer the current server-owned snapshot; fall back to the local cache offline.
     // Comment cache must be available first so startup snapshot hydration can skip
     // fresh threads instead of immediately refetching them.
-    await loadInitialNotifications();
+    const loadedFromServer = await loadInitialNotifications();
     if (typeof maybeStartServerSyncOnLoad === 'function') {
         maybeStartServerSyncOnLoad();
     }
@@ -784,6 +786,10 @@ async function init() {
     }
     if (typeof startBackgroundRefresh === 'function') {
         startBackgroundRefresh();
+    }
+    // The local cache was swept when it synced; a server snapshot was not.
+    if (loadedFromServer && typeof cleanStartupNotifications === 'function') {
+        await cleanStartupNotifications();
     }
     // Startup network work (snapshot load) is done; tests wait on this.
     document.documentElement.dataset.ghinboxReady = 'true';

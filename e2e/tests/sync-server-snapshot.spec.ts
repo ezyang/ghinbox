@@ -972,6 +972,56 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('Loaded server snapshot');
   });
 
+  test('startup server snapshot auto-cleans low-priority feed items', async ({ page }) => {
+    const currentNotification = makeIssueNotification({
+      id: 'startup-current-1',
+      reason: 'subscribed',
+      updated_at: '2024-12-27T12:00:00Z',
+      subject: { title: 'Current startup notification', number: 42, state: 'open' },
+    });
+    const lowPriorityNotification = makeIssueNotification({
+      id: 'startup-low-priority-1',
+      reason: 'subscribed',
+      updated_at: '2024-12-26T12:00:00Z',
+      subject: { title: 'Closed low-priority notification', number: 41, state: 'closed' },
+    });
+    const freshThread = (updatedAt: string) =>
+      makeCommentThread({
+        notificationUpdatedAt: updatedAt,
+        comments: [],
+        allComments: true,
+        fetchedAt: new Date().toISOString(),
+      });
+    const actions = await captureHtmlActions(page);
+
+    await mockServerSnapshot(page, {
+      get: makeServerSnapshotPayload('test/repo', {
+        snapshot: {
+          notifications: [currentNotification, lowPriorityNotification],
+          comment_cache: makeCommentCache({
+            'startup-current-1': freshThread(currentNotification.updated_at),
+            'startup-low-priority-1': freshThread(lowPriorityNotification.updated_at),
+          }),
+          authenticity_token: 'server-token',
+          synced_at: '2024-12-27T12:01:00+00:00',
+        },
+      }),
+    });
+
+    await seedRepoSelection(page, 'test/repo');
+    await page.reload();
+
+    await expect(page.locator('[data-id="startup-current-1"]')).toBeVisible();
+    await expect(page.locator('[data-id="startup-low-priority-1"]')).toHaveCount(0);
+    await expect.poll(() => actions).toEqual([
+      {
+        action: 'archive',
+        notification_ids: ['startup-low-priority-1'],
+        authenticity_token: 'server-token',
+      },
+    ]);
+  });
+
   test('startup server snapshot reuses fresh local comment cache', async ({ page }) => {
     const snapshotNotification = makeIssueNotification({
       id: 'server-cached-comments-1',

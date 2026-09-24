@@ -602,9 +602,21 @@ function applyServerSnapshot(target, snapshot, options = {}) {
 }
 
 async function cleanCompletedServerSync(syncLabel) {
-    let notifications = state.notifications;
+    const before = state.notifications;
+    let notifications = before;
     notifications = await cleanNeedsReviewFeedDuplicates(notifications, syncLabel);
     notifications = await autoMarkTrashNotificationsDone(notifications, syncLabel);
+    // The sweeps await the network; drop only what they archived so a
+    // mark-done made meanwhile is not undone by the stale list.
+    const kept = new Set(notifications.map((notification) => notification.id));
+    const swept = new Set(
+        before
+            .filter((notification) => !kept.has(notification.id))
+            .map((notification) => notification.id)
+    );
+    notifications = state.notifications.filter(
+        (notification) => !swept.has(notification.id)
+    );
     state.notifications = notifications;
 
     if (state.commentCache) {
@@ -619,6 +631,20 @@ async function cleanCompletedServerSync(syncLabel) {
     if (typeof refreshDigest === 'function') {
         refreshDigest();
     }
+}
+
+// Startup applies the server snapshot without syncing, so give it the same
+// post-sync sweep; otherwise trash lingers until the next server sync.
+async function cleanStartupNotifications() {
+    if (!state.notifications.length || isClientBusyForBackgroundRefresh()) {
+        return;
+    }
+    try {
+        await withActionContext('Startup', () => cleanCompletedServerSync('Startup'));
+    } catch (error) {
+        console.error('Startup cleanup failed:', error);
+    }
+    render();
 }
 
 function isClientBusyForBackgroundRefresh() {

@@ -78,11 +78,11 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-09-24-partial-clean'
+      'notifications.css?v=2026-09-24-startup-clean'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-09-24-partial-clean'
+      'notifications-sync.js?v=2026-09-24-startup-clean'
     );
   });
 
