@@ -46,7 +46,7 @@ test.describe('Polish @layout', () => {
     test('shows default empty state before sync', async ({ page }) => {
       const emptyState = page.locator('#empty-state');
       await expect(emptyState).toContainText('No notifications');
-      await expect(emptyState).toContainText('Enter a repository and click Quick Sync');
+      await expect(emptyState).toContainText('Enter a repository and click Sync');
     });
 
     test('shows "no open" message when filtered to Open with none', async ({ page }) => {

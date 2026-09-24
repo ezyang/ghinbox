@@ -35,7 +35,7 @@
         if (notificationCount === 0 && trashNotificationCount === 0) {
             return {
                 title: 'No notifications',
-                message: 'Enter a repository and click Quick Sync to load notifications.',
+                message: 'Enter a repository and click Sync to load notifications.',
             };
         }
 

@@ -20,6 +20,7 @@ const {
   normalizePullRequestState,
   shouldPruneIncrementalNotifications,
   shouldApplyServerSnapshot,
+  shouldAutoStartServerSync,
 } = require('../../ghinbox/webapp/notifications-sync-merge.js');
 const {
   getNotificationDedupKey,
@@ -560,6 +561,41 @@ test('shouldApplyServerSnapshot keeps per-key synced_at guard behavior', () => {
     }),
     false
   );
+});
+
+test('shouldAutoStartServerSync starts a server sync only when nothing keeps the profile fresh', () => {
+  const pytorch = [
+    { kind: 'query', query: 'org:pytorch' },
+    { kind: 'query', query: 'org:meta-pytorch' },
+  ];
+  const snapshot = { synced_at: '2026-09-23T16:44:56Z', notifications: [] };
+  const available = (watched) => ({ available: true, watched_entries: watched });
+  const cases = [
+    ['fresh install: no snapshot yet', { serverSync: available(null), snapshot: null }, true],
+    ['legacy profile synced before entries were persisted', { serverSync: available(null), snapshot }, true],
+    ['server watches exactly these entries', { serverSync: available(pytorch), snapshot }, false],
+    ['profile entries were edited', { serverSync: available(pytorch.slice(0, 1)), snapshot }, true],
+    ['server owns no GitHub fetcher', { serverSync: { available: false, watched_entries: null }, snapshot: null }, false],
+    ['older server without server_sync', { serverSync: undefined, snapshot: null }, false],
+    ['a sync is already running', { serverSync: available(null), snapshot: null, syncStatus: 'running' }, false],
+    ['no profile entries', { serverSync: available(null), snapshot: null, desiredEntries: [] }, false],
+    [
+      'single repo watched by its repo snapshot',
+      {
+        serverSync: available([{ kind: 'repo', owner: 'pytorch', repo: 'pytorch' }]),
+        snapshot,
+        desiredEntries: [{ kind: 'repo', owner: 'pytorch', repo: 'pytorch' }],
+      },
+      false,
+    ],
+  ];
+  for (const [label, input, expected] of cases) {
+    assert.equal(
+      shouldAutoStartServerSync({ desiredEntries: pytorch, ...input }),
+      expected,
+      label
+    );
+  }
 });
 
 test('buildIncrementalRestLookupKeys selects only new or changed notifications', () => {

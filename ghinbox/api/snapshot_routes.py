@@ -658,13 +658,38 @@ def stop_periodic_snapshot_sync() -> None:
     _periodic_task = None
 
 
+def _compact_entry(entry: dict) -> dict:
+    return {key: value for key, value in entry.items() if value is not None}
+
+
+def _server_sync_info(watched_entries: list[dict] | None) -> dict:
+    """What the server keeps fresh in the background for a snapshot read.
+
+    The client starts a server sync when nothing is watched (fresh install, or
+    a profile synced before its entries were persisted) or when the watched
+    entries no longer match the profile.
+    """
+    return {
+        "available": get_fetcher() is not None,
+        "watched_entries": (
+            [_compact_entry(entry) for entry in watched_entries]
+            if watched_entries is not None
+            else None
+        ),
+    }
+
+
 @router.get("/profile/{name}")
 async def get_profile_snapshot(name: str) -> dict:
     snapshot_key = _profile_key(name)
+    snapshot = get_snapshot(snapshot_key)
     return {
         "profile": {"name": name, "key": snapshot_key},
-        "snapshot": get_snapshot(snapshot_key),
+        "snapshot": snapshot,
         "sync": get_sync_state(snapshot_key),
+        "server_sync": _server_sync_info(
+            get_snapshot_profile(snapshot_key) if snapshot is not None else None
+        ),
     }
 
 
@@ -714,14 +739,21 @@ async def get_profile_snapshot_sync(name: str) -> dict:
 @router.get("/{owner}/{repo}")
 async def get_notification_snapshot(owner: str, repo: str) -> dict:
     full_repo_name = repo_key(owner, repo)
+    snapshot = get_snapshot(full_repo_name)
     return {
         "repository": {
             "owner": owner,
             "name": repo,
             "full_name": full_repo_name,
         },
-        "snapshot": get_snapshot(full_repo_name),
+        "snapshot": snapshot,
         "sync": get_sync_state(full_repo_name),
+        # Every stored repo snapshot is a periodic sync target.
+        "server_sync": _server_sync_info(
+            [_entry_for_repo(owner, repo).model_dump(mode="json")]
+            if snapshot is not None
+            else None
+        ),
     }
 
 

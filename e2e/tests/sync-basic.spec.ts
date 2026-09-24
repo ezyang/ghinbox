@@ -171,7 +171,7 @@ test.describe('Sync Basic @slow @sync', () => {
     await page.locator('#sync-btn').click();
 
     const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText('Quick Sync in progress');
+    await expect(statusBar).toContainText('Sync in progress');
     await expect(statusBar).not.toContainText('requesting page 1');
     await expect(statusBar).toContainText('Synced');
     await expect(statusBar).toHaveClass(/auto-dismiss/);

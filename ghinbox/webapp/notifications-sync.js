@@ -111,6 +111,7 @@ const {
     normalizePullRequestState,
     shouldPruneIncrementalNotifications,
     shouldApplyServerSnapshot,
+    shouldAutoStartServerSync,
 } = GhinboxSyncMerge;
 const {
     mergeServerSnapshotCommentCache,
@@ -355,7 +356,7 @@ async function refreshPullRequestStates(
     repo,
     notifications,
     {
-        syncLabel = 'Quick Sync',
+        syncLabel = 'Sync',
         matchKeys = null,
         queryRepo = repo,
         matchRepo = repo,
@@ -693,6 +694,21 @@ function formatSnapshotTimestamp(value) {
     return GhinboxFormat.formatSnapshotTimestamp(value);
 }
 
+let startupServerSyncNeeded = false;
+
+// Called once startup has settled on its notification list. A fresh install
+// (or a profile the server is not watching) gets its first server sync now;
+// afterwards the server's periodic sync keeps the snapshot fresh.
+function maybeStartServerSyncOnLoad() {
+    if (!startupServerSyncNeeded) {
+        return;
+    }
+    startupServerSyncNeeded = false;
+    const entries = getCurrentProfileEntries();
+    const sources = entries.map(classifyProfileEntry);
+    withActionContext('Sync', () => runServerSync(entries, sources, { auto: true }));
+}
+
 async function loadServerSnapshotOnInit({ forceApply = false } = {}) {
     const entries = getCurrentProfileEntries();
     if (!entries.length) {
@@ -735,9 +751,15 @@ async function loadServerSnapshotOnInit({ forceApply = false } = {}) {
                 lastSyncedRepo,
                 storageValue,
             }).catch((error) => {
-                showStatus(`Full Sync failed: ${error.message || error}`, 'error');
+                showStatus(`Sync failed: ${error.message || error}`, 'error');
             });
         }
+        startupServerSyncNeeded = shouldAutoStartServerSync({
+            serverSync: data?.server_sync,
+            snapshot,
+            syncStatus: data?.sync?.status,
+            desiredEntries: buildServerProfileSyncEntries(sources),
+        });
         return applied;
     } catch (error) {
         console.error('Failed to load server snapshot:', error);
@@ -773,7 +795,18 @@ async function startServerSnapshotSync(target) {
 }
 
 async function pollServerSync(target, options = {}) {
-    const syncLabel = options.syncLabel || 'Full Sync';
+    state.serverSyncPolls += 1;
+    render();
+    try {
+        return await pollServerSyncUntilDone(target, options);
+    } finally {
+        state.serverSyncPolls -= 1;
+        render();
+    }
+}
+
+async function pollServerSyncUntilDone(target, options) {
+    const syncLabel = options.syncLabel || 'Sync';
     const applySnapshot = options.applySnapshot !== false;
     while (true) {
         const data = await fetchJson(target.syncUrl);
@@ -822,199 +855,47 @@ async function pollServerSync(target, options = {}) {
     }
 }
 
-async function runServerSnapshotSyncForSource(source, options = {}) {
-    const syncLabel = options.syncLabel || 'Full Sync';
-    const fallbackMode = options.fallbackMode || null;
-    const fallbackOnUnavailable = Boolean(options.fallbackOnUnavailable);
-    const target = getRepoServerSnapshotTarget(source);
-    if (!target) {
-        showStatus('Invalid profile entry for server sync', 'error');
-        return {
-            handled: true,
-        };
-    }
-    const storageValue = options.storageValue || source.fullName || source.value;
-    const profileSignature = getProfileSignature();
-    const lastSyncedRepo =
-        options.lastSyncedRepo ||
-        getServerSnapshotLastSyncedRepo([source], profileSignature);
-    state.repo = storageValue;
-    localStorage.setItem(REPO_KEY, storageValue);
-    state.loading = true;
-    state.error = null;
-    render();
-    showStatus(`${syncLabel} starting on server for ${target.label}...`, 'info', { flash: true });
-
-    try {
-        await startServerSnapshotSync(target);
-        showStatus(`${syncLabel} running on server for ${target.label}...`, 'info');
-        await pollServerSync(target, { lastSyncedRepo, storageValue, syncLabel });
-        return {
-            handled: true,
-        };
-    } catch (error) {
-        const message = error.message || String(error);
-        const unavailable = isServerSnapshotUnavailable(error);
-        if (unavailable && fallbackOnUnavailable) {
-            state.loading = false;
-            render();
-            return {
-                handled: false,
-                unavailable: true,
-            };
-        }
-        if (unavailable && fallbackMode) {
-            state.loading = false;
-            render();
-            await handleSync({ mode: fallbackMode, allowServer: false });
-            return {
-                fallback: true,
-                handled: true,
-            };
-        }
-        state.error = message;
-        showStatus(`${syncLabel} failed: ${message}`, 'error');
-        return {
-            error,
-            handled: true,
-        };
-    } finally {
-        state.loading = false;
-        render();
-    }
-}
-
-async function tryServerQuickSync(sources) {
-    if (sources.length !== 1 || sources[0].kind !== 'repo') {
-        return false;
-    }
-    const result = await runServerSnapshotSyncForSource(sources[0], {
-        syncLabel: 'Quick Sync',
-        fallbackOnUnavailable: true,
-    });
-    return result.handled;
-}
-
-async function handleServerFullSync() {
-    const entries = getCurrentProfileEntries();
-    if (!entries.length) {
-        showStatus('Please enter a repository or query', 'error');
-        return;
-    }
-    if (state.loading) {
-        return;
-    }
-    updateActiveProfileEntries(entries);
-
-    const sources = entries.map(classifyProfileEntry);
-    const invalid = sources.find((source) => !source.value);
-    if (invalid) {
-        showStatus('Invalid empty profile entry', 'error');
-        return;
-    }
-    const invalidFormat = sources.find((source) => source.kind === 'invalid');
-    if (invalidFormat) {
-        showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
-        return;
-    }
-    if (isSingleRepoSnapshotSource(sources)) {
-        await runServerSnapshotSyncForSource(sources[0], {
-            syncLabel: 'Full Sync',
-            fallbackMode: 'full',
-        });
-        return;
-    }
-
-    const { storageValue, lastSyncedRepo } =
-        getServerSnapshotApplyConfig(entries, sources);
+// Sync the active profile on the server (the same sync the server's periodic
+// loop runs) and apply the result. When the server has no GitHub fetcher, a
+// user-initiated sync is left to the caller's browser-side fallback; an
+// automatic one just stops.
+async function runServerSync(entries, sources, { auto = false } = {}) {
     const target = getServerSnapshotTarget(sources);
     const syncEntries = buildServerProfileSyncEntries(sources);
     if (!target || syncEntries.length !== sources.length) {
-        showStatus('Invalid profile entry for server sync', 'error');
-        return;
+        if (!auto) {
+            showStatus('Invalid profile entry for server sync', 'error');
+        }
+        return { handled: true };
     }
-    target.syncBody = { mode: 'full', entries: syncEntries };
+    const { storageValue, lastSyncedRepo } = getServerSnapshotApplyConfig(entries, sources);
     state.repo = storageValue;
     localStorage.setItem(REPO_KEY, storageValue);
     state.loading = true;
     state.error = null;
     render();
+    showStatus(`Sync starting on server for ${target.label}...`, 'info', { flash: true });
 
     try {
-        showStatus(
-            `Full Sync starting on server for ${target.label}...`,
-            'info',
-            { flash: true }
-        );
         await startServerSnapshotSync(target);
-        showStatus(`Full Sync running on server for ${target.label}...`, 'info');
+        showStatus(`Sync running on server for ${target.label}...`, 'info');
         const result = await pollServerSync(target, {
             lastSyncedRepo,
             storageValue,
-            syncLabel: 'Full Sync',
+            syncLabel: 'Sync',
         });
         if (!result.snapshot || !Array.isArray(result.snapshot.notifications)) {
             showStatus('No server snapshot available', 'info');
         }
+        return { handled: true };
     } catch (error) {
         if (isServerSnapshotUnavailable(error)) {
-            state.loading = false;
-            render();
-            await handleSync({ mode: 'full', allowServer: false });
-            return;
+            return { handled: auto, unavailable: true };
         }
         const message = error.message || String(error);
         state.error = message;
-        showStatus(`Full Sync failed: ${message}`, 'error');
-    } finally {
-        state.loading = false;
-        render();
-    }
-}
-
-async function handleServerSnapshotRefresh() {
-    const entries = getCurrentProfileEntries();
-    if (!entries.length) {
-        showStatus('Please enter a repository or query', 'error');
-        return;
-    }
-    if (state.loading) {
-        return;
-    }
-    updateActiveProfileEntries(entries);
-
-    const sources = entries.map(classifyProfileEntry);
-    const invalid = sources.find((source) => !source.value);
-    if (invalid) {
-        showStatus('Invalid empty profile entry', 'error');
-        return;
-    }
-    const invalidFormat = sources.find((source) => source.kind === 'invalid');
-    if (invalidFormat) {
-        showStatus(`Invalid format: ${invalidFormat.value}`, 'error');
-        return;
-    }
-
-    const { storageValue } = getServerSnapshotApplyConfig(entries, sources);
-    state.repo = storageValue;
-    localStorage.setItem(REPO_KEY, storageValue);
-    state.loading = true;
-    state.error = null;
-    render();
-    showStatus(`Loading server snapshot for ${storageValue}...`, 'info', { flash: true });
-
-    try {
-        const applied = await loadServerSnapshotOnInit({ forceApply: true });
-        if (applied) {
-            showStatus(`Loaded ${state.notifications.length} notifications from server snapshot`, 'success');
-            render();
-            return;
-        }
-        showStatus('No server snapshot available', 'info');
-    } catch (error) {
-        const message = error.message || String(error);
-        state.error = message;
-        showStatus(`Server Refresh failed: ${message}`, 'error');
+        showStatus(`Sync failed: ${message}`, 'error');
+        return { handled: true };
     } finally {
         state.loading = false;
         render();

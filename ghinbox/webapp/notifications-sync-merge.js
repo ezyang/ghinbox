@@ -288,6 +288,37 @@
         return Boolean(snapshot.synced_at && snapshot.synced_at !== localSyncedAt);
     }
 
+    function getSyncEntrySignature(entries) {
+        return (Array.isArray(entries) ? entries : [])
+            .map((entry) => (entry?.kind === 'repo'
+                ? `repo:${entry.owner}/${entry.repo}`
+                : `query:${entry?.query}`))
+            .join('\n');
+    }
+
+    // The server keeps a snapshot fresh only for entries it has been told
+    // about. Start a server sync on load when nothing is watched yet (fresh
+    // install, or a profile synced before entries were persisted) or the
+    // profile's entries changed since the server last recorded them.
+    function shouldAutoStartServerSync({
+        serverSync = null,
+        snapshot = null,
+        syncStatus = null,
+        desiredEntries = [],
+    } = {}) {
+        if (serverSync?.available !== true || syncStatus === 'running') {
+            return false;
+        }
+        if (!Array.isArray(desiredEntries) || desiredEntries.length === 0) {
+            return false;
+        }
+        if (!snapshot || !Array.isArray(serverSync.watched_entries)) {
+            return true;
+        }
+        return getSyncEntrySignature(serverSync.watched_entries) !==
+            getSyncEntrySignature(desiredEntries);
+    }
+
     // PR subject-state maintenance shared by quick sync and review reload.
     function normalizePullRequestState(prState, isDraft) {
         if (prState === 'MERGED') {
@@ -389,5 +420,6 @@
         normalizePullRequestState,
         shouldPruneIncrementalNotifications,
         shouldApplyServerSnapshot,
+        shouldAutoStartServerSync,
     };
 });

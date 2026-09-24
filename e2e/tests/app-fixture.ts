@@ -116,6 +116,7 @@ export function makeServerSnapshotPayload(
   options: {
     snapshot?: JsonBody;
     sync?: JsonBody;
+    serverSync?: JsonBody;
   } = {}
 ) {
   const [owner, name] = repo.split('/');
@@ -123,6 +124,7 @@ export function makeServerSnapshotPayload(
     repository: { owner, name, full_name: repo },
     sync: options.sync ?? { status: 'idle', mode: 'full' },
     snapshot: options.snapshot ?? null,
+    ...(options.serverSync !== undefined ? { server_sync: options.serverSync } : {}),
   };
 }
 
@@ -131,12 +133,14 @@ export function makeProfileServerSnapshotPayload(
   options: {
     snapshot?: JsonBody;
     sync?: JsonBody;
+    serverSync?: JsonBody;
   } = {}
 ) {
   return {
     profile: { name: profile, key: `profile:${profile}` },
     sync: options.sync ?? { status: 'idle', mode: 'full' },
     snapshot: options.snapshot ?? null,
+    ...(options.serverSync !== undefined ? { server_sync: options.serverSync } : {}),
   };
 }
 

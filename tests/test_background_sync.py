@@ -346,3 +346,39 @@ def test_background_headroom_requires_reserve_above_floor() -> None:
         "core", reserve=500, now=NOW + timedelta(hours=1)
     )
     assert governor.snapshot()["recent_denials"] == []
+
+
+def test_snapshot_reads_report_what_the_server_keeps_fresh(
+    db_path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A profile synced before entries were persisted is not watched, so the
+    # client must re-register it; a fresh install has no snapshot at all.
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: object())
+    save_snapshot("profile:legacy", [], db_path=db_path)
+    legacy = asyncio.run(snapshot_routes.get_profile_snapshot("legacy"))
+    assert legacy["server_sync"] == {"available": True, "watched_entries": None}
+
+    save_snapshot("profile:pytorch", [], db_path=db_path)
+    save_snapshot_profile(
+        "profile:pytorch",
+        [{"kind": "query", "owner": None, "repo": None, "query": "org:pytorch"}],
+        db_path=db_path,
+    )
+    watched = asyncio.run(snapshot_routes.get_profile_snapshot("pytorch"))
+    assert watched["server_sync"] == {
+        "available": True,
+        "watched_entries": [{"kind": "query", "query": "org:pytorch"}],
+    }
+
+    missing = asyncio.run(snapshot_routes.get_notification_snapshot("a", "b"))
+    assert missing["server_sync"] == {"available": True, "watched_entries": None}
+    save_snapshot("a/b", [], db_path=db_path)
+    repo = asyncio.run(snapshot_routes.get_notification_snapshot("a", "b"))
+    assert repo["server_sync"] == {
+        "available": True,
+        "watched_entries": [{"kind": "repo", "owner": "a", "repo": "b"}],
+    }
+
+    monkeypatch.setattr(snapshot_routes, "get_fetcher", lambda: None)
+    offline = asyncio.run(snapshot_routes.get_profile_snapshot("pytorch"))
+    assert offline["server_sync"]["available"] is False

@@ -27,7 +27,7 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-08-12-review-priority';
+            const ASSET_VERSION = '2026-09-24-single-sync';
             const CACHE_BUST_KEY = 'ghnotif_cache_bust';
             function normalizeCacheBustPart(value) {
                 if (typeof value !== 'string') {
@@ -928,15 +928,7 @@
                         aria-label="Repositories or notification queries, one per line"
                     ></textarea>
                 </div>
-                <button id="sync-btn" class="btn btn-primary" type="button">
-                    Quick Sync
-                </button>
-                <button id="full-sync-btn" class="btn" type="button">
-                    Full Sync
-                </button>
-                <button id="server-refresh-btn" class="btn" type="button">
-                    Server Refresh
-                </button>
+                <button id="sync-btn" class="btn btn-primary" type="button">Sync</button>
                 <button id="force-refresh-btn" class="btn btn-small" type="button">
                     Force refresh
                 </button>
@@ -1056,7 +1048,7 @@
 
             <div id="empty-state" class="empty-state">
                 <h3>No notifications</h3>
-                <p>Choose a profile and click Quick Sync to load notifications.</p>
+                <p>Choose a profile and click Sync to load notifications.</p>
             </div>
 
     <ul id="notifications-list" class="notifications-list" role="list">

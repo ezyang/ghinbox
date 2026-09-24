@@ -321,7 +321,7 @@ def _prune_snapshot_for_action(action: str, notification_ids: list[str]) -> None
 
     Archive and unsubscribe remove notifications from the inbox, so drop those
     IDs from the stored snapshot. This lets an already-open browser tab reflect
-    the change via a lightweight "Server Refresh" (GET /api/snapshots/...)
+    the change on its next snapshot pull (GET /api/snapshots/...)
     instead of a full GitHub sync, and reconciles out-of-band mark-done
     (e.g. scripts/feed_digest.py --mark-done). Undo actions (unarchive/subscribe)
     do not remove inbox items; a full sync reconciles those.

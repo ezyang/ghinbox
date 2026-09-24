@@ -248,16 +248,6 @@ function scheduleCommentPrefetch(notifications) {
     runCommentQueue();
 }
 
-function scheduleSyncPageCommentPrefetch(notifications) {
-    const stableNotifications = notifications.filter(
-        (notif) => notif.subject?.anchor || notif.last_read_at
-    );
-    if (!stableNotifications.length) {
-        return;
-    }
-    scheduleCommentPrefetch(stableNotifications);
-}
-
 async function runCommentQueue() {
     if (state.commentQueueRunning) {
         return state.commentQueueIdlePromise || Promise.resolve();

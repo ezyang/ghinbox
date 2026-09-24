@@ -106,6 +106,8 @@ const state = {
     notifications: [],
     trashNotifications: [],
     loading: false,
+    // In-flight server sync polls (user-started or already running on load).
+    serverSyncPolls: 0,
     error: null,
     statusState: null,
     statusTimer: null,
@@ -171,8 +173,6 @@ const elements = {
     repoInputGroup: document.getElementById('repo-input-group'),
     repoInput: document.getElementById('repo-input'),
     syncBtn: document.getElementById('sync-btn'),
-    fullSyncBtn: document.getElementById('full-sync-btn'),
-    serverRefreshBtn: document.getElementById('server-refresh-btn'),
     forceRefreshBtn: document.getElementById('force-refresh-btn'),
     authStatus: document.getElementById('auth-status'),
     orderSelect: document.getElementById('order-select'),
@@ -643,16 +643,8 @@ async function init() {
 
     // Set up event listeners
     elements.syncBtn.addEventListener('click', () => {
-        withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
+        withActionContext('Sync', () => handleSync());
     });
-    elements.fullSyncBtn.addEventListener('click', () => {
-        withActionContext('Full Sync', handleServerFullSync);
-    });
-    if (elements.serverRefreshBtn) {
-        elements.serverRefreshBtn.addEventListener('click', () => {
-            withActionContext('Server Refresh', handleServerSnapshotRefresh);
-        });
-    }
     if (elements.forceRefreshBtn) {
         elements.forceRefreshBtn.addEventListener('click', handleForceRefresh);
     }
@@ -665,7 +657,7 @@ async function init() {
         elements.repoInput.addEventListener('input', handleRepoInput);
         elements.repoInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                withActionContext('Quick Sync', () => handleSync({ mode: 'incremental' }));
+                withActionContext('Sync', () => handleSync());
             }
         });
     }
@@ -770,6 +762,9 @@ async function init() {
     // Comment cache must be available first so startup snapshot hydration can skip
     // fresh threads instead of immediately refetching them.
     await loadInitialNotifications();
+    if (typeof maybeStartServerSyncOnLoad === 'function') {
+        maybeStartServerSyncOnLoad();
+    }
     state.lastSyncedRepo = localStorage.getItem(LAST_SYNCED_REPO_KEY);
     const savedAuthToken = localStorage.getItem(AUTH_TOKEN_KEY);
     if (savedAuthToken) {

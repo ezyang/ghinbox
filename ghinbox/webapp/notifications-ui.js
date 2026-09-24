@@ -449,8 +449,9 @@ function showReviewRequestSyncErrors(errors, syncLabel) {
     });
 }
 
-// Handle sync button click
-async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
+// Handle Sync: sync on the server, falling back to fetching from the browser
+// only when the server has no GitHub fetcher.
+async function handleSync({ allowServer = true } = {}) {
     const entries = getCurrentProfileEntries();
     if (!entries.length) {
         showStatus('Please enter a repository or query', 'error');
@@ -483,15 +484,11 @@ async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
     const profileSignature = getProfileSignature();
     const previousNotifications = state.notifications.slice();
     const previousSelected = new Set(state.selected);
-    const syncMode = mode === 'full' ? 'full' : 'incremental';
-    const syncLabel = syncMode === 'full' ? 'Full Sync' : 'Quick Sync';
-    if (
-        allowServer &&
-        syncMode === 'incremental' &&
-        typeof tryServerQuickSync === 'function'
-    ) {
-        const handledByServer = await tryServerQuickSync(sources);
-        if (handledByServer) {
+    const syncMode = 'incremental';
+    const syncLabel = 'Sync';
+    if (allowServer && typeof runServerSync === 'function') {
+        const result = await runServerSync(entries, sources);
+        if (result.handled) {
             return;
         }
     }
@@ -579,9 +576,6 @@ async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
                 }
                 state.notifications = allNotifications.slice();
                 render();
-                if (syncMode === 'full') {
-                    scheduleSyncPageCommentPrefetch(pageNotifications);
-                }
             } while (afterCursor);
         }
 
@@ -618,14 +612,14 @@ async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
         const sortedNotifications = dedupAndSortNotifications(mergedNotifications);
 
         const restLookupKeys =
-            syncMode === 'incremental' && overlapIndex !== null && previousMatchMap
+            overlapIndex !== null && previousMatchMap
                 ? buildIncrementalRestLookupKeys(allNotifications, previousMatchMap)
                 : null;
         let notifications = await ensureLastReadAtData(sortedNotifications, {
             restLookupKeys,
         });
 
-        if (syncMode === 'incremental' && overlapIndex !== null) {
+        if (overlapIndex !== null) {
             for (const repoInfo of concreteRepos) {
                 const fetchedKeys = buildNotificationMatchKeySet(allNotifications, repoInfo);
                 const cachedKeys = new Set();
@@ -667,18 +661,6 @@ async function handleSync({ mode = 'incremental', allowServer = true } = {}) {
             state.reviewsLastReloadedAt = Date.now();
         }
         localStorage.setItem(LAST_SYNCED_REPO_KEY, profileSignature);
-
-        // A full sync rebuilds the list from upstream, so drop any
-        // orphaned comment-cache threads whose notifications no longer
-        // exist. This keeps local IndexedDB state fully reconstructable
-        // from upstream and prevents stale entries from accumulating.
-        if (syncMode === 'full' && state.commentCache) {
-            state.commentCache = pruneCommentCacheToNotifications(
-                state.commentCache,
-                notifications
-            );
-            saveCommentCache();
-        }
 
         // Save to localStorage
         persistNotifications();
@@ -1103,6 +1085,9 @@ function getDiffstatHue(total, range) {
 function render() {
     // Show/hide loading state
     elements.loading.className = state.loading ? 'loading visible' : 'loading';
+    const syncing = state.loading || state.serverSyncPolls > 0;
+    elements.syncBtn.disabled = syncing;
+    elements.syncBtn.textContent = syncing ? 'Syncing…' : 'Sync';
 
     // Keep rendering already-applied notifications while async server syncs continue.
     const filteredNotifications = getFilteredNotifications();

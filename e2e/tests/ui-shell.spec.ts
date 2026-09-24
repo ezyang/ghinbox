@@ -70,8 +70,7 @@ test.describe('UI Shell @layout', () => {
       'placeholder',
       'owner/repo, org:name, or query; one per line'
     );
-    await expect(page.locator('#sync-btn')).toHaveText('Quick Sync');
-    await expect(page.locator('#server-refresh-btn')).toHaveText('Server Refresh');
+    await expect(page.locator('#sync-btn')).toHaveText('Sync');
     await expect(page.locator('#rate-limit-box')).toContainText('Rate limit: core 42/60');
     // GraphQL rate limit is not fetched on init to save rate limit; shows 'unknown' until first sync
     await expect(page.locator('#rate-limit-box')).toContainText('graphql unknown');
@@ -79,11 +78,11 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-08-12-review-priority'
+      'notifications.css?v=2026-09-24-single-sync'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-08-12-review-priority'
+      'notifications-sync.js?v=2026-09-24-single-sync'
     );
   });
 

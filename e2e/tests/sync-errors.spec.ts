@@ -54,7 +54,7 @@ test.describe('Sync Errors @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('timeout');
   });
 
-  test('links expired browser-session full sync errors to login', async ({ page }) => {
+  test('links expired browser-session sync errors to login', async ({ page }) => {
     const expiredMessage =
       'GitHub redirected notifications request to login. Stored browser session is expired.';
 
@@ -75,10 +75,10 @@ test.describe('Sync Errors @slow @sync', () => {
 
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     const statusBar = page.locator('#status-bar');
-    await expect(statusBar).toContainText(`Full Sync failed: ${expiredMessage}`);
+    await expect(statusBar).toContainText(`Sync failed: ${expiredMessage}`);
     await expect(statusBar.getByRole('link', { name: 'Log in again' })).toHaveAttribute(
       'href',
       'login.html?session_refresh=1'

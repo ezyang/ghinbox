@@ -35,7 +35,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await openCleanSyncPage(page);
   });
 
-  test('full sync runs on server and applies returned snapshot', async ({ page }) => {
+  test('sync runs on server and applies returned snapshot', async ({ page }) => {
     const snapshotNotification = makeIssueNotification({
       id: 'server-1',
       reason: 'mention',
@@ -100,10 +100,10 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
 
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect.poll(() => server.pollCount).toBe(1);
-    await expect(page.locator('#status-bar')).toContainText('Full Sync running on server', {
+    await expect(page.locator('#status-bar')).toContainText('Sync running on server', {
       timeout: 1200,
     });
     finishSync();
@@ -114,7 +114,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(profileSyncCalled).toBe(false);
   });
 
-  test('server-backed full sync auto-cleans low-priority feed items', async ({ page }) => {
+  test('server-backed sync auto-cleans low-priority feed items', async ({ page }) => {
     const currentNotification = makeIssueNotification({
       id: 'server-current-1',
       reason: 'subscribed',
@@ -166,7 +166,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('#auto-clean-low-priority-toggle')).toBeChecked();
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('[data-id="server-current-1"]')).toBeVisible();
     await expect(page.locator('[data-id="server-low-priority-1"]')).toHaveCount(0);
@@ -179,7 +179,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     ]);
   });
 
-  test('full sync on the default query profile syncs the server profile snapshot', async ({
+  test('sync on the default query profile syncs the server profile snapshot', async ({
     page,
   }) => {
     const pytorchNotification = makeIssueNotification({
@@ -248,7 +248,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       }),
     });
 
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
     await expect(page.locator('[data-id="profile-full-pytorch-1"]')).toBeVisible();
@@ -288,6 +288,103 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(querySnapshotEndpointCalled).toBe(false);
   });
 
+  test('fresh install starts the server profile sync on load and shows it running', async ({
+    page,
+  }) => {
+    const notification = makeIssueNotification({
+      id: 'fresh-install-1',
+      repo: 'pytorch/pytorch',
+      repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
+      reason: 'mention',
+      updated_at: '2025-01-03T12:00:00Z',
+      subject: { title: 'First synced notification', number: 7 },
+    });
+    let finishSync!: () => void;
+    const syncCanFinish = new Promise<void>((resolve) => {
+      finishSync = resolve;
+    });
+    const profileServer = await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      get: makeProfileServerSnapshotPayload('pytorch', {
+        serverSync: { available: true, watched_entries: null },
+      }),
+      syncPost: makeProfileServerSnapshotPayload('pytorch', {
+        sync: { status: 'running', mode: 'full' },
+      }),
+      syncPoll: async () => {
+        await syncCanFinish;
+        return makeProfileServerSnapshotPayload('pytorch', {
+          sync: { status: 'success', mode: 'full', phase: 'complete' },
+          snapshot: {
+            notifications: [notification],
+            comment_cache: makeCommentCache({}),
+            synced_at: '2025-01-03T12:01:00+00:00',
+          },
+        });
+      },
+    });
+
+    await page.reload();
+
+    const syncButton = page.locator('#sync-btn');
+    await expect(syncButton).toHaveText('Syncing…');
+    await expect(syncButton).toBeDisabled();
+    await expect(page.locator('#status-bar')).toContainText('Sync running on server');
+    finishSync();
+    await expect(page.locator('[data-id="fresh-install-1"]')).toBeVisible();
+    await expect(syncButton).toHaveText('Sync');
+    await expect(syncButton).toBeEnabled();
+    expect(profileServer.postCount).toBe(1);
+    expect(profileServer.postBodies[0]).toEqual({
+      mode: 'full',
+      entries: [
+        { kind: 'query', query: 'org:pytorch' },
+        { kind: 'query', query: 'org:meta-pytorch' },
+        { kind: 'query', query: 'org:google-pytorch' },
+        { kind: 'query', query: '-org:pytorch -org:meta-pytorch -org:google-pytorch' },
+      ],
+    });
+  });
+
+  test('startup leaves a watched profile snapshot to background sync', async ({ page }) => {
+    const notification = makeIssueNotification({
+      id: 'watched-1',
+      repo: 'pytorch/pytorch',
+      repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
+      updated_at: '2025-01-03T12:00:00Z',
+      subject: { title: 'Already watched', number: 8 },
+    });
+    const profileServer = await mockProfileSnapshot(page, {
+      profile: 'pytorch',
+      get: makeProfileServerSnapshotPayload('pytorch', {
+        snapshot: {
+          notifications: [notification],
+          comment_cache: makeCommentCache({}),
+          synced_at: '2025-01-03T12:01:00+00:00',
+        },
+        serverSync: {
+          available: true,
+          watched_entries: [
+            { kind: 'query', query: 'org:pytorch' },
+            { kind: 'query', query: 'org:meta-pytorch' },
+            { kind: 'query', query: 'org:google-pytorch' },
+            { kind: 'query', query: '-org:pytorch -org:meta-pytorch -org:google-pytorch' },
+          ],
+        },
+      }),
+      syncPost: makeProfileServerSnapshotPayload('pytorch', {
+        sync: { status: 'running', mode: 'full' },
+      }),
+    });
+
+    await page.reload();
+
+    await expect(page.locator('html')).toHaveAttribute('data-ghinbox-ready', 'true');
+    await expect(page.locator('[data-id="watched-1"]')).toBeVisible();
+    await expect(page.locator('#sync-btn')).toHaveText('Sync');
+    expect(profileServer.postCount).toBe(0);
+  });
+
   test('deduplicates notifications returned by overlapping profile queries', async ({ page }) => {
     const notification = makeIssueNotification({
       id: 'overlapping-profile-notification',
@@ -323,13 +420,13 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       }),
     });
 
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
     await expect(page.locator('[data-id="overlapping-profile-notification"]')).toHaveCount(1);
   });
 
-  test('profile full sync falls back to client sync when the server fetcher is unavailable', async ({
+  test('profile sync falls back to client sync when the server fetcher is unavailable', async ({
     page,
   }) => {
     const seenQueries: string[] = [];
@@ -401,7 +498,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
       });
     });
 
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
     await expect(page.locator('[data-id="fallback-pytorch-1"]')).toBeVisible();
@@ -416,7 +513,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     ]);
   });
 
-  test('full sync prunes orphaned comment-cache threads from returned server snapshot', async ({
+  test('sync prunes orphaned comment-cache threads from returned server snapshot', async ({
     page,
   }) => {
     const staleNotification = makeIssueNotification({
@@ -491,7 +588,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
 
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('[data-id="full-sync-current-1"]')).toBeVisible();
     await expect(page.locator('[data-id="full-sync-orphan-stale-1"]')).toHaveCount(0);
@@ -510,7 +607,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(server.postCount).toBe(1);
   });
 
-  test('full sync recovers a rendered list from trashed local state', async ({ page }) => {
+  test('sync recovers a rendered list from trashed local state', async ({ page }) => {
     const recoveredNotification = makeIssueNotification({
       id: 'full-sync-recovered-1',
       updated_at: '2024-12-28T12:00:00Z',
@@ -573,7 +670,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('#sync-btn')).toBeEnabled();
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('[data-id="full-sync-recovered-1"]')).toBeVisible();
     await expect(page.locator('.notification-item')).toHaveCount(1);
@@ -599,7 +696,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(server.postCount).toBe(1);
   });
 
-  test('full sync uses the persisted force-refresh asset bust after a plain reload', async ({
+  test('sync uses the persisted force-refresh asset bust after a plain reload', async ({
     page,
   }) => {
     const storedBust = 'stored-full-sync-bust';
@@ -638,7 +735,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/javascript',
-          body: '// stale cached sync script without handleServerFullSync\n',
+          body: '// stale cached sync script without runServerSync\n',
         });
         return;
       }
@@ -660,7 +757,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
 
     await page.locator('#profile-select').selectOption('custom');
     await page.locator('#repo-input').fill('test/repo');
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
     await expect(page.locator('[data-id="full-sync-stored-bust-1"]')).toBeVisible();
@@ -668,7 +765,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     expect(server.postCount).toBe(1);
   });
 
-  test('quick sync runs on server for a single repo when available', async ({ page }) => {
+  test('sync runs on server for a single repo when available', async ({ page }) => {
     const snapshotNotification = makeIssueNotification({
       id: 'server-quick-1',
       reason: 'mention',
@@ -734,7 +831,7 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await page.locator('#sync-btn').click();
 
     await expect.poll(() => server.pollCount).toBe(1);
-    await expect(page.locator('#status-bar')).toContainText('Quick Sync running on server', {
+    await expect(page.locator('#status-bar')).toContainText('Sync running on server', {
       timeout: 1200,
     });
     finishSync();
@@ -841,148 +938,6 @@ test.describe('Sync Server Snapshot @slow @sync', () => {
     await expect(page.locator('#status-bar')).toContainText('Synced 1 notifications');
     await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
     expect(bulkCommentRequests).toBe(0);
-  });
-
-  test('server refresh applies server snapshot without syncing GitHub', async ({ page }) => {
-    const staleNotification = makeIssueNotification({
-      id: 'server-refresh-stale-1',
-      reason: 'mention',
-      updated_at: '2024-12-26T12:00:00Z',
-      subject: { title: 'Stale local notification', number: 41 },
-    });
-    const snapshotNotification = makeIssueNotification({
-      id: 'server-refresh-current-1',
-      reason: 'mention',
-      updated_at: '2024-12-27T12:00:00Z',
-      subject: { title: 'Current server snapshot notification', number: 42 },
-    });
-    let serveSnapshot = false;
-    let htmlFetched = false;
-
-    const server = await mockServerSnapshot(page, {
-      get: () =>
-        makeServerSnapshotPayload('test/repo', {
-          snapshot: serveSnapshot
-            ? {
-                notifications: [snapshotNotification],
-                authenticity_token: 'server-token',
-                synced_at: '2024-12-27T12:01:00+00:00',
-              }
-            : null,
-        }),
-      syncPost: makeServerSnapshotPayload('test/repo'),
-    });
-    await page.route('**/notifications/html/repo/test/repo**', (route) => {
-      htmlFetched = true;
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(emptyResponse),
-      });
-    });
-    await page.route('**/github/rest/repos/test/repo/issues/42**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await seedNotificationsCache(page, [staleNotification]);
-    await seedCommentCache(page, {
-      version: 1,
-      threads: {
-        'server-refresh-stale-1': {
-          notificationUpdatedAt: '2024-12-26T12:00:00Z',
-          comments: [{ id: 501, body: 'Orphan comment for stale notification' }],
-          allComments: true,
-          fetchedAt: '2024-12-26T12:00:05Z',
-        },
-      },
-    });
-    await seedRepoSelection(page, 'test/repo', { lastSynced: true });
-    await page.reload();
-    await expect(page.locator('[data-id="server-refresh-stale-1"]')).toBeVisible();
-    await expect(page.locator('#comment-cache-status')).toContainText('Comments cached: 1');
-
-    server.getCount = 0;
-    serveSnapshot = true;
-    await page.locator('#server-refresh-btn').click();
-
-    await expect(page.locator('[data-id="server-refresh-current-1"]')).toBeVisible();
-    await expect(page.locator('[data-id="server-refresh-stale-1"]')).toHaveCount(0);
-    await expect(page.locator('#status-bar')).toContainText(
-      'Loaded 1 notifications from server snapshot'
-    );
-    const prunedCache = (await readCommentCache(page)) as {
-      threads?: Record<string, unknown>;
-    } | null;
-    expect(prunedCache?.threads?.['server-refresh-stale-1']).toBeUndefined();
-    expect(server.getCount).toBeGreaterThan(0);
-    expect(server.postCount).toBe(0);
-    expect(htmlFetched).toBe(false);
-  });
-
-  test('server refresh loads the profile snapshot', async ({ page }) => {
-    const snapshotNotification = makeIssueNotification({
-      id: 'profile-refresh-1',
-      repo: 'pytorch/pytorch',
-      repository: { owner: 'pytorch', name: 'pytorch', full_name: 'pytorch/pytorch' },
-      reason: 'mention',
-      updated_at: '2025-01-05T12:00:00Z',
-      subject: { title: 'Loaded from profile snapshot', number: 111 },
-    });
-    let htmlQueryFetched = false;
-    let querySnapshotEndpointCalled = false;
-
-    const server = await mockProfileSnapshot(page, {
-      profile: 'pytorch',
-      get: makeProfileServerSnapshotPayload('pytorch', {
-        snapshot: {
-          notifications: [snapshotNotification],
-          comment_cache: makeCommentCache({
-            'profile-refresh-1': makeCommentThread({
-              notificationUpdatedAt: snapshotNotification.updated_at,
-              comments: [],
-              allComments: true,
-              fetchedAt: new Date().toISOString(),
-            }),
-          }),
-          authenticity_token: 'server-token',
-          synced_at: '2025-01-05T12:01:00+00:00',
-        },
-      }),
-    });
-    await page.route('**/api/snapshots/query**', (route) => {
-      querySnapshotEndpointCalled = true;
-      route.fallback();
-    });
-    await page.route('**/notifications/html/query**', (route) => {
-      htmlQueryFetched = true;
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(emptyResponse),
-      });
-    });
-
-    await page.locator('#server-refresh-btn').click();
-
-    await expect(page.locator('#status-bar')).toContainText(
-      'Loaded 1 notifications from server snapshot'
-    );
-    await expect(page.locator('[data-id="profile-refresh-1"]')).toBeVisible();
-    expect(server.getCount).toBe(1);
-    expect(server.postCount).toBe(0);
-    await expect
-      .poll(() =>
-        page.evaluate(() =>
-          localStorage.getItem('ghnotif_server_snapshot_synced_at:profile:pytorch')
-        )
-      )
-      .toBe('2025-01-05T12:01:00+00:00');
-    expect(htmlQueryFetched).toBe(false);
-    expect(querySnapshotEndpointCalled).toBe(false);
   });
 
   test('loads server snapshot on startup when local cache is empty', async ({ page }) => {

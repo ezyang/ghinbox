@@ -163,37 +163,7 @@ test.describe('Notification Profiles @smoke', () => {
     ]);
   });
 
-  test('full sync supports the default all-notifications profile', async ({ page }) => {
-    const seenQueries: string[] = [];
-    await page.route('**/notifications/html/query**', (route) => {
-      const url = new URL(route.request().url());
-      const query = url.searchParams.get('query') || '';
-      seenQueries.push(query);
-      const owner = query.replace(/^-?org:/, '').split(' ')[0];
-      const repo = `${owner}/test`;
-      const title = `${query} issue`;
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(response(repo, [
-          makeProfileNotification(`notif-full-${seenQueries.length}`, repo, title, seenQueries.length),
-        ])),
-      });
-    });
-
-    await page.locator('#full-sync-btn').click();
-
-    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
-    await expect(page.locator('.notification-item')).toHaveCount(4);
-    expect(seenQueries).toEqual([
-      'org:pytorch',
-      'org:meta-pytorch',
-      'org:google-pytorch',
-      '-org:pytorch -org:meta-pytorch -org:google-pytorch',
-    ]);
-  });
-
-  test('full sync loads review requests for query profiles', async ({ page }) => {
+  test('sync loads review requests for query profiles', async ({ page }) => {
     await page.route('**/notifications/html/query**', (route) => {
       const url = new URL(route.request().url());
       const query = url.searchParams.get('query') || '';
@@ -225,7 +195,7 @@ test.describe('Notification Profiles @smoke', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     );
 
-    await page.locator('#full-sync-btn').click();
+    await page.locator('#sync-btn').click();
 
     await expect(page.locator('#status-bar')).toContainText('Synced 2 notifications');
     await viewTab(page, 'others-prs').click();

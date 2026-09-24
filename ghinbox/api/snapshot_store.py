@@ -381,8 +381,8 @@ def remove_notifications_from_snapshots(
 
     Notification IDs are globally unique GitHub IDs, so an archive action can be
     reconciled against the local cache without knowing which repo it came from.
-    This lets an already-open browser tab reflect an out-of-band mark-done via a
-    lightweight "Server Refresh" instead of a full GitHub sync. Returns the total
+    This lets an already-open browser tab reflect an out-of-band mark-done on its
+    next snapshot pull instead of needing a full GitHub sync. Returns the total
     number of notifications removed across all repos.
     """
     ids = {str(i) for i in notification_ids if i}

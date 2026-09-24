@@ -46,7 +46,7 @@ function withFilter(view, filters) {
     input: input({ notificationCount: 0, trashNotificationCount: 0 }),
     expected: {
       title: 'No notifications',
-      message: 'Enter a repository and click Quick Sync to load notifications.',
+      message: 'Enter a repository and click Sync to load notifications.',
     },
   },
   {

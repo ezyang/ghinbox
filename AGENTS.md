@@ -77,8 +77,8 @@
     `--repo owner/repo` only for an ad-hoc single-repo digest.
   - The extract prints a `snapshot_health` block. If it emits a staleness
     WARNING (`synced_at` older than 6h), the snapshot has drifted from GitHub;
-    do NOT trust the digest. Re-sync the profile first with the webapp's Full
-    Sync button or with `--extract --sync` (both trigger a live server-side
+    do NOT trust the digest. Re-sync the profile first with the webapp's Sync
+    button or with `--extract --sync` (both trigger a live server-side
     GitHub rebuild and poll to completion) — but only run `--sync` when the
     user has asked for a fresh/full sync, since it hits GitHub.
   - Generate an HTML report by default at `/tmp/feed-report.html`; do not stop

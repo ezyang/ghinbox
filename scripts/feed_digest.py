@@ -22,8 +22,8 @@ Usage (two-step flow, run from repo root):
     uv run python scripts/feed_digest.py --mark-done [--exclude-ids id1,id2,...]
 
     # After marking done, the server prunes those IDs from its stored snapshot,
-    # so an already-open browser tab can pick up the change by clicking
-    # "Server Refresh" (no full GitHub sync needed).
+    # so an already-open browser tab picks up the change on its next snapshot
+    # pull (every 5 minutes, on tab focus, or on reload; no GitHub sync needed).
 
 The extract output includes a "snapshot_health" block; if the server's last
 sync fetched more notifications than are stored (a truncated snapshot), the
