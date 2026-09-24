@@ -68,7 +68,19 @@
     carry untrusted GitHub text. Use a `{prompt_file}` argument for CLIs that
     can't read stdin. Queue classification still comes from the client's UMD
     modules (run under Node), so server and UI agree on what is Feed.
-  - LLM cost: every triage/compose call is logged to `digest_llm_calls`
+  - Replies check (demote-only): before triage, the worker asks the LLM
+    about each rule-based Replies item it has not judged at its current
+    `updated_at` (`reply_check` calls; verdicts in `digest_reply_checks`).
+    "fyi" verdicts are served as `reply_demotions`, and the shared JS
+    classifier (client and server) moves those items to the Feed until new
+    activity voids the verdict. It never promotes anything; finished
+    delegated @claude tasks and forced outside-org replies are never
+    candidates; with no verdict, or when the LLM fails, items stay in
+    Replies.
+  - Reviews duplicates: a real thread for a PR waiting in Reviews shows in
+    neither Feed nor Replies; the client's duplicate cleanup and the digest
+    worker mark it done.
+  - LLM cost: every triage/reply_check/compose call is logged to `digest_llm_calls`
     (tokens from pi's JSON usage, prompt/response size, latency, errors) and
     summed over the last 24h as `llm_usage` in the digest response and the
     panel. Use it to tune batch sizes and compose cadence.

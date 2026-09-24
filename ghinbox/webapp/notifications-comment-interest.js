@@ -282,23 +282,14 @@
         });
     }
 
-    function isNotificationDirectedAtCurrentUser(notification, options = {}) {
-        const currentUser = normalizeLogin(options.currentUserLogin);
-        if (!currentUser) {
-            return false;
-        }
-
-        const comments = sortComments(options.comments || []);
-        if (!comments.length) {
-            return false;
-        }
-
+    // Whether a comment is unread for the current user: after GitHub's read
+    // watermark and after the user's own latest comment in the same thread.
+    function makeUnreadPredicate(notification, options, comments, currentUser) {
         let lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
         if (Number.isNaN(lastReadAt)) {
             lastReadAt = Date.parse(notification.updated_at || '') -
                 UNWATERMARKED_UNREAD_WINDOW_MS;
         }
-        const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
         // A user's own comment implies they have read everything up to that
         // point within the same thread, so treat the timestamp of their latest
         // comment in a thread as a per-thread read watermark even when GitHub's
@@ -318,7 +309,7 @@
                 ownLatestByThread.set(key, timestamp);
             }
         });
-        const isUnread = (comment) => {
+        return (comment) => {
             const timestamp = getCommentTimestampMs(comment);
             const ownLatestMs = ownLatestByThread.get(
                 getParticipationThreadKey(comment)
@@ -328,6 +319,39 @@
             }
             return Number.isNaN(lastReadAt) || timestamp > lastReadAt;
         };
+    }
+
+    function getUnreadComments(notification, options = {}) {
+        const currentUser = normalizeLogin(options.currentUserLogin);
+        const comments = sortComments(options.comments || []);
+        if (!currentUser) {
+            return [];
+        }
+        return comments.filter(
+            makeUnreadPredicate(notification, options, comments, currentUser)
+        );
+    }
+
+    // A finished delegated @claude task is always a real reply.
+    function hasUnreadDelegatedTaskCompletion(notification, options = {}) {
+        const currentUser = normalizeLogin(options.currentUserLogin);
+        return getUnreadComments(notification, options)
+            .some((comment) => isDelegatedTaskCompletion(comment, currentUser));
+    }
+
+    function isNotificationDirectedAtCurrentUser(notification, options = {}) {
+        const currentUser = normalizeLogin(options.currentUserLogin);
+        if (!currentUser) {
+            return false;
+        }
+
+        const comments = sortComments(options.comments || []);
+        if (!comments.length) {
+            return false;
+        }
+
+        const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
+        const isUnread = makeUnreadPredicate(notification, options, comments, currentUser);
         const latestCloseEventMs = isClosedOrMergedNotification(notification)
             ? getLatestCloseEventTimestampMs(options.stateEvents || options.events || [])
             : null;
@@ -645,6 +669,8 @@
         getParticipationThreadKey,
         getReviewThreadKey,
         getUninterestingReason,
+        getUnreadComments,
+        hasUnreadDelegatedTaskCompletion,
         hasActionableCurrentUserMention,
         isBotAuthor,
         isBotInteractionComment,

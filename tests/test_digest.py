@@ -87,12 +87,31 @@ def _save(notifications: list[dict], db_path: str) -> None:
 class FakeLlm:
     """Answers triage prompts from ``attention`` and records every prompt."""
 
-    def __init__(self, attention: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        attention: dict[str, str] | None = None,
+        verdicts: dict[str, str] | None = None,
+    ) -> None:
         self.attention = attention or {}
+        self.verdicts = verdicts or {}
         self.prompts: list[str] = []
 
     async def __call__(self, prompt: str) -> str:
         self.prompts.append(prompt)
+        if "Replies (JSON)" in prompt:
+            replies = json.loads(prompt.rsplit("\n", 1)[-1])
+            return json.dumps(
+                {
+                    "items": [
+                        {
+                            "id": item["id"],
+                            "verdict": self.verdicts.get(item["id"], "reply"),
+                            "why": f"why {item['id']}",
+                        }
+                        for item in replies
+                    ]
+                }
+            )
         items = (
             json.loads(prompt.rsplit("\n", 1)[-1]) if "Items (JSON)" in prompt else []
         )
@@ -134,8 +153,12 @@ class FakeLlm:
         return sum("Items (JSON)" in prompt for prompt in self.prompts)
 
     @property
+    def reply_check_prompts(self) -> list[str]:
+        return [prompt for prompt in self.prompts if "Replies (JSON)" in prompt]
+
+    @property
     def compose_calls(self) -> int:
-        return len(self.prompts) - self.triage_calls
+        return len(self.prompts) - self.triage_calls - len(self.reply_check_prompts)
 
 
 def test_extract_json_object_skips_banners_and_fences() -> None:
@@ -311,6 +334,107 @@ def test_triage_sees_body_first_then_only_new_comments(db_path: str) -> None:
             "body": "any update on this?",
         }
     ]
+
+
+def test_reply_check_demotes_fyi_replies_into_the_feed(db_path: str) -> None:
+    at = "2026-09-01T00:00:00Z"
+    notifications = [
+        _notification("asks", 1, at),
+        _notification("thanks", 2, at),
+        _notification("claude-done", 3, at),
+    ]
+    threads = {
+        "asks": {
+            "comments": [_comment("alice", at, "@ezyang can you take a look?", id=1)]
+        },
+        "thanks": {
+            "comments": [
+                _comment("ezyang", "2026-08-31T00:00:00Z", "Try a dataclass.", id=2),
+                _comment("bob", at, "Thanks @ezyang, that worked.", id=3),
+            ]
+        },
+        "claude-done": {
+            "comments": [
+                _comment("claude[bot]", at, "Claude finished @ezyang's task", id=4)
+            ]
+        },
+    }
+
+    def save(items: list[dict]) -> None:
+        save_snapshot(
+            KEY,
+            items,
+            comment_cache={"version": 1, "threads": threads},
+            db_path=db_path,
+        )
+
+    save(notifications)
+    llm = FakeLlm(verdicts={"thanks": "fyi", "claude-done": "fyi"})
+
+    def run() -> dict:
+        return asyncio.run(
+            worker.update_digest(PROFILE, llm=llm, current_user="ezyang")
+        )
+
+    run()
+
+    # Finished delegated @claude tasks are never candidates.
+    [check_prompt] = llm.reply_check_prompts
+    replies = json.loads(check_prompt.rsplit("\n", 1)[-1])
+    assert [item["id"] for item in replies] == ["asks", "thanks"]
+    assert replies[1]["your_last_comment"]["body"] == "Try a dataclass."
+    assert [c["body"] for c in replies[1]["new_comments"]] == [
+        "Thanks @ezyang, that worked."
+    ]
+    # The demoted item joins the Feed and is triaged in the same pass.
+    assert set(get_item_notes(PROFILE)) == {"thanks"}
+    response = digest_routes.build_digest_response(PROFILE)
+    assert response["reply_demotions"] == [
+        {"id": "thanks", "updated_at": at, "why": "why thanks"}
+    ]
+
+    # Verdicts are cached per updated_at; new activity voids and re-checks.
+    llm.prompts.clear()
+    run()
+    assert llm.reply_check_prompts == []
+    notifications[1] = _notification("thanks", 2, "2026-09-02T00:00:00Z")
+    save(notifications)
+    assert digest_routes.build_digest_response(PROFILE)["reply_demotions"] == []
+    run()
+    assert len(llm.reply_check_prompts) == 1
+
+
+def test_reply_check_failure_keeps_items_in_replies_and_triage_runs(
+    db_path: str,
+) -> None:
+    at = "2026-09-01T00:00:00Z"
+    save_snapshot(
+        KEY,
+        [_notification("asks", 1, at), _notification("ambient", 2, at)],
+        comment_cache={
+            "version": 1,
+            "threads": {
+                "asks": {"comments": [_comment("alice", at, "@ezyang thoughts?")]}
+            },
+        },
+        db_path=db_path,
+    )
+    llm = FakeLlm()
+
+    async def flaky(prompt: str) -> str:
+        if "Replies (JSON)" in prompt:
+            raise RuntimeError("muse down")
+        return await llm(prompt)
+
+    state = asyncio.run(worker.update_digest(PROFILE, llm=flaky, current_user="ezyang"))
+    assert state["reply_check_error"] == "muse down"
+    assert set(get_item_notes(PROFILE)) == {"ambient"}
+    assert (
+        get_llm_usage(PROFILE, datetime(2026, 1, 1, tzinfo=timezone.utc))[
+            "reply_check"
+        ]["errors"]
+        == 1
+    )
 
 
 def test_update_digest_bounds_triage_batches_per_pass(

@@ -39,8 +39,13 @@ def classify_notifications(
     current_user: str = DEFAULT_CURRENT_USER,
     *,
     route_outside_pytorch_to_replies: bool = False,
+    reply_demotions: dict[str, str] | None = None,
 ) -> dict:
-    """Classify notifications by shelling out to the webapp's JS classifier."""
+    """Classify notifications by shelling out to the webapp's JS classifier.
+
+    ``reply_demotions`` maps Replies candidates the LLM judged FYI to the
+    ``updated_at`` it judged; the classifier moves those to the Feed.
+    """
     node = shutil.which("node")
     if not node:
         raise FeedDigestError(
@@ -52,6 +57,7 @@ def classify_notifications(
         "commentThreads": comment_threads,
         "currentUserLogin": current_user,
         "routeOutsidePytorchToReplies": route_outside_pytorch_to_replies,
+        "replyDemotions": reply_demotions or {},
     }
     try:
         result = subprocess.run(

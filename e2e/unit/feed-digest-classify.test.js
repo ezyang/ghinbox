@@ -211,3 +211,41 @@ test('feed digest reports real threads for PRs waiting in Reviews as duplicates'
   assert.equal(result.classifications[1].is_feed, false);
   assert.equal(result.classifications[2].is_review_duplicate, false);
 });
+
+test('feed digest lists Replies candidates and applies FYI demotions', () => {
+  const issue = (id) => notification(id, 'mention', {
+    subject: { title: id, type: 'Issue', number: 300, state: 'open' },
+  });
+  const mention = (id, login, body) => ({
+    id,
+    created_at: '2026-07-01T11:00:00Z',
+    body,
+    user: { login },
+  });
+  const payload = {
+    currentUserLogin: 'ezyang',
+    notifications: [issue('asks'), issue('thanks'), issue('claude-done'), issue('ambient')],
+    commentThreads: {
+      asks: { comments: [mention(1, 'alice', '@ezyang can you look?')] },
+      thanks: { comments: [mention(2, 'bob', 'thanks @ezyang, that worked')] },
+      'claude-done': {
+        comments: [mention(3, 'claude[bot]', "Claude finished @ezyang's task")],
+      },
+    },
+  };
+
+  const before = classifyNotifications(payload);
+  assert.deepEqual(before.reply_candidates, [
+    { id: 'asks', unread_comment_ids: [1] },
+    { id: 'thanks', unread_comment_ids: [2] },
+  ]);
+  assert.deepEqual(before.feed_ids, ['ambient']);
+
+  const after = classifyNotifications({
+    ...payload,
+    replyDemotions: { thanks: '2026-07-01T12:00:00Z', asks: '2026-06-01T00:00:00Z' },
+  });
+  assert.deepEqual(after.feed_ids, ['thanks', 'ambient']);
+  assert.deepEqual(after.reply_candidates, before.reply_candidates);
+  assert.equal(after.classifications[1].is_reply_demoted, true);
+});

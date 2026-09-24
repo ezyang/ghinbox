@@ -3,6 +3,7 @@ import {
   captureHtmlActions,
   captureOpenedWindows,
   makeCommentCache,
+  makeCommentThread,
   makeDigestPayload,
   makeNotification,
   makeNotificationsResponse,
@@ -143,6 +144,74 @@ test.describe('Feed digest and background refresh @sync', () => {
 
     await viewTab(page, 'others-prs').click();
     await expect(panel).toBeHidden();
+  });
+
+  test('Replies the digest judged FYI move to Feed until new activity', async ({ page }) => {
+    const asks = feedIssue('reply-asks', 201, 'Question for you');
+    const thanks = feedIssue('reply-thanks', 202, 'Thanks for the idea');
+    const mentioned = (login: string, body: string, updatedAt = '2025-01-05T12:00:00Z') =>
+      makeCommentThread({
+        notificationUpdatedAt: updatedAt,
+        lastReadAt: '2025-01-05T00:00:00Z',
+        allComments: true,
+        comments: [
+          {
+            id: login.length,
+            created_at: '2025-01-05T11:00:00Z',
+            updated_at: '2025-01-05T11:00:00Z',
+            body,
+            user: { login },
+          },
+        ],
+      });
+    const snapshot = (notifications: ReturnType<typeof feedIssue>[], syncedAt: string) =>
+      makeProfileServerSnapshotPayload('pytorch', {
+        snapshot: {
+          notifications,
+          comment_cache: makeCommentCache({
+            'reply-asks': mentioned('alice', '@testuser can you take a look?'),
+            'reply-thanks': mentioned(
+              'bob',
+              'Thanks @testuser, that worked.',
+              notifications[1].updated_at
+            ),
+          }),
+          authenticity_token: 'server-token',
+          synced_at: syncedAt,
+        },
+        sync: { status: 'success', mode: 'full' },
+      });
+    let current = snapshot([asks, thanks], '2025-01-05T12:01:00+00:00');
+    await mockProfileSnapshot(page, { get: () => current });
+    await mockDigest(
+      page,
+      makeDigestPayload({
+        reply_demotions: [
+          { id: 'reply-thanks', updated_at: thanks.updated_at, why: 'just a thank-you' },
+        ],
+      })
+    );
+    await page.reload();
+
+    await expect(page.locator('#digest-panel .digest-status')).toContainText(
+      '1 reply judged FYI, moved to Feed'
+    );
+    await expect(page.locator('#view-issues .count')).toHaveText('1');
+    await expect(page.locator('[data-id="reply-thanks"] .notification-reply-demoted')).toHaveText(
+      'Not a reply: just a thank-you'
+    );
+    await viewTab(page, 'pr-notifications').click();
+    await expect(page.locator('[data-id="reply-asks"]')).toBeVisible();
+    await expect(page.locator('[data-id="reply-thanks"]')).toHaveCount(0);
+
+    // New activity voids the verdict: back to Replies until it is re-judged.
+    current = snapshot(
+      [asks, { ...thanks, updated_at: '2025-01-06T12:00:00Z' }],
+      '2025-01-06T12:01:00+00:00'
+    );
+    await triggerBackgroundRefresh(page);
+    await expect(page.locator('[data-id="reply-thanks"]')).toBeVisible();
+    await expect(page.locator('#view-issues .count')).toHaveText('0');
   });
 
   test('digest keeps vibe examples the server already marked done', async ({ page }) => {

@@ -1,7 +1,7 @@
 """SQLite cache for the background feed digest.
 
 Mostly a disposable, rebuildable view (SOUL.md axiom 1): deleting these tables
-costs the LLM calls needed to re-triage the current Feed. The one exception is
+costs the LLM calls needed to re-triage the current Feed and re-check Replies. The one exception is
 the digest queue: notes for items the worker already marked done on GitHub but
 has not composed into a digest yet. Losing them only drops ambient items from
 the next "Overall vibe" (see SOUL.md).
@@ -33,6 +33,15 @@ def init_digest_db(db_path: str | None = None) -> None:
                     updated_at TEXT NOT NULL,
                     note TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    PRIMARY KEY (profile, notification_id)
+                );
+                CREATE TABLE IF NOT EXISTS digest_reply_checks (
+                    profile TEXT NOT NULL,
+                    notification_id TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    verdict TEXT NOT NULL,
+                    why TEXT NOT NULL,
+                    checked_at TEXT NOT NULL,
                     PRIMARY KEY (profile, notification_id)
                 );
                 CREATE TABLE IF NOT EXISTS digest_state (
@@ -152,6 +161,83 @@ def prune_item_notes(
     finally:
         conn.close()
     return len(stale)
+
+
+def get_reply_checks(profile: str, db_path: str | None = None) -> dict[str, dict]:
+    """Return ``{notification_id: {"updated_at", "verdict", "why"}}``."""
+    conn = connect_snapshot_db(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT notification_id, updated_at, verdict, why
+            FROM digest_reply_checks WHERE profile = ?
+            """,
+            (profile,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        row["notification_id"]: {
+            "updated_at": row["updated_at"],
+            "verdict": row["verdict"],
+            "why": row["why"],
+        }
+        for row in rows
+    }
+
+
+def save_reply_checks(
+    profile: str,
+    checks: dict[str, dict[str, Any]],
+    keep_ids: set[str],
+    db_path: str | None = None,
+) -> None:
+    """Upsert Replies verdicts and drop those for ids outside ``keep_ids``."""
+    now = utc_now_iso()
+    conn = connect_snapshot_db(db_path)
+    try:
+        with conn:
+            conn.executemany(
+                """
+                INSERT INTO digest_reply_checks (
+                    profile, notification_id, updated_at, verdict, why, checked_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile, notification_id) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    verdict = excluded.verdict,
+                    why = excluded.why,
+                    checked_at = excluded.checked_at
+                """,
+                [
+                    (
+                        profile,
+                        notification_id,
+                        str(check.get("updated_at") or ""),
+                        check["verdict"],
+                        check.get("why") or "",
+                        now,
+                    )
+                    for notification_id, check in checks.items()
+                ],
+            )
+            rows = conn.execute(
+                "SELECT notification_id FROM digest_reply_checks WHERE profile = ?",
+                (profile,),
+            ).fetchall()
+            conn.executemany(
+                """
+                DELETE FROM digest_reply_checks
+                WHERE profile = ? AND notification_id = ?
+                """,
+                [
+                    (profile, row["notification_id"])
+                    for row in rows
+                    if row["notification_id"] not in keep_ids
+                ],
+            )
+    finally:
+        conn.close()
 
 
 def get_digest_state(profile: str, db_path: str | None = None) -> dict[str, Any]:

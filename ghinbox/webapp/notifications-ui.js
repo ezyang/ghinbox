@@ -960,6 +960,12 @@ function renderNotificationItem(notif, diffstatContext) {
     if (digestWhy) {
         li.classList.add('digest-worth-a-look');
     }
+    const replyDemotion = state.view === 'issues' && typeof getDigestReplyDemotions === 'function'
+        ? getDigestReplyDemotions().get(String(notif.id))
+        : null;
+    const demotedWhy = replyDemotion && replyDemotion.updated_at === notif.updated_at
+        ? replyDemotion.why || 'FYI'
+        : '';
 
     li.innerHTML = `
         <input
@@ -986,6 +992,7 @@ function renderNotificationItem(notif, diffstatContext) {
                 </div>
             </div>
             ${digestWhy ? `<div class="notification-digest-why">${escapeHtml(digestWhy)}</div>` : ''}
+            ${demotedWhy ? `<div class="notification-reply-demoted">Not a reply: ${escapeHtml(demotedWhy)}</div>` : ''}
         </div>
         ${renderNotificationActors(notif)}
         <div class="notification-actions-inline">

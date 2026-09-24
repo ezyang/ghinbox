@@ -51,9 +51,11 @@ from ghinbox.digest.feed import (
 )
 from ghinbox.digest.store import (
     get_item_notes,
+    get_reply_checks,
     prune_item_notes,
     record_llm_call,
     save_item_notes,
+    save_reply_checks,
     update_digest_state,
 )
 
@@ -357,6 +359,9 @@ class FeedContext:
     threads: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Real threads for PRs waiting in Reviews (not Feed, not Replies).
     review_duplicate_ids: list[str] = field(default_factory=list)
+    # Rule-based Replies the LLM may demote: {"id", "unread_comment_ids"}.
+    reply_candidates: list[dict[str, Any]] = field(default_factory=list)
+    notifications: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def _comment_excerpt(comment: dict[str, Any]) -> dict[str, str]:
@@ -408,6 +413,54 @@ def build_triage_item(
     return view
 
 
+def build_reply_check_item(
+    notification: dict[str, Any],
+    thread: dict[str, Any] | None,
+    unread_comment_ids: list[Any],
+    current_user: str,
+) -> dict[str, Any]:
+    """What the Replies check sees: the comments that triggered the rule."""
+    thread = thread or {}
+    comments = [c for c in thread.get("comments") or [] if isinstance(c, dict)]
+    unread = set(unread_comment_ids)
+    new_comments = [
+        c for c in comments if c.get("id") in unread and not c.get("minimized")
+    ]
+    user = current_user.lower()
+    earlier_own = [
+        c
+        for c in comments
+        if c.get("id") not in unread
+        and str((c.get("user") or {}).get("login") or "").lower() == user
+    ]
+    summary = item_summary(notification)
+    view: dict[str, Any] = {
+        "id": summary["id"],
+        "repo": summary["repo"],
+        "number": summary["number"],
+        "type": summary["type"],
+        "state": summary["state"],
+        "title": summary["title"],
+        "author": _thread_author(thread),
+        "reason": notification.get("reason"),
+    }
+    if earlier_own:
+        view["your_last_comment"] = _comment_excerpt(earlier_own[-1])
+    view["new_comments"] = [
+        _comment_excerpt(c) for c in new_comments[-TRIAGE_MAX_COMMENTS:]
+    ]
+    return view
+
+
+def reply_demotions(checks: dict[str, dict[str, Any]]) -> dict[str, str]:
+    """``{id: judged updated_at}`` for Replies the LLM judged FYI."""
+    return {
+        nid: str(check.get("updated_at") or "")
+        for nid, check in checks.items()
+        if check.get("verdict") == "fyi"
+    }
+
+
 def _thread_author(thread: dict[str, Any]) -> str | None:
     if thread.get("authorLogin"):
         return str(thread["authorLogin"])
@@ -421,6 +474,7 @@ def build_feed_context(
     profile: str,
     snapshot: dict[str, Any],
     current_user: str,
+    demotions: dict[str, str] | None = None,
 ) -> FeedContext:
     notifications = snapshot.get("notifications") or []
     threads = (snapshot.get("comment_cache") or {}).get("threads") or {}
@@ -429,6 +483,7 @@ def build_feed_context(
         threads,
         current_user,
         route_outside_pytorch_to_replies=routes_outside_pytorch_to_replies(profile),
+        reply_demotions=demotions,
     )
     feed_ids = {str(nid) for nid in classified["feed_ids"]}
     feed = [n for n in notifications if str(n.get("id", "")) in feed_ids]
@@ -446,7 +501,66 @@ def build_feed_context(
         review_duplicate_ids=[
             str(nid) for nid in classified.get("review_duplicate_ids") or []
         ],
+        reply_candidates=list(classified.get("reply_candidates") or []),
+        notifications={str(n.get("id")): n for n in notifications},
     )
+
+
+async def _check_replies(
+    profile: str,
+    llm: LlmRunner,
+    context: FeedContext,
+    checks: dict[str, dict[str, Any]],
+    current_user: str,
+) -> tuple[dict[str, dict[str, Any]], str | None, bool]:
+    """Ask the LLM about Replies candidates it has not judged at this updated_at.
+
+    Returns the current verdicts, an error (the unjudged items stay in
+    Replies), and whether any item was newly demoted.
+    """
+    candidates = {str(c["id"]): c for c in context.reply_candidates}
+    pending = [
+        nid
+        for nid in candidates
+        if checks.get(nid, {}).get("updated_at")
+        != context.notifications[nid].get("updated_at")
+    ]
+    new_checks: dict[str, dict[str, Any]] = {}
+    error: str | None = None
+    for start in range(0, len(pending), TRIAGE_BATCH_SIZE):
+        batch = pending[start : start + TRIAGE_BATCH_SIZE]
+        views = [
+            build_reply_check_item(
+                context.notifications[nid],
+                context.threads.get(nid),
+                candidates[nid].get("unread_comment_ids") or [],
+                current_user,
+            )
+            for nid in batch
+        ]
+        try:
+            response = await _ask_llm(
+                profile,
+                llm,
+                "reply_check",
+                prompts.build_reply_check_prompt(views, current_user),
+                len(batch),
+            )
+            new_checks.update(
+                prompts.parse_reply_check_response(
+                    prompts.extract_json_object(response),
+                    [context.notifications[nid] for nid in batch],
+                )
+            )
+        except Exception as exc:
+            logger.exception("Digest reply check failed for %s", profile)
+            error = str(exc) or exc.__class__.__name__
+            break
+    save_reply_checks(profile, new_checks, set(candidates))
+    current = {nid: check for nid, check in checks.items() if nid in candidates}
+    current.update(new_checks)
+    newly_demoted = any(c["verdict"] == "fyi" for c in new_checks.values())
+    return current, error, newly_demoted
 
 
 def _digest_counts(
@@ -488,7 +602,18 @@ async def update_digest(
         return update_digest_state(profile, status="idle", pending_count=0)
     state = update_digest_state(profile, status="running", started_at=utc_now_iso())
 
-    context = await asyncio.to_thread(build_feed_context, profile, snapshot, user)
+    checks = get_reply_checks(profile)
+    context = await asyncio.to_thread(
+        build_feed_context, profile, snapshot, user, reply_demotions(checks)
+    )
+    # Demote-only Replies check first, so demoted items are triaged this pass.
+    checks, reply_check_error, newly_demoted = await _check_replies(
+        profile, llm, context, checks, user
+    )
+    if newly_demoted:
+        context = await asyncio.to_thread(
+            build_feed_context, profile, snapshot, user, reply_demotions(checks)
+        )
     feed_ids = {item["id"] for item in context.items}
     cutoff = now - timedelta(seconds=digest_window_seconds())
     notes = get_item_notes(profile)
@@ -599,6 +724,7 @@ async def update_digest(
         error=None,
         finished_at=utc_now_iso(),
         pending_count=pending_count,
+        reply_check_error=reply_check_error,
         queue_count=sum(is_queued(note, composed_at) for note in notes.values()),
         counts=counts,
         snapshot_synced_at=snapshot.get("synced_at"),

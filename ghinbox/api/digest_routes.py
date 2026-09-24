@@ -7,7 +7,12 @@ from fastapi import APIRouter, HTTPException
 
 from ghinbox.api.snapshot_store import get_snapshot
 from ghinbox.digest.feed import item_summary
-from ghinbox.digest.store import get_digest_state, get_item_notes, get_llm_usage
+from ghinbox.digest.store import (
+    get_digest_state,
+    get_item_notes,
+    get_llm_usage,
+    get_reply_checks,
+)
 from ghinbox.digest.worker import (
     digest_profiles,
     is_digest_running,
@@ -65,12 +70,25 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         }
         for theme in digest.get("vibe") or []
     ]
+    # Replies the LLM judged FYI; the client's classifier moves each to the
+    # Feed while its updated_at still matches the judged one.
+    reply_demotions = sorted(
+        (
+            {"id": nid, "updated_at": check["updated_at"], "why": check["why"]}
+            for nid, check in get_reply_checks(profile).items()
+            if check["verdict"] == "fyi"
+            and nid in live
+            and live[nid].get("updated_at") == check["updated_at"]
+        ),
+        key=lambda item: item["id"],
+    )
     running = is_digest_running(profile)
     return {
         "profile": profile,
         "enabled": profile in digest_profiles(),
         "status": "running" if running else state.get("status", "idle"),
         "error": state.get("error"),
+        "reply_check_error": state.get("reply_check_error"),
         "composed_at": state.get("composed_at"),
         "next_compose_at": next_compose_at(state),
         "pending_count": state.get("pending_count", 0),
@@ -86,6 +104,7 @@ def build_digest_response(profile: str) -> dict[str, Any]:
             ),
         },
         "look_at": look_at,
+        "reply_demotions": reply_demotions,
         "vibe": vibe,
     }
 

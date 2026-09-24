@@ -91,6 +91,12 @@
             ? options.notifications
             : [];
         let reviewQueuePullRequestKeys = null;
+        // Muse's verdicts on Replies candidates: id -> the updated_at it judged
+        // (or { updated_at }).
+        // Demote-only; new activity voids the verdict until it is re-judged.
+        const replyDemotions = options.replyDemotions instanceof Map
+            ? options.replyDemotions
+            : new Map(Object.entries(options.replyDemotions || {}));
 
         function isOutsidePytorchProfileNotification(notification) {
             return routeOutsidePytorchToReplies &&
@@ -239,6 +245,17 @@
                 : false;
         }
 
+        function isReplyDemoted(notification) {
+            const verdict = replyDemotions.get(String(notification?.id));
+            const judgedAt = typeof verdict === 'string' ? verdict : verdict?.updated_at;
+            return Boolean(judgedAt) && judgedAt === notification.updated_at;
+        }
+
+        function isDirectedReply(notification) {
+            return isNotificationDirectedAtCurrentUser(notification) &&
+                !isReplyDemoted(notification);
+        }
+
         function isNotificationReviewQueue(notification) {
             return notification.subject?.type === 'PullRequest' &&
                 !isMutedReviewRequest(notification) &&
@@ -363,14 +380,14 @@
             if (view === 'issues') {
                 return !isSyntheticResponsibilityNotification(notification) &&
                     !isNotificationReviewQueue(notification) &&
-                    !isNotificationDirectedAtCurrentUser(notification);
+                    !isDirectedReply(notification);
             }
             if (view === 'my-prs') {
                 return isMyPr(notification);
             }
             if (view === 'pr-notifications') {
                 return !isSyntheticResponsibilityNotification(notification) &&
-                    isNotificationDirectedAtCurrentUser(notification);
+                    isDirectedReply(notification);
             }
             if (view === 'others-prs') {
                 return isNotificationReviewQueue(notification);
@@ -446,6 +463,7 @@
             getUninterestingReason,
             hasNotificationAuthorPermission,
             isCommitNotification,
+            isForcedOutsideOrgReply,
             isMyPr,
             isNotificationApproved,
             isNotificationChangesRequested,
@@ -461,6 +479,7 @@
             isMutedReviewRequest,
             isNotificationReviewQueue,
             isNotificationReviewResponsibility,
+            isReplyDemoted,
             isReviewQueueDuplicate,
             isSyntheticResponsibilityNotification,
             isTrashNotification,

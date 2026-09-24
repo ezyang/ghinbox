@@ -9,6 +9,8 @@ const {
   isNotificationDirectedAtCurrentUser,
   isNotificationForCurrentUser,
   isUninterestingComment,
+  getUnreadComments,
+  hasUnreadDelegatedTaskCompletion,
 } = require('../../ghinbox/webapp/notifications-comment-interest.js');
 
 function comment(id, login, body, extra = {}) {
@@ -595,4 +597,23 @@ test('without last_read_at, only replies near the latest activity are directed',
   assert.equal(directed('2026-09-24T10:09:39Z'), false);
   assert.equal(directed('2025-07-10T00:18:00Z', comments.slice(0, 2)), true);
   assert.equal(directed(undefined), true);
+});
+
+test('unread comments follow the read and own-comment watermarks', () => {
+  const comments = [
+    comment(1, 'alice', 'Read already.'),
+    comment(6, 'testuser', 'My reply.'),
+    comment(7, 'claude[bot]', 'Claude finished @testuser\'s task'),
+    comment(8, 'bob', 'New question.'),
+  ];
+  const options = { comments, currentUserLogin: 'testuser' };
+  assert.deepEqual(ids(getUnreadComments(notification(), options)), [7, 8]);
+  assert.equal(hasUnreadDelegatedTaskCompletion(notification(), options), true);
+  assert.equal(
+    hasUnreadDelegatedTaskCompletion(notification(), {
+      ...options,
+      comments: comments.filter((c) => c.id !== 7),
+    }),
+    false
+  );
 });

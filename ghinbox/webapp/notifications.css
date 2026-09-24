@@ -367,6 +367,12 @@
             font-size: 12px;
         }
 
+        .notification-reply-demoted {
+            margin-top: 2px;
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
         .digest-look-at-empty {
             margin: 8px 0 0 0;
             color: var(--color-fg-muted);

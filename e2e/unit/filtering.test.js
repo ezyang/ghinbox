@@ -491,3 +491,36 @@ test('real threads for PRs waiting in Reviews leave Feed and Replies', () => {
     'real-request': [false, false, false],
   });
 });
+
+test('Muse reply demotions move Replies to Feed only at the judged updated_at', () => {
+  const reply = (id, updatedAt) => ({
+    id,
+    reason: 'mention',
+    updated_at: updatedAt,
+    subject: { type: 'Issue', state: 'open', title: id },
+    ui: { saved: false, done: false },
+  });
+  const notifications = [
+    reply('judged', '2026-09-01T00:00:00Z'),
+    reply('newer-activity', '2026-09-02T00:00:00Z'),
+    reply('kept', '2026-09-01T00:00:00Z'),
+  ];
+  const classifier = makeClassifier({
+    notifications,
+    replyDemotions: new Map([
+      ['judged', { updated_at: '2026-09-01T00:00:00Z', why: 'thanks only' }],
+      ['newer-activity', '2026-09-01T00:00:00Z'],
+    ]),
+    deps: { isNotificationDirectedAtCurrentUser: () => true },
+  });
+  const table = Object.fromEntries(notifications.map((n) => [n.id, [
+    classifier.isReplyDemoted(n),
+    classifier.matchesView(n, 'issues'),
+    classifier.matchesView(n, 'pr-notifications'),
+  ]]));
+  assert.deepEqual(table, {
+    judged: [true, true, false],
+    'newer-activity': [false, false, true],
+    kept: [false, false, true],
+  });
+});

@@ -958,6 +958,9 @@ function handleMobileAuthorChange(event) {
 function makeNotificationClassifier(options = {}) {
     return GhinboxFiltering.makeClassifier({
         notifications: options.notifications || state.notifications,
+        replyDemotions: typeof getDigestReplyDemotions === 'function'
+            ? getDigestReplyDemotions()
+            : null,
         currentUserLogin: state.currentUserLogin,
         commentCache: state.commentCache,
         routeOutsidePytorchToReplies: state.profileId === DEFAULT_PROFILE_ID,

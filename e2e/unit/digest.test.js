@@ -5,6 +5,7 @@ const {
   formatDigestStatus,
   formatLlmUsage,
   isClientBusy,
+  replyDemotionsById,
   selectVisibleDigest,
   shouldApplyBackgroundSnapshot,
   shouldShowDigestPanel,
@@ -184,4 +185,34 @@ test('isClientBusy flags in-flight user work', () => {
   assert.equal(isClientBusy({ doneQueueActive: true }), true);
   assert.equal(isClientBusy({ selectionCount: 2 }), true);
   assert.equal(isClientBusy({ loading: true }), true);
+});
+
+test('replyDemotionsById keys FYI verdicts by id and the judged updated_at', () => {
+  const demotions = replyDemotionsById({
+    reply_demotions: [
+      { id: 'a', updated_at: '2026-09-23T10:00:00Z', why: 'thanks only' },
+      { id: 'b' },
+    ],
+  });
+  assert.deepEqual([...demotions], [
+    ['a', { updated_at: '2026-09-23T10:00:00Z', why: 'thanks only' }],
+  ]);
+  assert.equal(replyDemotionsById(null).size, 0);
+});
+
+test('formatDigestStatus reports demoted replies and reply check failures', () => {
+  const now = Date.parse('2026-09-23T12:00:00Z');
+  const visible = selectVisibleDigest(digest, []);
+  assert.equal(
+    formatDigestStatus(
+      {
+        ...digest,
+        reply_demotions: [{ id: 'x', updated_at: 'u' }, { id: 'y', updated_at: 'u' }],
+        reply_check_error: 'muse down',
+      },
+      visible,
+      now
+    ),
+    '2 replies judged FYI, moved to Feed · digest from 10m ago · reply check failed: muse down'
+  );
 });

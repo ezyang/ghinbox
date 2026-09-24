@@ -50,6 +50,7 @@ function normalizeInput(payload) {
       commentThreads: {},
       currentUserLogin: '',
       routeOutsidePytorchToReplies: false,
+      replyDemotions: {},
     };
   }
 
@@ -63,6 +64,8 @@ function normalizeInput(payload) {
     currentUserLogin: payload?.currentUserLogin || payload?.current_user ||
       payload?.currentUser || '',
     routeOutsidePytorchToReplies: Boolean(payload?.routeOutsidePytorchToReplies),
+    // id -> updated_at of Replies candidates the LLM judged FYI.
+    replyDemotions: payload?.replyDemotions || {},
   };
 }
 
@@ -72,11 +75,24 @@ function classifyNotifications(payload) {
     commentThreads,
     currentUserLogin,
     routeOutsidePytorchToReplies,
+    replyDemotions,
   } = normalizeInput(payload);
   const directedCache = new Map();
 
   function cachedFor(notification) {
     return getThread(commentThreads, notification);
+  }
+
+  function interestOptions(notification) {
+    const cached = cachedFor(notification);
+    return {
+      authorLogin: cached?.authorLogin,
+      comments: commentInterest.sortComments(cached?.comments || []),
+      currentUserLogin,
+      lastReadAt: cached?.lastReadAt,
+      stateEvents: cached?.stateEvents,
+      suppressParticipationReplies: notification?.ui?.replies_muted,
+    };
   }
 
   function isDirectedAtCurrentUser(notification) {
@@ -85,22 +101,17 @@ function classifyNotifications(payload) {
       return directedCache.get(id);
     }
 
-    const cached = cachedFor(notification);
-    const comments = commentInterest.sortComments(cached?.comments || []);
-    const directed = commentInterest.isNotificationDirectedAtCurrentUser(notification, {
-      authorLogin: cached?.authorLogin,
-      comments,
-      currentUserLogin,
-      lastReadAt: cached?.lastReadAt,
-      stateEvents: cached?.stateEvents,
-      suppressParticipationReplies: notification?.ui?.replies_muted,
-    });
+    const directed = commentInterest.isNotificationDirectedAtCurrentUser(
+      notification,
+      interestOptions(notification)
+    );
     directedCache.set(id, directed);
     return directed;
   }
 
-  const classifier = filtering.makeClassifier({
+  const makeClassifier = (demotions) => filtering.makeClassifier({
     notifications,
+    replyDemotions: demotions,
     currentUserLogin,
     commentCache: { threads: commentThreads },
     routeOutsidePytorchToReplies,
@@ -129,6 +140,26 @@ function classifyNotifications(payload) {
         }),
     },
   });
+  const classifier = makeClassifier(replyDemotions);
+  const undemotedClassifier = makeClassifier({});
+
+  // Rule-based Replies the LLM may demote to Feed. Forced outside-org replies
+  // and finished delegated @claude tasks are always real replies.
+  const replyCandidates = notifications
+    .filter((notification) =>
+      undemotedClassifier.matchesView(notification, 'pr-notifications') &&
+      !undemotedClassifier.isTrashNotification(notification) &&
+      !undemotedClassifier.isForcedOutsideOrgReply(notification) &&
+      !commentInterest.hasUnreadDelegatedTaskCompletion(
+        notification,
+        interestOptions(notification)
+      ))
+    .map((notification) => ({
+      id: notification?.id || getNotificationKey(notification),
+      unread_comment_ids: commentInterest
+        .getUnreadComments(notification, interestOptions(notification))
+        .map((comment) => comment.id),
+    }));
 
   const classifications = notifications.map((notification) => {
     const id = notification?.id || getNotificationKey(notification);
@@ -148,6 +179,7 @@ function classifyNotifications(payload) {
       is_directed_at_current_user:
         classifier.isNotificationDirectedAtCurrentUser(notification),
       is_review_duplicate: classifier.isReviewQueueDuplicate(notification),
+      is_reply_demoted: classifier.isReplyDemoted(notification),
     };
   });
 
@@ -165,6 +197,7 @@ function classifyNotifications(payload) {
     review_duplicate_ids: classifications
       .filter((classification) => classification.is_review_duplicate)
       .map((classification) => classification.id),
+    reply_candidates: replyCandidates,
     classifications,
   };
 }

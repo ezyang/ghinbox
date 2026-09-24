@@ -46,6 +46,21 @@
         return whyById;
     }
 
+    // Replies candidates Muse judged FYI: id -> { updated_at, why }. The
+    // classifier moves them to Feed only while updated_at still matches.
+    function replyDemotionsById(digest) {
+        const demotions = new Map();
+        for (const item of digest?.reply_demotions || []) {
+            if (item && item.id && item.updated_at) {
+                demotions.set(String(item.id), {
+                    updated_at: item.updated_at,
+                    why: item.why || '',
+                });
+            }
+        }
+        return demotions;
+    }
+
     function shouldShowDigestPanel({ view, digest, visible }) {
         if (view !== 'issues' || !digest || digest.enabled === false) {
             return false;
@@ -76,6 +91,10 @@
         if (visible.lookAt.length) {
             parts.push(`${visible.lookAt.length} worth a look`);
         }
+        const demoted = (digest.reply_demotions || []).length;
+        if (demoted) {
+            parts.push(`${demoted} ${demoted === 1 ? 'reply' : 'replies'} judged FYI, moved to Feed`);
+        }
         if (digest.queue_count) {
             parts.push(`${digest.queue_count} marked done, queued for the next digest`);
         }
@@ -93,6 +112,9 @@
             parts.push(`last update failed: ${digest.error}`);
         } else if (digest.pending_count) {
             parts.push(`${digest.pending_count} not yet digested`);
+        }
+        if (digest.reply_check_error) {
+            parts.push(`reply check failed: ${digest.reply_check_error}`);
         }
         if (digest.auto_done?.error) {
             parts.push(`auto-done failed: ${digest.auto_done.error}`);
@@ -116,9 +138,9 @@
         if (!total || !total.calls) {
             return '';
         }
-        const kinds = ['triage', 'compose']
+        const kinds = ['triage', 'reply_check', 'compose']
             .filter((kind) => usage[kind]?.calls)
-            .map((kind) => `${usage[kind].calls} ${kind}`);
+            .map((kind) => `${usage[kind].calls} ${kind.replace('_', ' ')}`);
         const parts = [
             `LLM, last ${usage.window_hours || 24}h: ${total.calls} calls (${kinds.join(', ')})`,
         ];
@@ -190,6 +212,7 @@
         DIGEST_POLL_WHILE_RUNNING_MS,
         selectVisibleDigest,
         digestWhyById,
+        replyDemotionsById,
         shouldShowDigestPanel,
         formatDigestStatus,
         formatLlmUsage,

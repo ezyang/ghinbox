@@ -4,6 +4,7 @@
     let digest = null;
     let digestProfileId = null;
     let digestWhy = new Map();
+    let replyDemotions = new Map();
     let digestPollTimer = null;
     let backgroundTimer = null;
     let openAllUrls = [];
@@ -37,6 +38,7 @@
             digest = data;
             digestProfileId = profileId;
             digestWhy = GhinboxDigest.digestWhyById(data);
+            replyDemotions = GhinboxDigest.replyDemotionsById(data);
         } catch (error) {
             console.error('Failed to load feed digest:', error);
         }
@@ -73,6 +75,10 @@
         return digestProfileId === state.profileId
             ? digestWhy.get(String(notificationId)) || ''
             : '';
+    }
+
+    function getDigestReplyDemotions() {
+        return digestProfileId === state.profileId ? replyDemotions : new Map();
     }
 
     function renderVibe(container, vibe) {
@@ -164,6 +170,7 @@
 
     window.refreshDigest = refreshDigest;
     window.getDigestWhy = getDigestWhy;
+    window.getDigestReplyDemotions = getDigestReplyDemotions;
     window.renderDigestPanel = renderDigestPanel;
     window.startBackgroundRefresh = startBackgroundRefresh;
     window.backgroundRefreshTick = backgroundTick;
