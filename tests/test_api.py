@@ -1575,3 +1575,13 @@ class TestResponseSchema:
             ui = notif["ui"]
             assert "saved" in ui
             assert "done" in ui
+
+
+class TestWebappCaching:
+    """The webapp has no build step, so every deploy must reach the browser."""
+
+    def test_webapp_assets_always_revalidate(self, client: TestClient) -> None:
+        for path in ("/app/notifications.html", "/app/notifications-core.js"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["cache-control"] == "no-cache"

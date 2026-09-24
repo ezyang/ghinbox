@@ -141,9 +141,24 @@ async def rate_governor_denied_handler(
     return JSONResponse(status_code=429, content={"detail": error.detail})
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Static files the browser must revalidate (ETag) before every use.
+
+    The webapp has no build step or hashed filenames, so heuristic caching
+    would let a browser mix a stale notifications.html with newer scripts.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Mount static files for the webapp (if directory exists)
 if STATIC_DIR is not None:
-    app.mount("/app", StaticFiles(directory=STATIC_DIR, html=True), name="webapp")
+    app.mount(
+        "/app", RevalidatingStaticFiles(directory=STATIC_DIR, html=True), name="webapp"
+    )
 
 
 @app.get("/", include_in_schema=False)
