@@ -679,11 +679,36 @@ def test_select_auto_done_ids_table() -> None:
         entry("replied-after", ["replied to by bob"]),
         entry("already-done", archived_at="2026-09-01T00:00:00+00:00"),
     ]
+    # Direct replies are no longer exempt: the Replies queue (and "Look at
+    # these") is where genuine direct asks live; the Feed copy is ambient.
     assert worker.select_auto_done_ids(entries) == [
         "ambient",
         "broadcast",
         "bot-mention",
+        "human-mention",
+        "replied-after",
     ]
+
+
+def test_is_surfaced_table() -> None:
+    direct = {"id": "d", "reply_signals": ["@-mentioned by alice"]}
+    broadcast = {"id": "b", "reply_signals": ["cc'd (broadcast) by alice"]}
+    cases = [
+        ("high", broadcast, None, set(), True),
+        ("medium", direct, None, set(), True),
+        ("medium", direct, None, {"d"}, False),
+        ("medium", broadcast, None, set(), False),
+        ("low", direct, None, set(), False),
+        ("low", broadcast, {"surfaced": True}, set(), True),
+    ]
+    for attention, item, previous, demoted, expected in cases:
+        note = {"attention": attention}
+        assert worker.is_surfaced(note, item, previous, demoted) is expected, (
+            attention,
+            item["id"],
+            previous,
+            demoted,
+        )
 
 
 def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(

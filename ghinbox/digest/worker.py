@@ -185,16 +185,36 @@ def select_auto_done_ids(
 
     ``entries`` pairs current Feed items with their (current) triage notes.
     Keep anything surfaced in "Look at these" (sticky, so an item cannot vanish
-    unseen), direct replies from humans, and items already auto-done (a stale
-    sync can list them again; re-archiving would loop).
+    unseen) and items already auto-done (a stale sync can list them again;
+    re-archiving would loop). Genuine direct asks are in Replies, or surfaced.
     """
     return [
         item["id"]
         for item, note in entries
-        if not note.get("surfaced")
-        and not note.get("archived_at")
-        and mention_signal(item.get("reply_signals") or []) != "direct"
+        if not note.get("surfaced") and not note.get("archived_at")
     ]
+
+
+def is_surfaced(
+    note: dict[str, Any],
+    item: dict[str, Any],
+    previous: dict[str, Any] | None,
+    demoted_ids: set[str] | dict[str, str],
+) -> bool:
+    """Whether a freshly triaged Feed item belongs in "Look at these".
+
+    "High" items, plus "medium" ones with a direct human mention or reply the
+    Replies check did not already dismiss. Once surfaced, an item stays
+    surfaced (exempt from auto-done) until the user handles it, even across
+    new activity.
+    """
+    if note.get("attention") == "high" or (previous or {}).get("surfaced"):
+        return True
+    return (
+        note.get("attention") == "medium"
+        and mention_signal(item.get("reply_signals") or []) == "direct"
+        and item["id"] not in demoted_ids
+    )
 
 
 def _keeps_archived_note(
@@ -614,6 +634,7 @@ async def update_digest(
         context = await asyncio.to_thread(
             build_feed_context, profile, snapshot, user, reply_demotions(checks)
         )
+    demoted = reply_demotions(checks)
     feed_ids = {item["id"] for item in context.items}
     cutoff = now - timedelta(seconds=digest_window_seconds())
     notes = get_item_notes(profile)
@@ -653,12 +674,10 @@ async def update_digest(
         batch_notes = prompts.parse_triage_response(
             prompts.extract_json_object(response), batch
         )
+        batch_by_id = {item["id"]: item for item in batch}
         for nid, note in batch_notes.items():
             note["triaged_at"] = now.isoformat()
-            # "High" items are surfaced; once surfaced, an item stays exempt
-            # from auto-done until the user handles it, even across new
-            # activity.
-            if note["attention"] == "high" or notes.get(nid, {}).get("surfaced"):
+            if is_surfaced(note, batch_by_id[nid], notes.get(nid), demoted):
                 note["surfaced"] = True
         save_item_notes(profile, batch_notes)
         notes.update(batch_notes)

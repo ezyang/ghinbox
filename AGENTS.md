@@ -87,7 +87,9 @@
   - Digest auto-done: right after triage, on every sync, the worker marks
     triaged Feed items done on GitHub (REST), so the GitHub inbox/mobile app
     keeps only Replies, reviews, and "Look at these". It never marks done
-    surfaced items, direct replies from humans, or untriaged items. Auto-done
+    surfaced items or untriaged items. Surfaced = "high" attention, or
+    "medium" with a direct human mention/reply that the Replies check did not
+    demote; other direct pings in the Feed are marked done. Auto-done
     items wait in the digest queue (`queue_count`, local-only; see SOUL.md)
     until the next compose, then keep feeding the vibe for
     `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings an item
