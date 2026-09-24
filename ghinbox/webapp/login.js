@@ -41,12 +41,6 @@
         elements.statusMessage.hidden = false;
     }
 
-    function showWarning(message) {
-        elements.statusMessage.textContent = message;
-        elements.statusMessage.className = 'status-message warning';
-        elements.statusMessage.hidden = false;
-    }
-
     function hideStatus() {
         elements.statusMessage.hidden = true;
     }

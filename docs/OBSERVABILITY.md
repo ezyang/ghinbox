@@ -103,6 +103,22 @@ curl -sS --unix-socket auth_state/ghinbox-debug.sock \
 
 `POST /debug/github-api-calls/clear` clears that in-memory buffer.
 
+`GET /debug/notification-actions` reports recent mark-done/archive/unsubscribe
+requests (`event: "notification_action"`, also written to the JSONL log). Each
+entry has the action, a count and fingerprints of the notification IDs (not the
+raw IDs), `status` (`ok`, `partial`, `error`), the `error` message, and the
+GitHub status code. REST batches also record `unresolved_count` (IDs REST could
+not map to a thread, e.g. orgs that block classic PATs) and
+`browser_fallback_count` (of those, IDs completed through the browser session).
+Start here when Clean or Done reports failures:
+
+```bash
+curl -sS --unix-socket auth_state/ghinbox-debug.sock \
+  'http://ghinbox/debug/notification-actions?limit=20'
+```
+
+`POST /debug/notification-actions/clear` clears that in-memory buffer.
+
 `GET /debug/rate-governor` reports the current local GitHub API governor state:
 per-pool remaining/reset data learned from GitHub `x-ratelimit-*` headers,
 configured floors, the per-request outbound call budget, active request

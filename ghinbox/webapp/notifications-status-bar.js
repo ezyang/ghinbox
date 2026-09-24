@@ -119,14 +119,6 @@
         return result(next, effects);
     }
 
-    function clearAutoDismiss(current) {
-        const state = normalizeState(current);
-        return result(state, [
-            { type: 'cancelAutoDismissTimer' },
-            { type: 'clearAutoDismissVisual' },
-        ]);
-    }
-
     function freezeAutoDismiss(current) {
         const state = normalizeState(current);
         if (state.statusState) {
@@ -186,7 +178,6 @@
         DEFAULT_AUTO_DISMISS_MS,
         DEFAULT_FLASH_DURATION_MS,
         autoDismissTimerFired,
-        clearAutoDismiss,
         clearStatus,
         flashTimerFired,
         freezeAutoDismiss,
