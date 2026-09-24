@@ -78,21 +78,38 @@ test.describe('UI Shell @layout', () => {
     await expect(page.locator('#empty-state')).toContainText('No notifications');
     await expect(page.locator('link[href^="notifications.css"]')).toHaveAttribute(
       'href',
-      'notifications.css?v=2026-09-24-digest-queue'
+      'notifications.css?v=2026-09-24-no-force-refresh'
     );
     await expect(page.locator('script[src^="notifications-sync.js"]')).toHaveAttribute(
       'src',
-      'notifications-sync.js?v=2026-09-24-digest-queue'
+      'notifications-sync.js?v=2026-09-24-no-force-refresh'
     );
   });
 
-  test('force refresh bust survives reload but stale deploy payload does not', async ({
+  test('there is no Force refresh button', async ({ page }) => {
+    await expect(page.locator('#sync-btn')).toBeVisible();
+    await expect(page.locator('#force-refresh-btn')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Force refresh' })).toHaveCount(0);
+  });
+
+  test('cache_bust URL survives reload but stale deploy payload does not', async ({
     page,
   }) => {
     const assetVersion = await page.evaluate(() => (window as any).ghnotifAssetVersion);
     const deployedAssetBust = `?v=${encodeURIComponent(assetVersion)}`;
 
-    await page.locator('#force-refresh-btn').click();
+    const bustUrl = await page.evaluate(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.set(
+        'cache_bust',
+        (window as any).GhinboxAssetVersion.serializeCacheBust(
+          (window as any).ghnotifAssetVersion,
+          'manual-bust'
+        )
+      );
+      return url.toString();
+    });
+    await page.goto(bustUrl);
     await expect(page).toHaveURL(/cache_bust=/);
 
     const forceRefreshAssetBust = await page.evaluate(

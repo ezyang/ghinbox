@@ -173,7 +173,6 @@ const elements = {
     repoInputGroup: document.getElementById('repo-input-group'),
     repoInput: document.getElementById('repo-input'),
     syncBtn: document.getElementById('sync-btn'),
-    forceRefreshBtn: document.getElementById('force-refresh-btn'),
     authStatus: document.getElementById('auth-status'),
     orderSelect: document.getElementById('order-select'),
     statusBar: document.getElementById('status-bar'),
@@ -645,9 +644,6 @@ async function init() {
     elements.syncBtn.addEventListener('click', () => {
         withActionContext('Sync', () => handleSync());
     });
-    if (elements.forceRefreshBtn) {
-        elements.forceRefreshBtn.addEventListener('click', handleForceRefresh);
-    }
     if (elements.profileSelect) {
         elements.profileSelect.addEventListener('change', (event) => {
             setActiveProfile(event.target.value);
@@ -794,19 +790,6 @@ async function init() {
 }
 
 // Reload the page with a fresh cache-bust token so every asset is refetched.
-function handleForceRefresh() {
-    const cacheBust = Date.now().toString();
-    const cacheBustPayload =
-        globalThis.GhinboxAssetVersion?.serializeCacheBust?.(
-            globalThis.ghnotifAssetVersion,
-            cacheBust
-        ) || cacheBust;
-    localStorage.setItem(GhinboxViewState.STORAGE_KEYS.cacheBust, cacheBustPayload);
-    const url = new URL(window.location.href);
-    url.searchParams.set('cache_bust', cacheBustPayload);
-    window.location.replace(url.toString());
-}
-
 // Handle repo input changes
 function handleRepoInput() {
     updateActiveProfileEntries(getCurrentProfileEntries());

@@ -27,7 +27,7 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-09-24-digest-queue';
+            const ASSET_VERSION = '2026-09-24-no-force-refresh';
             const CACHE_BUST_KEY = 'ghnotif_cache_bust';
             function normalizeCacheBustPart(value) {
                 if (typeof value !== 'string') {
@@ -929,9 +929,6 @@
                     ></textarea>
                 </div>
                 <button id="sync-btn" class="btn btn-primary" type="button">Sync</button>
-                <button id="force-refresh-btn" class="btn btn-small" type="button">
-                    Force refresh
-                </button>
                 <span id="auth-status" class="auth-status">Checking auth...</span>
             </div>
             <div class="controls-row secondary">
