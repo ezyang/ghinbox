@@ -13,6 +13,11 @@
     }
     root.GhinboxCommentInterest = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+    // Without a read watermark (GitHub's last_read_at is null for threads that
+    // were never opened), only comments this close to the notification's
+    // latest activity count as unread; older ones were notified long ago.
+    const UNWATERMARKED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
     function normalizeLogin(login) {
         return String(login || '').trim().toLowerCase();
     }
@@ -288,7 +293,11 @@
             return false;
         }
 
-        const lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
+        let lastReadAt = Date.parse(options.lastReadAt || notification.last_read_at || '');
+        if (Number.isNaN(lastReadAt)) {
+            lastReadAt = Date.parse(notification.updated_at || '') -
+                UNWATERMARKED_UNREAD_WINDOW_MS;
+        }
         const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
         // A user's own comment implies they have read everything up to that
         // point within the same thread, so treat the timestamp of their latest

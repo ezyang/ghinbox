@@ -571,3 +571,28 @@ test('getNewCommentsDoneDecision still allows done for own or uninteresting comm
     );
   }
 });
+
+test('without last_read_at, only replies near the latest activity are directed', () => {
+  // Shape of pytorch/pytorch#148289: the user commented, got a reply, and the
+  // thread went quiet for a year; new activity pings someone else. GitHub
+  // reports last_read_at null, which used to make the year-old reply unread.
+  const comments = [
+    comment(1, 'testuser', 'It might be easier to do it this way.', {
+      created_at: '2025-07-09T23:40:39Z',
+    }),
+    comment(2, 'cora', 'Triton can take dataclasses as arguments.', {
+      created_at: '2025-07-10T00:17:56Z',
+    }),
+    comment(3, 'kunda', '@zou3519 I have created a PR to address this', {
+      created_at: '2026-09-24T10:09:15Z',
+    }),
+  ];
+  const directed = (updatedAt, list = comments) => isNotificationDirectedAtCurrentUser(
+    notification('Issue', 'mention', { last_read_at: null, updated_at: updatedAt }),
+    { comments: list, currentUserLogin: 'testuser' }
+  );
+
+  assert.equal(directed('2026-09-24T10:09:39Z'), false);
+  assert.equal(directed('2025-07-10T00:18:00Z', comments.slice(0, 2)), true);
+  assert.equal(directed(undefined), true);
+});
