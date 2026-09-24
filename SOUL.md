@@ -27,6 +27,12 @@ migration, because there is no data to migrate.
 - Local-only state is permitted only where GitHub has no vocabulary for the
   concept (bookmarks, read-comment watermarks, replies-muted) — and even then
   it must remain losable without grief.
+- The one deliberate exception is the Feed digest queue: ambient items the
+  digest worker has triaged and marked done on GitHub but not yet composed
+  into a digest. GitHub no longer lists them, so the queue is local-only
+  truth. It is acceptable because only items triage judged not to need the
+  user can land there; losing it costs a thinner "Overall vibe", never an
+  unseen request.
 - Schema changes drop and rebuild; we do not write migration machinery.
 
 ## 2. The server is a prosthesis, not a brain

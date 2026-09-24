@@ -18,7 +18,10 @@
     }
 
     // The server digest lags the client: items marked done here stay in the
-    // server snapshot until the next sync. Show only what is still live.
+    // server snapshot until the next sync, so "Look at these" (surfaced items,
+    // annotated in the list itself) shows only what is still live. Vibe
+    // examples are context, not a to-do list: the server marks most digested
+    // items done itself, so they are kept as-is.
     function selectVisibleDigest(digest, liveIds) {
         const live = liveIds instanceof Set ? liveIds : new Set(liveIds || []);
         const lookAt = (digest?.look_at || []).filter((item) => live.has(String(item.id)));
@@ -27,24 +30,42 @@
             .map((theme) => ({
                 title: theme.title || '',
                 text: theme.text,
-                examples: (theme.examples || []).filter((example) =>
-                    live.has(String(example.id))
-                ),
+                examples: theme.examples || [],
             }));
         return { lookAt, vibe };
     }
 
+    // Why each surfaced ("worth a look") item matters, for its list row.
+    function digestWhyById(digest) {
+        const whyById = new Map();
+        for (const item of digest?.look_at || []) {
+            if (item && item.id && item.why) {
+                whyById.set(String(item.id), item.why);
+            }
+        }
+        return whyById;
+    }
+
     function shouldShowDigestPanel({ view, digest, visible }) {
-        if (view !== 'issues' || !digest) {
+        if (view !== 'issues' || !digest || digest.enabled === false) {
             return false;
         }
         if (digest.status === 'running' || digest.status === 'error') {
             return true;
         }
         return Boolean(
-            digest.composed_at &&
-            (visible.lookAt.length > 0 || visible.vibe.length > 0)
+            digest.composed_at ||
+            digest.queue_count > 0 ||
+            visible.lookAt.length > 0 ||
+            visible.vibe.length > 0
         );
+    }
+
+    function formatAge(ms, now) {
+        const minutes = Math.max(0, Math.round((now - ms) / 60000));
+        return minutes < 1 ? 'just now' :
+            minutes < 60 ? `${minutes}m ago` :
+            `${Math.round(minutes / 60)}h ago`;
     }
 
     function formatDigestStatus(digest, visible, now = Date.now()) {
@@ -52,22 +73,15 @@
             return '';
         }
         const parts = [];
+        if (visible.lookAt.length) {
+            parts.push(`${visible.lookAt.length} worth a look`);
+        }
+        if (digest.queue_count) {
+            parts.push(`${digest.queue_count} marked done, queued for the next digest`);
+        }
         const composedMs = toMs(digest.composed_at);
         if (composedMs !== null) {
-            const minutes = Math.max(0, Math.round((now - composedMs) / 60000));
-            parts.push(
-                minutes < 1 ? 'updated just now' :
-                minutes < 60 ? `updated ${minutes}m ago` :
-                `updated ${Math.round(minutes / 60)}h ago`
-            );
-        }
-        const counts = digest.counts || {};
-        if (counts.feed_count) {
-            parts.push(
-                `${visible.lookAt.length} of ${counts.feed_count} worth a look` +
-                ` (${counts.direct_count || 0} direct, ` +
-                `${counts.broadcast_count || 0} broadcast cc)`
-            );
+            parts.push(`digest from ${formatAge(composedMs, now)}`);
         }
         if (digest.status === 'running') {
             parts.push(
@@ -79,6 +93,48 @@
             parts.push(`last update failed: ${digest.error}`);
         } else if (digest.pending_count) {
             parts.push(`${digest.pending_count} not yet digested`);
+        }
+        if (digest.auto_done?.error) {
+            parts.push(`auto-done failed: ${digest.auto_done.error}`);
+        }
+        return parts.join(' · ');
+    }
+
+    function formatTokens(count) {
+        if (count >= 1e6) {
+            return `${(count / 1e6).toFixed(1)}M`;
+        }
+        if (count >= 1e3) {
+            return `${Math.round(count / 1e3)}k`;
+        }
+        return String(count);
+    }
+
+    // LLM spend over the server's usage window, for tuning triage/compose.
+    function formatLlmUsage(usage) {
+        const total = usage?.total;
+        if (!total || !total.calls) {
+            return '';
+        }
+        const kinds = ['triage', 'compose']
+            .filter((kind) => usage[kind]?.calls)
+            .map((kind) => `${usage[kind].calls} ${kind}`);
+        const parts = [
+            `LLM, last ${usage.window_hours || 24}h: ${total.calls} calls (${kinds.join(', ')})`,
+        ];
+        if (total.input_tokens || total.output_tokens) {
+            parts.push(
+                `${formatTokens(total.input_tokens || 0)} in / ` +
+                `${formatTokens(total.output_tokens || 0)} out tokens`
+            );
+        } else {
+            parts.push(`${formatTokens(total.prompt_chars || 0)} prompt chars`);
+        }
+        if (total.cost_usd) {
+            parts.push(`$${total.cost_usd.toFixed(2)}`);
+        }
+        if (total.errors) {
+            parts.push(`${total.errors} failed`);
         }
         return parts.join(' · ');
     }
@@ -133,8 +189,10 @@
         BACKGROUND_REFRESH_INTERVAL_MS,
         DIGEST_POLL_WHILE_RUNNING_MS,
         selectVisibleDigest,
+        digestWhyById,
         shouldShowDigestPanel,
         formatDigestStatus,
+        formatLlmUsage,
         shouldApplyBackgroundSnapshot,
         isClientBusy,
     };

@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  digestWhyById,
   formatDigestStatus,
+  formatLlmUsage,
   isClientBusy,
   selectVisibleDigest,
   shouldApplyBackgroundSnapshot,
@@ -12,6 +14,7 @@ const digest = {
   status: 'idle',
   composed_at: '2026-09-23T11:50:00Z',
   pending_count: 0,
+  queue_count: 0,
   counts: { feed_count: 40, direct_count: 3, broadcast_count: 30 },
   look_at: [
     { id: 'a', title: 'A', why: 'ping' },
@@ -40,10 +43,20 @@ test('shouldShowDigestPanel decision table', () => {
     ['Feed with a composed digest', { view: 'issues', digest, visible }, true],
     ['other views hide it', { view: 'others-prs', digest, visible }, false],
     ['no digest loaded', { view: 'issues', digest: null, visible: empty }, false],
-    ['everything marked done', { view: 'issues', digest, visible: empty }, false],
+    ['composed digest, nothing left to look at', { view: 'issues', digest, visible: empty }, true],
     [
-      'never composed (digest disabled)',
+      'never composed, nothing queued',
       { view: 'issues', digest: { status: 'idle' }, visible: empty },
+      false,
+    ],
+    [
+      'never composed, items queued',
+      { view: 'issues', digest: { status: 'idle', queue_count: 4 }, visible: empty },
+      true,
+    ],
+    [
+      'digest disabled for the profile',
+      { view: 'issues', digest: { ...digest, enabled: false }, visible },
       false,
     ],
     [
@@ -62,34 +75,77 @@ test('shouldShowDigestPanel decision table', () => {
   }
 });
 
-test('formatDigestStatus summarizes freshness, split, and queue', () => {
+test('digestWhyById maps surfaced items to their reason', () => {
+  assert.deepEqual(
+    [...digestWhyById(digest)],
+    [
+      ['a', 'ping'],
+      ['done', 'gone'],
+    ]
+  );
+  assert.equal(digestWhyById(null).size, 0);
+});
+
+test('formatDigestStatus summarizes look-at, queue, and freshness', () => {
   const now = Date.parse('2026-09-23T12:00:00Z');
   const visible = selectVisibleDigest(digest, ['a', 'b']);
+  assert.equal(formatDigestStatus(digest, visible, now), '1 worth a look · digest from 10m ago');
   assert.equal(
-    formatDigestStatus(digest, visible, now),
-    'updated 10m ago · 1 of 40 worth a look (3 direct, 30 broadcast cc)'
+    formatDigestStatus(
+      { ...digest, queue_count: 12, composed_at: '2026-09-23T07:00:00Z' },
+      visible,
+      now
+    ),
+    '1 worth a look · 12 marked done, queued for the next digest · digest from 5h ago'
   );
   assert.equal(
     formatDigestStatus({ ...digest, status: 'running', pending_count: 5 }, visible, now),
-    'updated 10m ago · 1 of 40 worth a look (3 direct, 30 broadcast cc) · ' +
-      'digesting 5 new items…'
+    '1 worth a look · digest from 10m ago · digesting 5 new items…'
   );
   assert.equal(
     formatDigestStatus({ status: 'error', error: 'boom' }, visible, now),
-    'last update failed: boom'
+    '1 worth a look · last update failed: boom'
   );
   assert.equal(
     formatDigestStatus(
       {
         ...digest,
-        counts: { ...digest.counts, auto_done_count: 25 },
         auto_done: { attempted: 3, done: 0, error: 'No GitHub token configured' },
       },
-      visible,
+      { lookAt: [], vibe: [] },
       now
     ),
-    'updated 10m ago · 1 of 40 worth a look (3 direct, 30 broadcast cc) · ' +
-      '25 marked done on GitHub · auto-done failed: No GitHub token configured'
+    'digest from 10m ago · auto-done failed: No GitHub token configured'
+  );
+});
+
+test('formatLlmUsage reports calls, tokens, cost, and failures', () => {
+  assert.equal(formatLlmUsage(null), '');
+  assert.equal(formatLlmUsage({ window_hours: 24, total: { calls: 0 } }), '');
+  assert.equal(
+    formatLlmUsage({
+      window_hours: 24,
+      triage: { calls: 11 },
+      compose: { calls: 1 },
+      total: {
+        calls: 12,
+        errors: 1,
+        input_tokens: 184_000,
+        output_tokens: 9_500,
+        cost_usd: 1.234,
+      },
+    }),
+    'LLM, last 24h: 12 calls (11 triage, 1 compose) · 184k in / 10k out tokens · ' +
+      '$1.23 · 1 failed'
+  );
+  // CLIs that report no usage fall back to prompt size.
+  assert.equal(
+    formatLlmUsage({
+      window_hours: 24,
+      triage: { calls: 2 },
+      total: { calls: 2, prompt_chars: 1_500_000 },
+    }),
+    'LLM, last 24h: 2 calls (2 triage) · 1.5M prompt chars'
   );
 });
 

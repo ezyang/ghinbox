@@ -1,13 +1,17 @@
 """SQLite cache for the background feed digest.
 
-Everything here is a disposable, rebuildable view (SOUL.md axiom 1): deleting
-these tables only costs the LLM calls needed to re-triage the current Feed.
+Mostly a disposable, rebuildable view (SOUL.md axiom 1): deleting these tables
+costs the LLM calls needed to re-triage the current Feed. The one exception is
+the digest queue: notes for items the worker already marked done on GitHub but
+has not composed into a digest yet. Losing them only drops ambient items from
+the next "Overall vibe" (see SOUL.md).
 """
 
 from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ghinbox.api.notification_shapes import utc_now_iso
@@ -35,6 +39,23 @@ def init_digest_db(db_path: str | None = None) -> None:
                     profile TEXT PRIMARY KEY,
                     state TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS digest_llm_calls (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    profile TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    duration_ms INTEGER NOT NULL,
+                    item_count INTEGER NOT NULL,
+                    prompt_chars INTEGER NOT NULL,
+                    response_chars INTEGER NOT NULL,
+                    input_tokens INTEGER,
+                    output_tokens INTEGER,
+                    cache_read_tokens INTEGER,
+                    cost_usd REAL,
+                    error TEXT
+                );
+                CREATE INDEX IF NOT EXISTS digest_llm_calls_profile_started
+                    ON digest_llm_calls (profile, started_at);
                 """
             )
     finally:
@@ -167,3 +188,100 @@ def update_digest_state(
     finally:
         conn.close()
     return state
+
+
+# LLM call log rows older than this are dropped on insert.
+LLM_CALL_RETENTION_DAYS = 30
+USAGE_FIELDS = (
+    "prompt_chars",
+    "response_chars",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cost_usd",
+    "duration_ms",
+)
+
+
+def record_llm_call(
+    profile: str,
+    *,
+    kind: str,
+    started_at: datetime,
+    duration_ms: int,
+    item_count: int,
+    prompt_chars: int,
+    response_chars: int,
+    usage: dict[str, Any] | None = None,
+    error: str | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Log one digest LLM call; ``usage`` holds token counts when the CLI reports them."""
+    usage = usage or {}
+    cutoff = started_at - timedelta(days=LLM_CALL_RETENTION_DAYS)
+    conn = connect_snapshot_db(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO digest_llm_calls (
+                    profile, kind, started_at, duration_ms, item_count,
+                    prompt_chars, response_chars, input_tokens, output_tokens,
+                    cache_read_tokens, cost_usd, error
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile,
+                    kind,
+                    started_at.astimezone(timezone.utc).isoformat(),
+                    duration_ms,
+                    item_count,
+                    prompt_chars,
+                    response_chars,
+                    usage.get("input_tokens"),
+                    usage.get("output_tokens"),
+                    usage.get("cache_read_tokens"),
+                    usage.get("cost_usd"),
+                    error,
+                ),
+            )
+            conn.execute(
+                "DELETE FROM digest_llm_calls WHERE started_at < ?",
+                (cutoff.astimezone(timezone.utc).isoformat(),),
+            )
+    finally:
+        conn.close()
+
+
+def get_llm_usage(
+    profile: str,
+    since: datetime,
+    db_path: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Sum logged LLM calls since ``since``, per kind plus a ``total`` row."""
+    conn = connect_snapshot_db(db_path)
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT kind, COUNT(*) AS calls, SUM(error IS NOT NULL) AS errors,
+                   SUM(item_count) AS items,
+                   {", ".join(f"SUM({name}) AS {name}" for name in USAGE_FIELDS)}
+            FROM digest_llm_calls
+            WHERE profile = ? AND started_at >= ?
+            GROUP BY kind
+            """,
+            (profile, since.astimezone(timezone.utc).isoformat()),
+        ).fetchall()
+    finally:
+        conn.close()
+    usage: dict[str, dict[str, Any]] = {}
+    total: dict[str, Any] = {"calls": 0, "errors": 0, "items": 0}
+    for row in rows:
+        entry = {key: row[key] for key in row.keys() if key != "kind"}
+        entry = {key: value or 0 for key, value in entry.items()}
+        usage[row["kind"]] = entry
+        for key, value in entry.items():
+            total[key] = total.get(key, 0) + value
+    usage["total"] = total
+    return usage

@@ -27,7 +27,7 @@
     </script>
     <script>
         (function () {
-            const ASSET_VERSION = '2026-09-24-single-sync';
+            const ASSET_VERSION = '2026-09-24-digest-queue';
             const CACHE_BUST_KEY = 'ghnotif_cache_bust';
             function normalizeCacheBustPart(value) {
                 if (typeof value !== 'string') {
@@ -991,12 +991,12 @@
                         <button class="btn btn-small digest-refresh" type="button">Refresh digest</button>
                     </div>
                 </header>
-                <ul class="digest-look-at" role="list"></ul>
                 <p class="digest-look-at-empty">Nothing in the Feed needs you right now.</p>
                 <details class="digest-vibe-details" open>
                     <summary>Overall vibe</summary>
                     <div class="digest-vibe"></div>
                 </details>
+                <p class="digest-usage" hidden></p>
             </section>
 
             <!-- Mobile filter row: filter dropdowns on first row, sort/select on second row -->

@@ -23,6 +23,7 @@ from ghinbox.digest import prompts, worker
 from ghinbox.digest.store import (
     get_digest_state,
     get_item_notes,
+    get_llm_usage,
     init_digest_db,
     save_item_notes,
     update_digest_state,
@@ -116,10 +117,12 @@ class FakeLlm:
             "```json\n"
             + json.dumps(
                 {
-                    "look_at": [{"id": nid, "why": "look"} for nid in ids[:1]]
-                    + [{"id": "invented", "why": "hallucinated"}],
                     "vibe": [
-                        {"title": "Dynamo", "text": "Busy week.", "example_ids": ids},
+                        {
+                            "title": "Dynamo",
+                            "text": "Busy week.",
+                            "example_ids": ids + ["invented"],
+                        },
                     ],
                 }
             )
@@ -175,17 +178,16 @@ def test_parse_compose_response_caps_and_drops_unknown_ids() -> None:
     known = {str(n) for n in range(30)}
     digest = prompts.parse_compose_response(
         {
-            "look_at": [{"id": str(n), "why": "w"} for n in range(30)]
-            + [{"id": "nope", "why": "w"}],
             "vibe": [
                 {"title": "t", "text": "p", "example_ids": ["1", "nope", "2", "3"]},
                 {"title": "empty", "text": ""},
-            ],
+            ]
+            + [{"title": "x", "text": "q"}] * 20,
         },
         known,
     )
-    assert len(digest["look_at"]) == prompts.MAX_LOOK_AT
-    assert digest["vibe"] == [{"title": "t", "text": "p", "example_ids": ["1", "2"]}]
+    assert digest["vibe"][0] == {"title": "t", "text": "p", "example_ids": ["1", "2"]}
+    assert len(digest["vibe"]) == prompts.MAX_VIBE_THEMES
 
 
 def test_update_digest_triages_new_items_and_composes(db_path: str) -> None:
@@ -204,11 +206,18 @@ def test_update_digest_triages_new_items_and_composes(db_path: str) -> None:
     assert (llm.triage_calls, llm.compose_calls) == (1, 1)
     # Review requests are not Feed items and never reach the LLM.
     assert "review-pr" not in llm.prompts[0]
-    assert set(get_item_notes(PROFILE)) == {"n-1", "n-2"}
+    notes = get_item_notes(PROFILE)
+    assert set(notes) == {"n-1", "n-2"}
+    # "High" attention is what surfaces an item in "Look at these".
+    assert notes["n-1"]["surfaced"] is True
+    assert "surfaced" not in notes["n-2"]
     assert state["pending_count"] == 0
     assert state["counts"]["feed_count"] == 2
-    assert state["digest"]["look_at"] == [{"id": "n-1", "why": "look"}]
-    assert state["digest"]["vibe"][0]["example_ids"] == ["n-1", "n-2"]
+    assert state["digest"] == {
+        "vibe": [
+            {"title": "Dynamo", "text": "Busy week.", "example_ids": ["n-1", "n-2"]}
+        ]
+    }
 
     # Nothing changed: no LLM calls at all.
     asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
@@ -231,7 +240,8 @@ def test_update_digest_retriages_only_updated_items_and_prunes(db_path: str) -> 
     llm.prompts.clear()
     state = asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
 
-    assert (llm.triage_calls, llm.compose_calls) == (1, 1)
+    # Triage runs every pass; composing waits for the daily interval.
+    assert (llm.triage_calls, llm.compose_calls) == (1, 0)
     assert '"id": "n-1"' in llm.prompts[0]
     assert '"n-2"' not in llm.prompts[0]
     assert get_item_notes(PROFILE)["n-1"]["updated_at"] == "2026-09-02T00:00:00Z"
@@ -288,7 +298,7 @@ def test_run_llm_uses_configured_command(monkeypatch: pytest.MonkeyPatch) -> Non
         "GHINBOX_DIGEST_LLM_COMMAND",
         f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}",
     )
-    assert asyncio.run(worker.run_llm("hello")) == "banner\nHELLO\n"
+    assert asyncio.run(worker.run_llm("hello")) == worker.LlmReply("banner\nHELLO\n")
 
     monkeypatch.setenv(
         "GHINBOX_DIGEST_LLM_COMMAND",
@@ -304,7 +314,7 @@ def test_run_llm_can_pass_prompt_as_file(monkeypatch: pytest.MonkeyPatch) -> Non
         "GHINBOX_DIGEST_LLM_COMMAND",
         f"{shlex.quote(sys.executable)} -c {shlex.quote(script)} {{prompt_file}}",
     )
-    assert asyncio.run(worker.run_llm("from a file")) == "FROM A FILE\n"
+    assert asyncio.run(worker.run_llm("from a file")).text == "FROM A FILE\n"
 
 
 def test_post_sync_hook_only_digests_configured_profiles(
@@ -326,7 +336,7 @@ def test_post_sync_hook_only_digests_configured_profiles(
     assert scheduled == ["pytorch"]
 
 
-def test_post_sync_hook_paces_background_passes(
+def test_post_sync_hook_ingests_after_every_sync(
     monkeypatch: pytest.MonkeyPatch, db_path: str
 ) -> None:
     scheduled: list[str] = []
@@ -335,33 +345,71 @@ def test_post_sync_hook_paces_background_passes(
     )
     monkeypatch.delenv("GHINBOX_DIGEST_ENABLED", raising=False)
     monkeypatch.delenv("GHINBOX_DIGEST_PROFILES", raising=False)
-    monkeypatch.setenv("GHINBOX_DIGEST_MIN_INTERVAL_MINUTES", "60")
 
-    update_digest_state(PROFILE, finished_at=utc_now_iso())
+    update_digest_state(PROFILE, finished_at=utc_now_iso(), composed_at=utc_now_iso())
     asyncio.run(worker.on_snapshot_synced(KEY))
-    assert scheduled == []
-
-    update_digest_state(PROFILE, finished_at="2026-01-01T00:00:00+00:00")
     asyncio.run(worker.on_snapshot_synced(KEY))
-    assert scheduled == [PROFILE]
+    assert scheduled == [PROFILE, PROFILE]
 
 
-def test_is_background_digest_due_table() -> None:
+def test_compose_runs_daily_or_when_forced(
+    monkeypatch: pytest.MonkeyPatch, db_path: str
+) -> None:
+    monkeypatch.delenv("GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS", raising=False)
+    now = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    llm = FakeLlm()
+
+    def run(at: datetime, **kwargs) -> dict:
+        return asyncio.run(
+            worker.update_digest(
+                PROFILE, llm=llm, current_user="ezyang", now=at, **kwargs
+            )
+        )
+
+    _save([_notification("n-1", 1, "2026-09-01T00:00:00Z")], db_path)
+    run(now)
+    assert llm.compose_calls == 1
+
+    # New items are triaged right away but wait for the daily compose.
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+            _notification("n-2", 2, "2026-09-01T00:00:00Z"),
+        ],
+        db_path,
+    )
+    state = run(now + timedelta(hours=1))
+    assert (llm.triage_calls, llm.compose_calls) == (2, 1)
+    assert state["composed_at"] == now.isoformat()
+
+    # Refresh forces a compose.
+    state = run(now + timedelta(hours=2), force_compose=True)
+    assert llm.compose_calls == 2
+    assert state["composed_at"] == (now + timedelta(hours=2)).isoformat()
+
+    # Due, but nothing changed: no compose.
+    run(now + timedelta(hours=30))
+    assert llm.compose_calls == 2
+
+    _save([_notification("n-1", 1, "2026-09-03T00:00:00Z")], db_path)
+    run(now + timedelta(hours=30))
+    assert llm.compose_calls == 3
+
+
+def test_is_compose_due_table() -> None:
     now = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
+    day = 24 * 3600
     cases = [
-        ("never ran", {}, 3600, True),
-        ("finished 10m ago", {"finished_at": "2026-09-23T11:50:00+00:00"}, 3600, False),
-        ("finished 61m ago", {"finished_at": "2026-09-23T10:59:00+00:00"}, 3600, True),
-        ("pacing disabled", {"finished_at": "2026-09-23T11:59:00+00:00"}, 0, True),
-        ("naive timestamp", {"finished_at": "2026-09-23T11:30:00"}, 3600, False),
-        ("garbage timestamp", {"finished_at": "yesterday"}, 3600, True),
+        ("never composed", {}, day, True),
+        ("composed 1h ago", {"composed_at": "2026-09-23T11:00:00+00:00"}, day, False),
+        ("composed 25h ago", {"composed_at": "2026-09-22T11:00:00+00:00"}, day, True),
+        ("pacing disabled", {"composed_at": "2026-09-23T11:59:00+00:00"}, 0, True),
+        ("naive timestamp", {"composed_at": "2026-09-23T11:30:00"}, day, False),
+        ("garbage timestamp", {"composed_at": "yesterday"}, day, True),
     ]
     for name, state, interval, expected in cases:
         assert (
-            worker.is_background_digest_due(
-                state, now=now, min_interval_seconds=interval
-            )
-            is expected
+            worker.is_compose_due(state, now=now, interval_seconds=interval) is expected
         ), name
 
 
@@ -380,6 +428,7 @@ def test_digest_response_joins_snapshot_and_drops_gone_items(db_path: str) -> No
 
     response = digest_routes.build_digest_response(PROFILE)
 
+    # n-1 was the surfaced item; the user handled it, so nothing is left.
     assert response["look_at"] == []
     assert response["vibe"][0]["text"] == "Busy week."
     assert [e["id"] for e in response["vibe"][0]["examples"]] == ["n-2"]
@@ -437,13 +486,12 @@ def test_select_auto_done_ids_table() -> None:
         entry("ambient"),
         entry("broadcast", ["cc'd (broadcast) by alice"]),
         entry("bot-mention", ["@-mentioned by meta-codesync[bot]"]),
-        entry("look-at"),
-        entry("surfaced-before", surfaced=True),
+        entry("surfaced", surfaced=True),
         entry("human-mention", ["@-mentioned by alice"]),
         entry("replied-after", ["replied to by bob"]),
         entry("already-done", archived_at="2026-09-01T00:00:00+00:00"),
     ]
-    assert worker.select_auto_done_ids(entries, {"look-at"}) == [
+    assert worker.select_auto_done_ids(entries) == [
         "ambient",
         "broadcast",
         "bot-mention",
@@ -475,9 +523,8 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
 
     state = run()
 
-    # FakeLlm puts the first item in "Look at these"; it stays in the inbox.
+    # The "high" item is surfaced in "Look at these"; it stays in the inbox.
     # Review requests are not Feed and are never touched.
-    assert state["digest"]["look_at"] == [{"id": "n-1", "why": "look"}]
     assert archiver.calls == [["n-2", "n-3"]]
     assert state["auto_done"]["done"] == 2
     assert state["counts"] == {
@@ -491,6 +538,9 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
     notes = get_item_notes(PROFILE)
     assert notes["n-1"]["surfaced"] is True
     assert notes["n-2"]["archived_at"] == now.isoformat()
+    # Auto-done ran before this pass composed, so n-2/n-3 are already in it.
+    assert state["queue_count"] == 0
+    assert "(auto-done)" in llm.prompts[-1]
 
     # The next pass sees the pruned snapshot but still digests n-2/n-3; nothing
     # changed, so there are no LLM calls and nothing new to mark done.
@@ -500,6 +550,7 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
     assert len(archiver.calls) == 1
     response = digest_routes.build_digest_response(PROFILE)
     assert [item["id"] for item in response["look_at"]] == ["n-1"]
+    assert response["look_at"][0]["why"] == "worth it"
     assert [e["id"] for e in response["vibe"][0]["examples"]] == ["n-1", "n-2"]
     assert response["vibe"][0]["examples"][1]["url"] == (
         "https://github.com/pytorch/pytorch/issues/2"
@@ -515,17 +566,26 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
         db_path,
     )
     llm.prompts.clear()
-    state = run()
-    assert (llm.triage_calls, llm.compose_calls) == (1, 1)
+    state = run(now + timedelta(hours=1))
+    assert (llm.triage_calls, llm.compose_calls) == (1, 0)
     assert archiver.calls[-1] == ["n-2"]
     assert get_item_notes(PROFILE)["n-1"]["surfaced"] is True
+    # Marked done since the last compose: queued for the next one.
+    assert state["queue_count"] == 1
+    assert digest_routes.build_digest_response(PROFILE)["queue_count"] == 1
 
-    # Auto-done items age out of the digest after the window.
+    # The daily compose takes in the queue. n-3 (composed yesterday) has aged
+    # out of the window; the re-archived n-2 was still queued, so it stays.
     llm.prompts.clear()
     state = run(now + timedelta(hours=25))
+    assert set(get_item_notes(PROFILE)) == {"n-1", "n-2"}
+    assert llm.compose_calls == 1
+    assert state["queue_count"] == 0
+
+    # A day after that compose, n-2 ages out too.
+    state = run(now + timedelta(hours=50))
     assert set(get_item_notes(PROFILE)) == {"n-1"}
     assert state["counts"]["feed_count"] == 1
-    assert llm.compose_calls == 1
 
 
 def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
@@ -537,7 +597,7 @@ def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
         ],
         db_path,
     )
-    llm = FakeLlm()
+    llm = FakeLlm({"n-1": "high"})
     archiver = FakeArchiver(fail_ids={"n-3"})
 
     state = asyncio.run(
@@ -573,10 +633,80 @@ def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
     assert state["auto_done"]["error"] == "No GitHub token configured"
 
 
-def test_compose_never_puts_auto_done_items_in_look_at() -> None:
-    digest = prompts.parse_compose_response(
-        {"look_at": [{"id": "done", "why": "w"}, {"id": "live", "why": "w"}]},
-        {"done", "live"},
-        {"live"},
+def test_parse_llm_output_reads_pi_json_events() -> None:
+    events = [
+        {"type": "session", "id": "x"},
+        {"type": "message_end", "message": {"role": "user", "content": []}},
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "hmm"},
+                    {"type": "text", "text": '{"items": []}'},
+                ],
+                "usage": {
+                    "input": 389,
+                    "output": 23,
+                    "cacheRead": 5,
+                    "cost": {"total": 0.25},
+                },
+            },
+        },
+        {"type": "agent_settled"},
+    ]
+    output = "\n".join(json.dumps(event) for event in events) + "\n"
+    assert worker.parse_llm_output(output) == worker.LlmReply(
+        text='{"items": []}',
+        usage={
+            "input_tokens": 389,
+            "output_tokens": 23,
+            "cache_read_tokens": 5,
+            "cost_usd": 0.25,
+        },
     )
-    assert digest["look_at"] == [{"id": "live", "why": "w"}]
+    assert worker.parse_llm_output('plain {"a": 1}\n') == worker.LlmReply(
+        'plain {"a": 1}\n'
+    )
+
+
+def test_llm_calls_are_logged_with_usage(db_path: str) -> None:
+    _save(
+        [
+            _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+            _notification("n-2", 2, "2026-09-01T00:00:00Z"),
+        ],
+        db_path,
+    )
+    fake = FakeLlm()
+
+    async def llm(prompt: str) -> worker.LlmReply:
+        text = await fake(prompt)
+        return worker.LlmReply(
+            text, {"input_tokens": len(prompt), "output_tokens": 10, "cost_usd": 0.5}
+        )
+
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+
+    usage = get_llm_usage(PROFILE, datetime.now(timezone.utc) - timedelta(hours=1))
+    assert usage["triage"]["calls"] == 1
+    assert usage["triage"]["items"] == 2
+    assert usage["triage"]["input_tokens"] == len(fake.prompts[0])
+    assert usage["compose"]["calls"] == 1
+    assert usage["total"]["calls"] == 2
+    assert usage["total"]["output_tokens"] == 20
+    assert usage["total"]["cost_usd"] == 1.0
+    assert usage["total"]["errors"] == 0
+    response = digest_routes.build_digest_response(PROFILE)
+    assert response["llm_usage"]["window_hours"] == 24
+    assert response["llm_usage"]["total"]["calls"] == 2
+
+    async def broken(prompt: str) -> str:
+        raise worker.DigestError("model unavailable")
+
+    _save([_notification("n-3", 3, "2026-09-01T00:00:00Z")], db_path)
+    with pytest.raises(worker.DigestError):
+        asyncio.run(worker.update_digest(PROFILE, llm=broken, current_user="ezyang"))
+    usage = get_llm_usage(PROFILE, datetime.now(timezone.utc) - timedelta(hours=1))
+    assert usage["triage"]["calls"] == 2
+    assert usage["triage"]["errors"] == 1

@@ -351,24 +351,19 @@
             margin-left: auto;
         }
 
-        .digest-look-at {
-            list-style: none;
-            margin: 8px 0 0 0;
-            padding: 0;
-        }
-
-        .digest-item {
-            padding: 4px 0;
-        }
-
-        .digest-item a,
         .digest-vibe a {
             color: var(--color-accent-fg);
         }
 
-        .digest-item-ref,
-        .digest-item-why {
+        .digest-usage {
+            margin: 8px 0 0 0;
             color: var(--color-fg-muted);
+            font-size: 11px;
+        }
+
+        .notification-digest-why {
+            margin-top: 2px;
+            color: var(--color-warning-fg);
             font-size: 12px;
         }
 

@@ -956,6 +956,10 @@ function renderNotificationItem(notif, diffstatContext) {
         ? `<span class="notification-author">by ${escapeHtml(authorLogin)}</span>`
         : '';
     const actionAvailability = getNotificationActionAvailability(notif);
+    const digestWhy = typeof getDigestWhy === 'function' ? getDigestWhy(notif.id) : '';
+    if (digestWhy) {
+        li.classList.add('digest-worth-a-look');
+    }
 
     li.innerHTML = `
         <input
@@ -981,6 +985,7 @@ function renderNotificationItem(notif, diffstatContext) {
                     ${commentBadge}
                 </div>
             </div>
+            ${digestWhy ? `<div class="notification-digest-why">${escapeHtml(digestWhy)}</div>` : ''}
         </div>
         ${renderNotificationActors(notif)}
         <div class="notification-actions-inline">

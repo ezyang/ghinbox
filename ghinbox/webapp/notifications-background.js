@@ -3,8 +3,10 @@
     const panel = document.getElementById('digest-panel');
     let digest = null;
     let digestProfileId = null;
+    let digestWhy = new Map();
     let digestPollTimer = null;
     let backgroundTimer = null;
+    let openAllUrls = [];
 
     function digestUrl(profileId, suffix = '') {
         return `/api/digest/${encodeURIComponent(profileId)}${suffix}`;
@@ -34,10 +36,12 @@
             }
             digest = data;
             digestProfileId = profileId;
+            digestWhy = GhinboxDigest.digestWhyById(data);
         } catch (error) {
             console.error('Failed to load feed digest:', error);
         }
-        renderDigestPanel();
+        // Full render: list rows carry the "worth a look" annotations.
+        render();
         scheduleDigestPoll();
     }
 
@@ -65,22 +69,10 @@
         return item.number ? `${repo}#${item.number}` : repo;
     }
 
-    function renderLookAt(list, lookAt) {
-        list.replaceChildren(
-            ...lookAt.map((item) => {
-                const li = document.createElement('li');
-                li.className = 'digest-item';
-                li.dataset.id = item.id;
-                const ref = document.createElement('span');
-                ref.className = 'digest-item-ref';
-                ref.textContent = [itemLabel(item), item.state].filter(Boolean).join(' · ');
-                const why = document.createElement('div');
-                why.className = 'digest-item-why';
-                why.textContent = item.why || '';
-                li.append(makeLink(item, item.title || item.url), ' ', ref, why);
-                return li;
-            })
-        );
+    function getDigestWhy(notificationId) {
+        return digestProfileId === state.profileId
+            ? digestWhy.get(String(notificationId)) || ''
+            : '';
     }
 
     function renderVibe(container, vibe) {
@@ -120,11 +112,15 @@
         }
         panel.querySelector('.digest-status').textContent =
             GhinboxDigest.formatDigestStatus(current, visible);
-        renderLookAt(panel.querySelector('.digest-look-at'), visible.lookAt);
+        const usage = GhinboxDigest.formatLlmUsage(current.llm_usage);
+        const usageLine = panel.querySelector('.digest-usage');
+        usageLine.textContent = usage;
+        usageLine.hidden = !usage;
         panel.querySelector('.digest-look-at-empty').hidden = visible.lookAt.length > 0;
+        openAllUrls = visible.lookAt.map((item) => item.url).filter(Boolean);
         const openAll = panel.querySelector('.digest-open-all');
-        openAll.hidden = visible.lookAt.length === 0;
-        openAll.dataset.count = String(visible.lookAt.length);
+        openAll.hidden = openAllUrls.length === 0;
+        openAll.textContent = `Open ${openAllUrls.length} worth a look`;
         renderVibe(panel.querySelector('.digest-vibe'), visible.vibe);
         panel.querySelector('.digest-vibe-details').hidden = visible.vibe.length === 0;
     }
@@ -159,10 +155,7 @@
 
     if (panel) {
         panel.querySelector('.digest-open-all').addEventListener('click', () => {
-            const urls = Array.from(panel.querySelectorAll('.digest-look-at a')).map(
-                (link) => link.href
-            );
-            openUrlsInNewTabs(urls);
+            openUrlsInNewTabs(openAllUrls);
         });
         panel.querySelector('.digest-refresh').addEventListener('click', () => {
             withActionContext('Refresh digest', handleDigestRefresh);
@@ -170,6 +163,7 @@
     }
 
     window.refreshDigest = refreshDigest;
+    window.getDigestWhy = getDigestWhy;
     window.renderDigestPanel = renderDigestPanel;
     window.startBackgroundRefresh = startBackgroundRefresh;
     window.backgroundRefreshTick = backgroundTick;

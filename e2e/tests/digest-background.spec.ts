@@ -77,7 +77,9 @@ test.describe('Feed digest and background refresh @sync', () => {
     await openCleanSyncPage(page);
   });
 
-  test('Feed shows the server digest, minus items already done', async ({ page }) => {
+  test('Feed rows flag what is worth a look; the panel shows queue, vibe, and LLM usage', async ({
+    page,
+  }) => {
     const alpha = feedIssue('digest-alpha', 101, 'Alpha regression');
     const beta = feedIssue('digest-beta', 102, 'Beta design question');
     await mockProfileSnapshot(page, {
@@ -87,6 +89,13 @@ test.describe('Feed digest and background refresh @sync', () => {
       page,
       makeDigestPayload({
         counts: { feed_count: 12, direct_count: 2, broadcast_count: 9 },
+        queue_count: 12,
+        llm_usage: {
+          window_hours: 24,
+          triage: { calls: 11 },
+          compose: { calls: 1 },
+          total: { calls: 12, errors: 0, input_tokens: 184000, output_tokens: 9500 },
+        },
         look_at: [
           digestItem(alpha, 'alice asked you directly'),
           { ...digestItem(beta, 'hi'), id: 'already-done', title: 'Gone item' },
@@ -105,19 +114,27 @@ test.describe('Feed digest and background refresh @sync', () => {
 
     const panel = page.locator('#digest-panel');
     await expect(panel).toBeVisible();
-    await expect(panel.locator('.digest-item')).toHaveCount(1);
-    await expect(panel.locator('.digest-item')).toContainText('Alpha regression');
-    await expect(panel.locator('.digest-item')).toContainText('alice asked you directly');
-    await expect(panel).not.toContainText('Gone item');
-    await expect(panel.locator('.digest-status')).toContainText(
-      '1 of 12 worth a look (2 direct, 9 broadcast cc)'
+    // "Look at these" lives in the list itself.
+    await expect(page.locator('[data-id="digest-alpha"] .notification-digest-why')).toHaveText(
+      'alice asked you directly'
     );
+    await expect(page.locator('[data-id="digest-alpha"]')).toHaveClass(/digest-worth-a-look/);
+    await expect(page.locator('[data-id="digest-beta"] .notification-digest-why')).toHaveCount(0);
+    await expect(page.locator('.notification-digest-why')).toHaveCount(1);
+    await expect(panel.locator('.digest-status')).toContainText(
+      '1 worth a look · 12 marked done, queued for the next digest · digest from just now'
+    );
+    await expect(panel.locator('.digest-usage')).toHaveText(
+      'LLM, last 24h: 12 calls (11 triage, 1 compose) · 184k in / 10k out tokens'
+    );
+    await expect(panel.locator('.digest-look-at-empty')).toBeHidden();
     // Vibe prose is text, never HTML.
     await expect(panel.locator('.digest-vibe-theme')).toContainText(
       'Lots of <b>inductor</b> churn this week.'
     );
     await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#102)');
 
+    await expect(panel.locator('.digest-open-all')).toHaveText('Open 1 worth a look');
     await panel.locator('.digest-open-all').click();
     await expect.poll(openedUrls).toEqual([alpha.subject.url]);
 
@@ -152,12 +169,13 @@ test.describe('Feed digest and background refresh @sync', () => {
     await page.reload();
 
     const panel = page.locator('#digest-panel');
-    await expect(panel.locator('.digest-item')).toContainText('Needs you');
+    await expect(page.locator('[data-id="auto-surfaced"] .notification-digest-why')).toHaveText(
+      'worth a look'
+    );
     await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#402)');
     await expect(page.locator('[data-id="auto-done"]')).toHaveCount(0);
-    await expect(panel.locator('.digest-status')).toContainText(
-      '1 of 9 worth a look (0 direct, 7 broadcast cc) · 8 marked done on GitHub'
-    );
+    await expect(panel.locator('.digest-status')).toContainText('1 worth a look');
+    await expect(panel.locator('.digest-usage')).toBeHidden();
     await expect(panel.locator('.digest-status')).toContainText('auto-done failed: HTTP 500');
   });
 

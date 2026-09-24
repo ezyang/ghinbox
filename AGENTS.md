@@ -51,25 +51,32 @@
     tick, every `--snapshot-sync-interval-minutes` (default 15; 0 disables),
     skipping ticks when GitHub rate-limit headroom is low. `--test` disables
     it. Post-sync hooks run after each successful sync.
-  - The rolling Feed digest (`ghinbox/digest/`) is one such hook. It triages
-    new/updated Feed items with an LLM (notes cached per item/updated_at in
-    SQLite), re-composes "Look at these" + "Overall vibe" only when the notes
-    change, and serves it at `GET /api/digest/{profile}` (`POST .../run` to
-    force). Env: `GHINBOX_DIGEST_ENABLED=0` disables it,
-    `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses profiles, and
-    `GHINBOX_DIGEST_MIN_INTERVAL_MINUTES` (default 60) paces post-sync passes,
-    and `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less `pi -p` (Muse)
-    command; it must stay tool-less because prompts carry untrusted GitHub
-    text. Use a `{prompt_file}` argument for CLIs that can't read stdin.
-    Queue classification still comes from the client's UMD modules (run under
-    Node), so server and UI agree on what is Feed.
-  - Digest auto-done: after composing, the worker marks digested Feed items
-    done on GitHub (REST), so the GitHub inbox/mobile app keeps only Replies,
-    reviews, and whatever the digest surfaced. It never marks done items in
-    "Look at these" (sticky once surfaced, until the user handles them), direct
-    replies from humans, or items not yet digested. Auto-done items keep feeding
-    the vibe for `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings
-    an item back through the pipeline. `GHINBOX_DIGEST_AUTO_DONE=0` disables it.
+  - The rolling Feed digest (`ghinbox/digest/`) is one such hook. After every
+    profile sync it triages new/updated Feed items with an LLM (notes cached
+    per item/updated_at in SQLite); "high" attention items become "Look at
+    these" (sticky until the user handles them) and render as annotations on
+    the Feed rows themselves. Composing the "Overall vibe" re-reads every note,
+    so it runs once per `GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS` (default 24)
+    or when the panel's Refresh (`POST /api/digest/{profile}/run`) forces it.
+    Served at `GET /api/digest/{profile}`. Env: `GHINBOX_DIGEST_ENABLED=0`
+    disables it, `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses
+    profiles, and `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less
+    `pi -p --mode json` (Muse) command; it must stay tool-less because prompts
+    carry untrusted GitHub text. Use a `{prompt_file}` argument for CLIs that
+    can't read stdin. Queue classification still comes from the client's UMD
+    modules (run under Node), so server and UI agree on what is Feed.
+  - LLM cost: every triage/compose call is logged to `digest_llm_calls`
+    (tokens from pi's JSON usage, prompt/response size, latency, errors) and
+    summed over the last 24h as `llm_usage` in the digest response and the
+    panel. Use it to tune batch sizes and compose cadence.
+  - Digest auto-done: right after triage, on every sync, the worker marks
+    triaged Feed items done on GitHub (REST), so the GitHub inbox/mobile app
+    keeps only Replies, reviews, and "Look at these". It never marks done
+    surfaced items, direct replies from humans, or untriaged items. Auto-done
+    items wait in the digest queue (`queue_count`, local-only; see SOUL.md)
+    until the next compose, then keep feeding the vibe for
+    `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings an item
+    back through the pipeline. `GHINBOX_DIGEST_AUTO_DONE=0` disables it.
   - The client pulls a newer server snapshot every 5 minutes and when the tab
     becomes visible again (no GitHub calls), skipping it while the user is
     mid-action or when the sync started before the last local mark-done.
