@@ -1060,6 +1060,15 @@ function addTrashNotifications(notifications) {
     state.trashNotifications = state.trashNotifications.concat(additions);
 }
 
+// "N failed: why" for sweep status lines, so a failing clean says why.
+function formatDoneQueueFailures() {
+    const failures = doneQueue.failedResults || [];
+    if (failures.length === 0) {
+        return '';
+    }
+    return `${failures.length} failed: ${failures[0].error || 'Unknown error'}`;
+}
+
 async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options = {}) {
     if (typeof processDoneBatch !== 'function') {
         return notifications;
@@ -1085,9 +1094,9 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     const successfulIds = new Set(doneQueue.successfulIds || []);
     if (successfulIds.size === 0) {
         showStatus(
-            `${syncLabel}: failed to clean Reviews duplicate${duplicates.length === 1 ? '' : 's'}`,
+            `${syncLabel}: failed to clean Reviews duplicate${duplicates.length === 1 ? '' : 's'} (${formatDoneQueueFailures() || 'no details'})`,
             'error',
-            { flash: true }
+            {}
         );
         return notifications;
     }
@@ -1097,10 +1106,11 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     );
     addTrashNotifications(archivedNotifications);
     pushToUndoStack('done', archivedNotifications);
+    const failures = formatDoneQueueFailures();
     showStatus(
-        `${syncLabel}: cleaned ${successfulIds.size} Reviews duplicate${successfulIds.size === 1 ? '' : 's'}`,
-        'success',
-        { flash: true }
+        `${syncLabel}: cleaned ${successfulIds.size} Reviews duplicate${successfulIds.size === 1 ? '' : 's'}${failures ? `; ${failures}` : ''}`,
+        failures ? 'error' : 'success',
+        failures ? {} : { flash: true }
     );
     return notifications.filter(notification => !successfulIds.has(notification.id));
 }
@@ -1155,9 +1165,9 @@ async function autoMarkTrashNotificationsDone(
     const successfulIds = new Set(doneQueue.successfulIds || []);
     if (successfulIds.size === 0) {
         showStatus(
-            `${syncLabel}: failed to clean low-priority notifications`,
+            `${syncLabel}: failed to clean low-priority notifications (${formatDoneQueueFailures() || 'no details'})`,
             'error',
-            { flash: true }
+            {}
         );
         return notifications;
     }
@@ -1167,10 +1177,11 @@ async function autoMarkTrashNotificationsDone(
     );
     addTrashNotifications(archivedNotifications);
     pushToUndoStack('done', archivedNotifications);
+    const failures = formatDoneQueueFailures();
     showStatus(
-        `${syncLabel}: marked ${successfulIds.size} low-priority notification${successfulIds.size === 1 ? '' : 's'} done`,
-        'success',
-        { flash: true }
+        `${syncLabel}: marked ${successfulIds.size} low-priority notification${successfulIds.size === 1 ? '' : 's'} done${failures ? `; ${failures}` : ''}`,
+        failures ? 'error' : 'success',
+        failures ? {} : { flash: true }
     );
     return notifications.filter(notification => !successfulIds.has(notification.id));
 }

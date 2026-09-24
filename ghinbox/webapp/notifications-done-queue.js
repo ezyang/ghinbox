@@ -84,6 +84,16 @@
         queue.failedResults = notifIds.map((id) => ({ id, error }));
     }
 
+    // A "partial" server answer archived some IDs; only the rest failed.
+    function recordBatchPartial(queue, notifIds, successfulIds, error) {
+        const succeeded = new Set(successfulIds);
+        const failedIds = notifIds.filter((id) => !succeeded.has(id));
+        queue.completed = notifIds.length - failedIds.length;
+        queue.successfulIds = notifIds.filter((id) => succeeded.has(id));
+        queue.failed = failedIds.length;
+        queue.failedResults = failedIds.map((id) => ({ id, error }));
+    }
+
     function getProcessedCount(queue) {
         return queue.completed + queue.failed + queue.skipped;
     }
@@ -222,6 +232,7 @@
         isBatchActive,
         processQueue,
         recordBatchFailure,
+        recordBatchPartial,
         recordBatchSuccess,
         recordFailure,
         recordSkipped,

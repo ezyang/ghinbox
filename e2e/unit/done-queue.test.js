@@ -10,6 +10,7 @@ const {
   isBatchActive,
   processQueue,
   recordBatchFailure,
+  recordBatchPartial,
   recordBatchSuccess,
   recordFailure,
   recordSkipped,
@@ -97,6 +98,17 @@ test('recordBatchSuccess and recordBatchFailure cover whole batches', () => {
     { id: 'a', error: 'HTTP 500' },
     { id: 'b', error: 'HTTP 500' },
   ]);
+});
+
+test('recordBatchPartial keeps the IDs the server archived', () => {
+  const queue = createQueue();
+  resetForBatch(queue, 3);
+  recordBatchPartial(queue, ['a', 'b', 'c'], ['c', 'a'], '1 could not be resolved');
+  assert.equal(queue.completed, 2);
+  assert.deepEqual(queue.successfulIds, ['a', 'c']);
+  assert.equal(queue.failed, 1);
+  assert.deepEqual(queue.failedResults, [{ id: 'b', error: '1 could not be resolved' }]);
+  assert.equal(getFinalStatus(queue).message, '2 done, 1 failed: 1 could not be resolved');
 });
 
 test('getProgressStatus suppresses single-item and status-suppressed batches', () => {

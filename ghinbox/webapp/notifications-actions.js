@@ -173,7 +173,13 @@ async function postNotificationHtmlAction({
             if (logLabel) {
                 console.error(`[${logLabel}] Server error: ${error}`);
             }
-            return { success: false, error };
+            const successfulIds = Array.isArray(result.successful_notification_ids)
+                ? result.successful_notification_ids
+                : [];
+            if (persistWatermarks && successfulIds.length > 0) {
+                await persistReadCommentWatermarks(successfulIds, lookup);
+            }
+            return { success: false, error, successfulIds };
         }
 
         if (persistWatermarks) {
@@ -410,10 +416,17 @@ async function processDoneBatch(selectedIds, notificationLookup) {
     GhinboxDoneQueue.resetForBatch(doneQueue, selectedIds.length);
     updateQueueProgress();
 
+    // Synthetic Reviews rows (review-request:owner/repo#N) have no inbox
+    // thread to archive; GitHub cannot resolve them, so finish them locally.
+    const localIds = selectedIds.filter(id =>
+        isSyntheticResponsibilityNotification(notificationLookup?.get(id) || { id })
+    );
+    const threadIds = selectedIds.filter(id => !localIds.includes(id));
+
     try {
-        while (true) {
+        while (threadIds.length > 0) {
             const result = await markNotificationsDoneBatch(
-                selectedIds,
+                threadIds,
                 notificationLookup
             );
 
@@ -428,17 +441,24 @@ async function processDoneBatch(selectedIds, notificationLookup) {
             }
 
             if (result.success) {
-                GhinboxDoneQueue.recordBatchSuccess(doneQueue, selectedIds);
+                GhinboxDoneQueue.recordBatchSuccess(doneQueue, threadIds);
             } else if (result.sessionExpired) {
                 doneQueue.sessionExpired = true;
                 const errorDetail = result.error || 'Stored browser session is expired.';
-                GhinboxDoneQueue.recordBatchFailure(doneQueue, selectedIds, errorDetail);
+                GhinboxDoneQueue.recordBatchFailure(doneQueue, threadIds, errorDetail);
             } else {
                 const errorDetail = result.error || `HTTP ${result.status || 'unknown'}`;
-                GhinboxDoneQueue.recordBatchFailure(doneQueue, selectedIds, errorDetail);
+                GhinboxDoneQueue.recordBatchPartial(
+                    doneQueue,
+                    threadIds,
+                    result.successfulIds || [],
+                    errorDetail
+                );
             }
             break;
         }
+        doneQueue.successfulIds = doneQueue.successfulIds.concat(localIds);
+        doneQueue.completed += localIds.length;
     } finally {
         doneQueue.active = false;
         updateQueueProgress();

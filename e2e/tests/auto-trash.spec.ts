@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 import {
+  makeNotification,
   mockDefaultApiRoutes,
   mockGraphqlReviewMetadata,
+  mockReviewRequests,
 } from './app-fixture';
 import {
   addAuthCacheInitScript,
@@ -608,6 +610,65 @@ test.describe('Low-priority cleanup @mutation', () => {
     expect(bulkCalls).toBeGreaterThanOrEqual(2);
     expect(archivedIds).toEqual(['bot-updated-my-pr']);
     await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+  });
+
+  test('keeps what the server archived when part of the sweep fails, without sending synthetic rows', async ({ page }) => {
+    // Mirrors prod on 2026-09-24: synthetic review-request rows have no inbox
+    // thread, and an org that rejects classic PATs leaves a real thread
+    // unresolvable by REST. The server archives the rest and says "partial".
+    await mockReviewRequests(page, [
+      makeNotification({
+        id: 'review-request:test/repo#20',
+        unread: false,
+        reason: 'review_requested',
+        responsibility_source: 'review-requested',
+        updated_at: '2025-01-08T11:00:00Z',
+        last_read_at: null,
+        subject: { title: 'Closed review request', number: 20, state: 'closed' },
+        ui: { action_tokens: {} },
+      }),
+    ]);
+    const requests: string[][] = [];
+    await page.route('**/notifications/html/action', (route) => {
+      const ids: string[] = route.request().postDataJSON().notification_ids;
+      requests.push(ids);
+      const unresolved = ids.filter(
+        (id) => id.startsWith('review-request:') || id === 'pr-for-others'
+      );
+      const successful = ids.filter((id) => !unresolved.includes(id));
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: successful.length ? 'partial' : 'error',
+          error: `Archived ${successful.length} of ${ids.length} notifications; ${unresolved.length} could not be resolved by REST.`,
+          successful_notification_ids: successful,
+          unresolved_notification_ids: unresolved,
+        }),
+      });
+    });
+
+    await page.locator('#profile-select').selectOption('custom');
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+
+    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
+    expect(requests).toHaveLength(1);
+    expect(requests[0].filter((id) => id.startsWith('review-request:'))).toEqual([]);
+    await expect(page.locator('#view-issues .count')).toHaveText('1');
+    await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const stored = await readNotificationsCache(page);
+        return Array.isArray(stored) ? stored.map((item) => item.id).sort() : null;
+      })
+      .toEqual(['needs-review', 'pr-for-others']);
+
+    await page.locator('#clean-now-btn').click();
+    await expect(page.locator('#status-bar')).toContainText(
+      'Clean now: failed to clean low-priority notifications (1 failed: Archived 0 of 1 notifications; 1 could not be resolved by REST.)'
+    );
+    expect(requests[1]).toEqual(['pr-for-others']);
   });
 
   test('Clean now button cleans low-priority notifications when auto mode is disabled', async ({ page }) => {
