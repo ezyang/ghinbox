@@ -49,7 +49,7 @@ Rules:
 """
 
 
-def _compact(value: Any, limit: int) -> str:
+def compact(value: Any, limit: int) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
@@ -68,6 +68,11 @@ def build_triage_prompt(items: list[dict[str, Any]], current_user: str) -> str:
             "labels": item.get("labels") or [],
             "reply_signals": item.get("reply_signals") or [],
             "comment_count": item.get("comment_count"),
+            **{
+                key: item[key]
+                for key in ("previous_summary", "body", "omitted_comments")
+                if item.get(key)
+            },
             "snippets": item.get("snippets") or [],
         }
         for item in items
@@ -77,6 +82,10 @@ def build_triage_prompt(items: list[dict[str, Any]], current_user: str) -> str:
         "a PyTorch maintainer. These are Feed items: ambient notifications "
         "that were not classified as direct replies or review requests.\n\n"
         + TRIAGE_RULES.format(user=current_user)
+        + "\nEach item carries its body the first time you see it; when it "
+        "comes back with new activity it carries your previous_summary and "
+        "only the comments since then (snippets, oldest first). Judge the "
+        "item as it stands now.\n"
         + "\nFor EVERY item below, return one entry. Respond with ONLY a JSON "
         "object, no prose, of the form:\n"
         '{"items": [{"id": "<id>", "attention": "high|medium|low", '
@@ -130,10 +139,10 @@ def parse_triage_response(
         notes[notification_id] = {
             "updated_at": item.get("updated_at"),
             "attention": attention,
-            "theme": _compact(raw.get("theme"), 60) or "misc",
-            "summary": _compact(raw.get("summary"), 240)
-            or _compact(item.get("title"), 240),
-            "why": _compact(raw.get("why"), 200) if attention != "low" else "",
+            "theme": compact(raw.get("theme"), 60) or "misc",
+            "summary": compact(raw.get("summary"), 240)
+            or compact(item.get("title"), 240),
+            "why": compact(raw.get("why"), 200) if attention != "low" else "",
         }
     for notification_id, item in by_id.items():
         notes.setdefault(
@@ -142,7 +151,7 @@ def parse_triage_response(
                 "updated_at": item.get("updated_at"),
                 "attention": "low",
                 "theme": "misc",
-                "summary": _compact(item.get("title"), 240),
+                "summary": compact(item.get("title"), 240),
                 "why": "",
             },
         )
@@ -167,7 +176,7 @@ def build_compose_prompt(
                     + (" (auto-done)" if note.get("archived_at") else ""),
                     note.get("attention", "low"),
                     note.get("theme", ""),
-                    _compact(item.get("title"), 120),
+                    compact(item.get("title"), 120),
                     note.get("summary", ""),
                     note.get("why", ""),
                 ]
@@ -207,7 +216,7 @@ def parse_compose_response(
     for raw in raw_vibe if isinstance(raw_vibe, list) else []:
         if not isinstance(raw, dict):
             continue
-        text = _compact(raw.get("text"), 1200)
+        text = compact(raw.get("text"), 1200)
         if not text:
             continue
         example_ids = [
@@ -217,7 +226,7 @@ def parse_compose_response(
         ][:MAX_VIBE_EXAMPLES]
         vibe.append(
             {
-                "title": _compact(raw.get("title"), 80),
+                "title": compact(raw.get("title"), 80),
                 "text": text,
                 "example_ids": example_ids,
             }

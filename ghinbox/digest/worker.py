@@ -72,6 +72,13 @@ LLM_TIMEOUT_SECONDS = 600
 PROMPT_FILE_PLACEHOLDER = "{prompt_file}"
 TRIAGE_BATCH_SIZE = 40
 MAX_TRIAGE_BATCHES_PER_RUN = 8
+# Triage context per item: the body on first sight, then the comments posted
+# since the item was last triaged (bots get a shorter excerpt).
+TRIAGE_BODY_CHARS = 800
+TRIAGE_COMMENT_CHARS = 500
+TRIAGE_BOT_COMMENT_CHARS = 160
+TRIAGE_MAX_COMMENTS = 6
+TRIAGE_FIRST_SIGHT_COMMENTS = 4
 # Background composes are paced; the digest panel's Refresh bypasses this.
 DEFAULT_COMPOSE_INTERVAL_HOURS = 24
 # Auto-done items keep feeding the digest (the vibe) for this long after the
@@ -347,6 +354,56 @@ async def _ask_llm(
 class FeedContext:
     items: list[dict[str, Any]]
     summaries: dict[str, dict[str, Any]] = field(default_factory=dict)
+    threads: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _comment_excerpt(comment: dict[str, Any]) -> dict[str, str]:
+    user = comment.get("user") or {}
+    author = str(user.get("login") or "?")
+    is_bot = user.get("type") == "Bot" or author.endswith("[bot]")
+    limit = TRIAGE_BOT_COMMENT_CHARS if is_bot else TRIAGE_COMMENT_CHARS
+    return {
+        "author": author,
+        "at": str(comment.get("created_at") or comment.get("createdAt") or ""),
+        "body": prompts.compact(comment.get("body"), limit),
+    }
+
+
+def build_triage_item(
+    item: dict[str, Any],
+    thread: dict[str, Any] | None,
+    previous: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """What triage sees for one item: new comments since it last looked.
+
+    First sight gets the body plus the latest comments; a re-triage gets the
+    previous summary plus every comment newer than the activity it saw.
+    """
+    comments = [c for c in (thread or {}).get("comments") or [] if isinstance(c, dict)]
+    body = next((c for c in comments if c.get("isIssue")), None)
+    replies = [
+        c
+        for c in comments
+        if not c.get("isIssue") and not c.get("minimized") and c.get("body")
+    ]
+    view = {**item}
+    if previous and previous.get("summary"):
+        seen_until = str(previous.get("updated_at") or "")
+        replies = [
+            c
+            for c in replies
+            if str(c.get("created_at") or c.get("createdAt") or "") > seen_until
+        ]
+        view["previous_summary"] = previous["summary"]
+        limit = TRIAGE_MAX_COMMENTS
+    else:
+        if body and body.get("body"):
+            view["body"] = prompts.compact(body.get("body"), TRIAGE_BODY_CHARS)
+        limit = TRIAGE_FIRST_SIGHT_COMMENTS
+    if comments:
+        view["snippets"] = [_comment_excerpt(c) for c in replies[-limit:]]
+        view["omitted_comments"] = max(0, len(replies) - limit)
+    return view
 
 
 def _thread_author(thread: dict[str, Any]) -> str | None:
@@ -381,6 +438,7 @@ def build_feed_context(
     return FeedContext(
         items=items,
         summaries={nid: item_summary(n) for nid, n in by_id.items()},
+        threads=threads,
     )
 
 
@@ -447,11 +505,17 @@ async def update_digest(
         for start in range(0, len(pending), TRIAGE_BATCH_SIZE)
     ][:MAX_TRIAGE_BATCHES_PER_RUN]
     for batch in batches:
+        views = [
+            build_triage_item(
+                item, context.threads.get(item["id"]), notes.get(item["id"])
+            )
+            for item in batch
+        ]
         response = await _ask_llm(
             profile,
             llm,
             "triage",
-            prompts.build_triage_prompt(batch, user),
+            prompts.build_triage_prompt(views, user),
             len(batch),
         )
         batch_notes = prompts.parse_triage_response(

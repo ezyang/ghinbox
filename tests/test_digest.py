@@ -249,6 +249,70 @@ def test_update_digest_retriages_only_updated_items_and_prunes(db_path: str) -> 
     assert state["counts"]["feed_count"] == 1
 
 
+def _comment(author: str, created_at: str, body: str, **extra) -> dict:
+    return {
+        "user": {"login": author, "type": extra.pop("user_type", "User")},
+        "created_at": created_at,
+        "body": body,
+        **extra,
+    }
+
+
+def test_triage_sees_body_first_then_only_new_comments(db_path: str) -> None:
+    thread = {
+        "comments": [
+            _comment("alice", "2026-09-01T00:00:00Z", "Body text " * 200, isIssue=True),
+            _comment("bob", "2026-09-01T01:00:00Z", "early question"),
+            _comment("spammer", "2026-09-01T02:00:00Z", "hidden", minimized=True),
+            _comment(
+                "pytorch-bot[bot]",
+                "2026-09-01T03:00:00Z",
+                "CI report " * 100,
+                user_type="Bot",
+            ),
+        ]
+    }
+
+    def save(updated_at: str) -> None:
+        save_snapshot(
+            KEY,
+            [_notification("n-1", 1, updated_at)],
+            comment_cache={"version": 1, "threads": {"n-1": thread}},
+            db_path=db_path,
+        )
+
+    def triaged_items(llm: FakeLlm) -> list[dict]:
+        return json.loads(llm.prompts[0].rsplit("\n", 1)[-1])
+
+    save("2026-09-01T03:00:00Z")
+    llm = FakeLlm()
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+    [first] = triaged_items(llm)
+    assert first["body"].startswith("Body text")
+    assert len(first["body"]) == worker.TRIAGE_BODY_CHARS
+    assert "previous_summary" not in first
+    # Minimized comments are dropped; bot comments get a short excerpt.
+    assert [c["author"] for c in first["snippets"]] == ["bob", "pytorch-bot[bot]"]
+    assert len(first["snippets"][1]["body"]) == worker.TRIAGE_BOT_COMMENT_CHARS
+
+    thread["comments"].append(
+        _comment("carol", "2026-09-02T00:00:00Z", "any update on this?")
+    )
+    save("2026-09-02T00:00:00Z")
+    llm = FakeLlm()
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+    [again] = triaged_items(llm)
+    assert "body" not in again
+    assert again["previous_summary"] == "summary of n-1"
+    assert again["snippets"] == [
+        {
+            "author": "carol",
+            "at": "2026-09-02T00:00:00Z",
+            "body": "any update on this?",
+        }
+    ]
+
+
 def test_update_digest_bounds_triage_batches_per_pass(
     db_path: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
