@@ -158,7 +158,7 @@ Options:
   --log-file LOG_FILE    Write JSONL request logs to this file (default: logs/ghinbox.log outside --test).
   --no-request-log       Disable JSONL request logging. Recent in-memory requests remain enabled.
   --snapshot-db-path SNAPSHOT_DB_PATH  Path to SQLite database for server-side notification snapshots.
-  --snapshot-sync-interval-minutes SNAPSHOT_SYNC_INTERVAL_MINUTES  Periodically refresh repos with existing server snapshots. Disabled by default.
+  --snapshot-sync-interval-minutes SNAPSHOT_SYNC_INTERVAL_MINUTES  Refresh every stored snapshot (repos and profiles) in the background at this interval, skipping when GitHub rate-limit headroom is low. 0 disables (default: 5).
   --rate-floor-background RATE_FLOOR_BACKGROUND  Minimum GitHub API remaining quota reserved before background calls are denied (default: 500).
   --rate-floor-interactive RATE_FLOOR_INTERACTIVE  Minimum GitHub API remaining quota reserved before interactive calls are denied (default: 100).
   --rate-request-budget RATE_REQUEST_BUDGET  Maximum outbound GitHub API calls allowed for one inbound request (default: 300).

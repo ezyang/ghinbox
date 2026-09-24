@@ -48,9 +48,12 @@
     with `--no-debug-socket`.
 - Background work (server):
   - The server re-syncs every stored snapshot (repos and profiles), one per
-    tick, every `--snapshot-sync-interval-minutes` (default 15; 0 disables),
+    tick, every `--snapshot-sync-interval-minutes` (default 5; 0 disables),
     skipping ticks when GitHub rate-limit headroom is low. `--test` disables
-    it. Post-sync hooks run after each successful sync.
+    it. Post-sync hooks run after each successful sync. Notification lists
+    are scraped from HTML (no API quota); a steady-state sync spends ~5-20
+    core calls refetching changed comment threads (measured 2026-09-24 from
+    `logs/ghinbox.log`), so the interval is cheap to shorten.
   - The rolling Feed digest (`ghinbox/digest/`) is one such hook. After every
     profile sync it triages new/updated Feed items with an LLM (notes cached
     per item/updated_at in SQLite); "high" attention items become "Look at

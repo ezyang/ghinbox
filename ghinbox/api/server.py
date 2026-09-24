@@ -351,11 +351,11 @@ def main() -> int:
     parser.add_argument(
         "--snapshot-sync-interval-minutes",
         type=float,
-        default=15,
+        default=5,
         help=(
             "Refresh every stored snapshot (repos and profiles) in the "
             "background at this interval, skipping when GitHub rate-limit "
-            "headroom is low. 0 disables (default: 15)."
+            "headroom is low. 0 disables (default: 5)."
         ),
     )
     parser.add_argument(
