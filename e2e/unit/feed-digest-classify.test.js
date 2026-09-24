@@ -130,3 +130,48 @@ test('profile digest routes repositories outside PyTorch orgs out of Feed', () =
   assert.equal(result.classifications[1].is_directed_at_current_user, true);
   assert.equal(result.classifications[1].is_trash, false);
 });
+
+test('feed digest keeps other people PRs the user is participating in', () => {
+  const result = classifyNotifications({
+    currentUserLogin: 'ezyang',
+    notifications: [
+      notification('participating-pr', 'comment'),
+      notification('untouched-pr', 'comment'),
+    ],
+    commentThreads: {
+      'participating-pr': {
+        comments: [
+          {
+            id: 1,
+            created_at: '2026-07-01T12:01:00Z',
+            body: 'This needs a guard for MSVC.',
+            user: { login: 'ezyang' },
+          },
+          {
+            id: 2,
+            created_at: '2026-07-01T12:02:00Z',
+            body: 'Added the guard, PTAL.',
+            user: { login: 'contributor' },
+          },
+        ],
+        stateEvents: [],
+      },
+      'untouched-pr': {
+        comments: [
+          {
+            id: 3,
+            created_at: '2026-07-01T12:01:00Z',
+            body: 'Rebased onto main.',
+            user: { login: 'contributor' },
+          },
+        ],
+        stateEvents: [],
+      },
+    },
+  });
+
+  // Matches the webapp's isNotificationForCurrentUser: a reply after the
+  // user's own comment keeps the PR in the Feed rather than in trash.
+  assert.deepEqual(result.feed_ids, ['participating-pr']);
+  assert.deepEqual(result.trash_ids, ['untouched-pr']);
+});

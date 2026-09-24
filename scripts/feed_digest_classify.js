@@ -105,6 +105,17 @@ function classifyNotifications(payload) {
     routeOutsidePytorchToReplies,
     deps: {
       notificationKey: getNotificationKey,
+      // Mirror notifications-comments.js: without this dep the classifier
+      // falls back to "own PR or @-mention" and trashes every PR the user is
+      // participating in, so the digest never triages or auto-dones them.
+      isNotificationForCurrentUser: (notification) => {
+        const cached = cachedFor(notification);
+        return commentInterest.isNotificationForCurrentUser(notification, {
+          authorLogin: cached?.authorLogin,
+          comments: commentInterest.sortComments(cached?.comments || []),
+          currentUserLogin,
+        });
+      },
       isNotificationDirectedAtCurrentUser: isDirectedAtCurrentUser,
       isNotificationReviewResponsibility: commentStatus.isReviewResponsibility,
       isNotificationApproved: (notification) =>
