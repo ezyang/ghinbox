@@ -7,6 +7,7 @@ function updateRateLimitBox() {
     );
     if (elements.rateLimitSummary) {
         elements.rateLimitSummary.textContent = text;
+        elements.rateLimitSummary.title = text;
     } else {
         elements.rateLimitBox.textContent = text;
     }

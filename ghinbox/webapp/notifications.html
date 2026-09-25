@@ -592,6 +592,15 @@
             gap: 8px;
         }
 
+        /* One line regardless of content: the summary's length changes as
+           rate limits load or fail, and wrapping would reflow the page. */
+        #rate-limit-summary {
+            min-width: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
         .rate-limit-details {
             margin-top: 8px;
             padding-top: 8px;

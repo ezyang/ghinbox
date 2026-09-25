@@ -111,6 +111,35 @@ test.describe('Mobile layout @layout', () => {
     // Actors are hidden on mobile (display: none)
   });
 
+  test('rate limit updates do not reflow the page', async ({ page }) => {
+    const listTop = () => page.evaluate(() =>
+      document.getElementById('notifications-list')!.getBoundingClientRect().top + window.scrollY
+    );
+    await page.evaluate(`{
+      state.rateLimit = null;
+      state.rateLimitError = null;
+      state.graphqlRateLimit = null;
+      state.graphqlRateLimitError = null;
+      updateRateLimitBox();
+    }`);
+    await expect(page.locator('#rate-limit-summary')).toHaveText('Rate limit: core unknown | graphql unknown');
+    const before = await listTop();
+
+    await page.evaluate(`{
+      state.rateLimit = { resources: { core: { remaining: 4987, limit: 5000, reset: 1735300000 } } };
+      state.graphqlRateLimit = { remaining: 4999, limit: 5000, resetAt: '2024-12-27T12:00:00Z' };
+      state.graphqlRateLimitError = 'GraphQL request failed: 502 Bad Gateway from upstream proxy';
+      updateRateLimitBox();
+    }`);
+    await expect(page.locator('#rate-limit-summary')).toContainText('core 4987/5000');
+    expect(await listTop()).toBe(before);
+    // The one-line summary may be truncated; the full text stays available.
+    await expect(page.locator('#rate-limit-summary')).toHaveAttribute(
+      'title',
+      /graphql error: GraphQL request failed: 502 Bad Gateway from upstream proxy/
+    );
+  });
+
   test('avoids horizontal scroll', async ({ page }) => {
     await page.locator('.notification-item').first().click({ position: { x: 8, y: 8 } });
 
