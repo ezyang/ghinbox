@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 import {
   makeNotification,
   makeNotificationsResponse,
+  makeServerSnapshotPayload,
   mockHtmlAction,
+  mockServerSnapshot,
   openNotificationsWithSync,
 } from './app-fixture';
 
@@ -163,5 +165,39 @@ test.describe('Scroll Anchoring @layout', () => {
     // Item 11 should stay in the same position
     const afterY = await getViewportY(page, 'notif-11');
     expect(Math.abs(afterY - beforeY)).toBeLessThan(5);
+  });
+
+  test('server sync with notifications on screen does not reflow the list', async ({ page }) => {
+    // Hold the server sync open so the page stays in its "syncing" state.
+    let releaseSync = () => {};
+    const syncHeld = new Promise<void>((resolve) => { releaseSync = resolve; });
+    await mockServerSnapshot(page, {
+      syncPost: makeServerSnapshotPayload('test/repo', { sync: { status: 'running', mode: 'full' } }),
+      syncPoll: async () => {
+        await syncHeld;
+        return makeServerSnapshotPayload('test/repo', {
+          sync: { status: 'success', mode: 'full' },
+          snapshot: {
+            notifications: largeFixture.notifications,
+            synced_at: '2024-12-27T12:01:00+00:00',
+          },
+        });
+      },
+    });
+
+    const layout = () => page.evaluate(() => ({
+      pageHeight: document.documentElement.scrollHeight,
+      listTop: document.getElementById('notifications-list')!.getBoundingClientRect().top + window.scrollY,
+    }));
+    const before = await layout();
+
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Sync running on server');
+    await expect(page.locator('#loading')).toBeHidden();
+    await expect(page.locator('.notification-item')).toHaveCount(20);
+    expect(await layout()).toEqual(before);
+
+    releaseSync();
+    await expect(page.locator('#sync-btn')).toHaveText('Sync');
   });
 });

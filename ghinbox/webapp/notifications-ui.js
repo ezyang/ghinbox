@@ -1095,8 +1095,6 @@ function getDiffstatHue(total, range) {
 
 // Render the UI
 function render() {
-    // Show/hide loading state
-    elements.loading.className = state.loading ? 'loading visible' : 'loading';
     const syncing = state.loading || state.serverSyncPolls > 0;
     elements.syncBtn.disabled = syncing;
     elements.syncBtn.textContent = syncing ? 'Syncing…' : 'Sync';
@@ -1104,6 +1102,11 @@ function render() {
     // Keep rendering already-applied notifications while async server syncs continue.
     const filteredNotifications = getFilteredNotifications();
     ensureActiveNotification(filteredNotifications);
+
+    // The loading placeholder only stands in for an empty list; showing it
+    // above rendered notifications would push the whole list down and back.
+    const showLoading = state.loading && filteredNotifications.length === 0;
+    elements.loading.className = showLoading ? 'loading visible' : 'loading';
 
     // Show/hide empty state with dynamic message
     const showEmpty =
