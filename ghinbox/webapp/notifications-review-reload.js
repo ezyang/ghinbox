@@ -85,9 +85,6 @@
     }
 
     async function fetchStreamingReviewRequestNotifications(source) {
-        if (!state.currentUserLogin && typeof checkAuth === 'function') {
-            await checkAuth();
-        }
         const payload = await fetchJson(
             GhinboxReviewRequests.buildReviewRequestSearchUrlForSource(source)
         );
@@ -107,6 +104,7 @@
             onNotificationsUpdated: (notifications) => {
                 commitReloadedReviewNotifications(notifications, repo);
             },
+            getLatestNotifications: () => state.notifications,
             clearGraphqlRateLimitErrorOnSuccess: false,
             catchErrors: false,
             requirePullRequestOnRewrite: false,
@@ -171,6 +169,47 @@
         render();
     }
 
+    async function refreshReviewRepo(target, group, syncLabel) {
+        const { repoInfo } = group;
+        const authorPermissions = refreshAuthorPermissionsIncrementally(
+            repoInfo,
+            group.notifications,
+            syncLabel
+        ).catch((error) => {
+            console.error('Review author permission refresh failed:', error);
+            showStatus(
+                `${syncLabel}: author permission check failed: ${error.message || error}`,
+                'error',
+                { flash: true }
+            );
+        });
+        const reviewQueueKeys = new Set(
+            group.notifications
+                .map((notification) =>
+                    getNotificationMatchKeyForRepo(notification, repoInfo)
+                )
+                .filter(Boolean)
+        );
+        await refreshPullRequestStatesIncrementally(
+            target,
+            repoInfo,
+            reviewQueueKeys,
+            syncLabel
+        );
+        const refreshedRepoQueue = getReviewQueueNotifications(state.notifications)
+            .filter((notification) =>
+                GhinboxNotificationIdentity.getRepoInfo(notification)?.fullName ===
+                    repoInfo.fullName
+            );
+        await refreshReviewMetadataIncrementally(
+            target,
+            repoInfo,
+            refreshedRepoQueue,
+            syncLabel
+        );
+        await authorPermissions;
+    }
+
     function updateReloadReviewsButton() {
         reloadReviewsBtn.style.display =
             state?.view === 'others-prs' ? 'inline-flex' : 'none';
@@ -196,12 +235,14 @@
         showStatus(`${syncLabel}: checking review requests assigned to you`, 'info');
 
         try {
-            let reviewRequests = [];
-            for (const source of sources) {
-                const sourceReviewRequests =
-                    await fetchStreamingReviewRequestNotifications(source);
-                reviewRequests.push(...sourceReviewRequests);
+            if (!state.currentUserLogin && typeof checkAuth === 'function') {
+                await checkAuth();
             }
+            // Searches are independent; run them together (a profile has one
+            // per source, and each is a 0.3-1s GitHub search).
+            const reviewRequests = (await Promise.all(
+                sources.map(fetchStreamingReviewRequestNotifications)
+            )).flat();
             let notifications = state.notifications
                 .filter((notification) =>
                     !GhinboxReviewRequests.isSyntheticReviewRequest(notification)
@@ -222,48 +263,18 @@
                 'info'
             );
 
+            // Each repo's refresh is independent, so repos run concurrently;
+            // within a repo, review metadata follows the PR state check so it
+            // skips PRs that turned out to be closed.
             const reviewQueueNotifications = getReviewQueueNotifications(notifications);
-            const authorPermissionPromises = [];
-            for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(reviewQueueNotifications)) {
-                const reviewQueueKeys = new Set(
-                    group.notifications
-                        .map((notification) =>
-                            getNotificationMatchKeyForRepo(notification, group.repoInfo)
-                        )
-                        .filter(Boolean)
-                );
-                authorPermissionPromises.push(
-                    refreshAuthorPermissionsIncrementally(
-                        group.repoInfo,
-                        group.notifications,
-                        syncLabel
-                    ).catch((error) => {
-                        console.error('Review author permission refresh failed:', error);
-                        showStatus(
-                            `${syncLabel}: author permission check failed: ${error.message || error}`,
-                            'error',
-                            { flash: true }
-                        );
-                    })
-                );
-                await refreshPullRequestStatesIncrementally(
-                    target,
-                    group.repoInfo,
-                    reviewQueueKeys,
-                    syncLabel
-                );
+            const repoResults = await Promise.allSettled(
+                GhinboxNotificationIdentity.groupNotificationsByRepo(reviewQueueNotifications)
+                    .map((group) => refreshReviewRepo(target, group, syncLabel))
+            );
+            const failedRepo = repoResults.find((result) => result.status === 'rejected');
+            if (failedRepo) {
+                throw failedRepo.reason;
             }
-
-            const refreshedReviewQueue = getReviewQueueNotifications(state.notifications);
-            for (const group of GhinboxNotificationIdentity.groupNotificationsByRepo(refreshedReviewQueue)) {
-                await refreshReviewMetadataIncrementally(
-                    target,
-                    group.repoInfo,
-                    group.notifications,
-                    syncLabel
-                );
-            }
-            await Promise.all(authorPermissionPromises);
 
             const finalReviewQueue = getReviewQueueNotifications(state.notifications);
             commitReloadedReviewNotifications(state.notifications, target, { renderNow: false });

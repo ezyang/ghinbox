@@ -364,6 +364,10 @@ async function refreshPullRequestStates(
         statusMode = 'summary',
         commitEachBatch = false,
         onNotificationsUpdated = null,
+        // With commitEachBatch, apply each batch to this instead of the
+        // previous batch's result, so concurrent refreshes don't clobber
+        // each other's commits.
+        getLatestNotifications = null,
         clearGraphqlRateLimitErrorOnSuccess = true,
         catchErrors = true,
         requirePullRequestOnRewrite = true,
@@ -433,7 +437,9 @@ async function refreshPullRequestStates(
             });
             if (commitEachBatch && batchUpdates.size) {
                 currentNotifications = applyPullRequestStateUpdates(
-                    currentNotifications,
+                    typeof getLatestNotifications === 'function'
+                        ? getLatestNotifications()
+                        : currentNotifications,
                     batchUpdates,
                     {
                         matchKeys,

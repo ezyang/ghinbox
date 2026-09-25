@@ -435,11 +435,117 @@ test.describe('Reload reviews @sync', () => {
       'PyTorch review',
     ]);
     await expect(page.locator('#status-bar')).toContainText('Reloaded 4 review notifications');
-    expect(seenQueries).toEqual([
-      'org:pytorch',
-      'org:meta-pytorch',
-      'org:google-pytorch',
+    expect([...seenQueries].sort()).toEqual([
       '-org:pytorch -org:meta-pytorch -org:google-pytorch',
+      'org:google-pytorch',
+      'org:meta-pytorch',
+      'org:pytorch',
     ]);
+  });
+
+  test('runs profile review searches and per-repo refreshes concurrently', async ({ page }) => {
+    await openNotificationsWithCachedData(page, {
+      notifications: [],
+      expectedCount: 0,
+    });
+
+    await page.unroute('**/github/graphql').catch(() => undefined);
+
+    // Every search waits until all four have been issued, so a sequential
+    // reload never gets past the first one.
+    const expectedSearches = 4;
+    let searchesStarted = 0;
+    let releaseSearches: () => void = () => undefined;
+    const allSearchesStarted = new Promise<void>((resolve) => {
+      releaseSearches = resolve;
+    });
+    await page.route('**/github/rest/review-requests**', async (route) => {
+      searchesStarted++;
+      if (searchesStarted === expectedSearches) {
+        releaseSearches();
+      }
+      await allSearchesStarted;
+      const query = new URL(route.request().url()).searchParams.get('query') || '';
+      const notifications = query === 'org:pytorch'
+        ? [reviewRequestNotification({ repo: 'pytorch/pytorch', number: 201, title: 'PyTorch review' })]
+        : query.startsWith('-org:pytorch')
+          ? [reviewRequestNotification({ repo: 'acme/widgets', number: 501, title: 'Outside org review' })]
+          : [];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications }),
+      });
+    });
+
+    // Likewise, each repo's GraphQL refresh waits for the other repo's.
+    const graphqlOwners = new Set<string>();
+    let releaseGraphql: () => void = () => undefined;
+    const bothReposQueried = new Promise<void>((resolve) => {
+      releaseGraphql = resolve;
+    });
+    await page.route('**/github/graphql', async (route) => {
+      const body = route.request().postDataJSON() as { variables?: { owner?: string } };
+      const owner = body.variables?.owner;
+      if (owner === 'pytorch' || owner === 'acme') {
+        graphqlOwners.add(owner);
+        if (graphqlOwners.size === 2) {
+          releaseGraphql();
+        }
+        await bothReposQueried;
+      }
+      const pr = owner === 'acme'
+        ? { pr501: { state: 'OPEN', isDraft: true, author: { login: 'carol' } } }
+        : { pr201: { state: 'CLOSED', isDraft: false, author: { login: 'alice' } } };
+      const [key, fields] = Object.entries(pr)[0];
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: { limit: 5000, remaining: 4999, resetAt: '2026-01-03T01:00:00Z' },
+            repository: {
+              [key]: {
+                ...fields,
+                reviewDecision: null,
+                authorAssociation: 'MEMBER',
+                additions: 1,
+                deletions: 1,
+                changedFiles: 1,
+                labels: { nodes: [] },
+              },
+            },
+          },
+        }),
+      });
+    });
+
+    await page.route('**/github/rest/repos/**/collaborators/**/permission', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ permission: 'write' }),
+      })
+    );
+
+    await page.locator('#profile-select').selectOption('pytorch');
+    await viewTab(page, 'others-prs').click();
+
+    await expect(page.locator('#status-bar')).toContainText('Reloaded', { timeout: 10000 });
+    expect(searchesStarted).toBe(expectedSearches);
+    // Both repos' PR state updates survive the concurrent commits.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          state.notifications
+            .filter((n: { id: string }) => n.id.startsWith('review-request:'))
+            .map((n: { id: string; subject: { state: string } }) => `${n.id}=${n.subject.state}`)
+            .sort()
+        )
+      )
+      .toEqual([
+        'review-request:acme/widgets#501=draft',
+        'review-request:pytorch/pytorch#201=closed',
+      ]);
   });
 });
