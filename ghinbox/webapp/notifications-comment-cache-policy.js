@@ -145,6 +145,16 @@
         };
     }
 
+    // Whether the cached thread reflects the notification's latest activity, so
+    // decisions made from it (e.g. trash) can't miss a comment not yet fetched.
+    // Subjects without an issue number have no comments to fetch.
+    function isCommentThreadCurrent(notification, cached) {
+        if (!Number.isInteger(notification?.subject?.number)) {
+            return true;
+        }
+        return Boolean(cached) && cached.notificationUpdatedAt === notification?.updated_at;
+    }
+
     function shouldPrefetchNotificationComments(notification, cached, options = {}) {
         if (!cached) {
             return true;
@@ -382,6 +392,7 @@
         isAuthorLoginFresh,
         isAuthorPermissionFresh,
         isCommentCacheFresh,
+        isCommentThreadCurrent,
         isDiffstatFresh,
         isReviewDecisionFresh,
         isTimestampFresh,

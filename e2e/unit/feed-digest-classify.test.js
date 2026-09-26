@@ -212,6 +212,54 @@ test('feed digest reports real threads for PRs waiting in Reviews as duplicates'
   assert.equal(result.classifications[2].is_review_duplicate, false);
 });
 
+test('feed digest only lets the server sweep trash it has current comments for', () => {
+  const botOnly = (notificationUpdatedAt) => ({
+    authorLogin: 'ezyang',
+    notificationUpdatedAt,
+    comments: [
+      {
+        id: 1,
+        created_at: '2026-07-01T11:59:00Z',
+        body: '### Merge started\nYour change will be merged once all checks pass.',
+        user: { login: 'pytorchmergebot' },
+      },
+    ],
+    stateEvents: [],
+  });
+  const result = classifyNotifications({
+    currentUserLogin: 'ezyang',
+    notifications: [
+      notification('my-pr-current', 'author'),
+      notification('my-pr-stale', 'author'),
+      notification('review-request:test/repo#200', 'review_requested', {
+        responsibility_source: 'review-requested',
+        repository: { full_name: 'test/repo' },
+      }),
+      notification('approved-pr', 'review_requested'),
+    ],
+    commentThreads: {
+      'my-pr-current': botOnly('2026-07-01T12:00:00Z'),
+      // Fetched before the latest activity: the new comment may be human.
+      'my-pr-stale': botOnly('2026-07-01T11:00:00Z'),
+      'review-request:test/repo#200': { reviewDecision: 'APPROVED' },
+      'approved-pr': {
+        notificationUpdatedAt: '2026-07-01T12:00:00Z',
+        reviewDecision: 'APPROVED',
+        comments: [],
+      },
+    },
+  });
+
+  assert.deepEqual(result.trash_ids, [
+    'my-pr-current',
+    'my-pr-stale',
+    'review-request:test/repo#200',
+    'approved-pr',
+  ]);
+  // Synthetic review requests have no inbox thread to mark done.
+  assert.deepEqual(result.sweep_trash_ids, ['my-pr-current', 'approved-pr']);
+});
+
 test('feed digest lists Replies candidates and applies FYI demotions', () => {
   const issue = (id) => notification(id, 'mention', {
     subject: { title: id, type: 'Issue', number: 300, state: 'open' },

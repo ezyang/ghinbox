@@ -9,6 +9,7 @@
 const path = require('node:path');
 
 const webappDir = path.join(__dirname, '..', 'ghinbox', 'webapp');
+const commentCachePolicy = require(path.join(webappDir, 'notifications-comment-cache-policy.js'));
 const commentInterest = require(path.join(webappDir, 'notifications-comment-interest.js'));
 const commentStatus = require(path.join(webappDir, 'notifications-comment-status.js'));
 const filtering = require(path.join(webappDir, 'notifications-filtering.js'));
@@ -191,6 +192,18 @@ function classifyNotifications(payload) {
       .map((classification) => classification.id),
     trash_ids: classifications
       .filter((classification) => classification.is_trash)
+      .map((classification) => classification.id),
+    // Trash the server may mark done unattended: real inbox threads whose
+    // cached comments are current, so an unfetched human reply can't be
+    // mistaken for bot chatter (the webapp hydrates before its sweep too).
+    sweep_trash_ids: classifications
+      .filter((classification, index) =>
+        classification.is_trash &&
+        !classification.is_synthetic_review_request &&
+        commentCachePolicy.isCommentThreadCurrent(
+          notifications[index],
+          cachedFor(notifications[index])
+        ))
       .map((classification) => classification.id),
     // Real threads for PRs waiting in Reviews; the webapp marks these done
     // (cleanNeedsReviewFeedDuplicates) and so does the digest worker.

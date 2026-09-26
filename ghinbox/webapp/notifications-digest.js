@@ -119,6 +119,9 @@
         if (digest.auto_done?.error) {
             parts.push(`auto-done failed: ${digest.auto_done.error}`);
         }
+        if (digest.auto_done?.trash?.error) {
+            parts.push(`trash sweep failed: ${digest.auto_done.trash.error}`);
+        }
         return parts.join(' · ');
     }
 

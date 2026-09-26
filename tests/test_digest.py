@@ -829,6 +829,85 @@ def test_auto_done_marks_threads_for_prs_waiting_in_reviews_without_triage(
     assert set(get_item_notes(PROFILE)) == {"mention-on-6"}
 
 
+def test_auto_done_sweeps_trash_even_when_the_llm_fails(db_path: str) -> None:
+    """Low-priority trash is marked done on the server, no browser needed."""
+
+    def own_pr(nid: str, number: int, fetched_for: str) -> tuple[dict, dict]:
+        n = _notification(nid, number, "2026-09-01T00:00:00Z", reason="author")
+        n["subject"]["type"] = "PullRequest"
+        return n, {
+            "authorLogin": "ezyang",
+            "notificationUpdatedAt": fetched_for,
+            "comments": [
+                {
+                    "id": number,
+                    "created_at": "2026-08-31T23:59:00Z",
+                    "body": "### Merge started\nYour change will be merged soon.",
+                    "user": {"login": "pytorchmergebot"},
+                }
+            ],
+            "stateEvents": [],
+        }
+
+    current, current_thread = own_pr("bot-only", 1, "2026-09-01T00:00:00Z")
+    # Comments fetched before the latest activity: it may be a human reply.
+    stale, stale_thread = own_pr("maybe-human", 2, "2026-08-30T00:00:00Z")
+    synthetic = _notification(
+        "review-request:pytorch/pytorch#3",
+        3,
+        "2026-09-01T00:00:00Z",
+        reason="review_requested",
+        responsibility_source="review-requested",
+    )
+    synthetic["subject"]["type"] = "PullRequest"
+    save_snapshot(
+        KEY,
+        [current, stale, synthetic, _notification("n-4", 4, "2026-09-01T00:00:00Z")],
+        comment_cache={
+            "version": 1,
+            "threads": {
+                "bot-only": current_thread,
+                "maybe-human": stale_thread,
+                synthetic["id"]: {"reviewDecision": "APPROVED"},
+            },
+        },
+        db_path=db_path,
+    )
+
+    async def broken_llm(prompt: str) -> str:
+        raise RuntimeError("LLM down")
+
+    archiver = FakeArchiver()
+    with pytest.raises(RuntimeError, match="LLM down"):
+        asyncio.run(
+            worker.update_digest(
+                PROFILE, llm=broken_llm, archiver=archiver, current_user="ezyang"
+            )
+        )
+    assert archiver.calls == [["bot-only"]]
+
+    # A healthy pass reports the sweep; trash is never triaged.
+    llm = FakeLlm({"n-4": "high"})
+    archiver = FakeArchiver()
+    save_snapshot(
+        KEY,
+        [current, stale, _notification("n-4", 4, "2026-09-01T00:00:00Z")],
+        comment_cache={
+            "version": 1,
+            "threads": {"bot-only": current_thread, "maybe-human": stale_thread},
+        },
+        db_path=db_path,
+    )
+    state = asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+    assert archiver.calls == [["bot-only"]]
+    assert state["auto_done"]["trash"] == {"attempted": 1, "done": 1}
+    assert '"bot-only"' not in "".join(llm.prompts)
+    snapshot_ids = [n["id"] for n in (get_snapshot(KEY) or {})["notifications"]]
+    assert snapshot_ids == ["maybe-human", "n-4"]
+
+
 def test_auto_done_failures_are_reported_and_retried(db_path: str) -> None:
     _save(
         [

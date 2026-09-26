@@ -93,7 +93,11 @@
     items wait in the digest queue (`queue_count`, local-only; see SOUL.md)
     until the next compose, then keep feeding the vibe for
     `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings an item
-    back through the pipeline. `GHINBOX_DIGEST_AUTO_DONE=0` disables it.
+    back through the pipeline. The same pass first marks the classifier's
+    low-priority trash done (bot-only chatter on your PRs, approved/closed
+    noise), mirroring the webapp's post-sync sweep so it runs with no tab
+    open; it skips synthetic rows and items whose snapshot comments predate
+    their latest activity. `GHINBOX_DIGEST_AUTO_DONE=0` disables both.
   - The client pulls a newer server snapshot every 5 minutes and when the tab
     becomes visible again (no GitHub calls), skipping it while the user is
     mid-action or when the sync started before the last local mark-done.

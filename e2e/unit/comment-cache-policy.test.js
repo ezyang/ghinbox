@@ -15,6 +15,7 @@ const {
   isAuthorLoginFresh,
   isAuthorPermissionFresh,
   isCommentCacheFresh,
+  isCommentThreadCurrent,
   isDiffstatFresh,
   isReviewDecisionFresh,
   mergeServerSnapshotCommentCache,
@@ -723,4 +724,29 @@ test('missing issue cache entry records the parse error and preserves metadata',
       authorPermissionFetchedAt: '2026-05-14T09:01:00Z',
     }
   );
+});
+
+test('isCommentThreadCurrent requires a thread fetched at the latest activity', () => {
+  const cases = [
+    { name: 'matching thread', cache: cached(), expected: true },
+    { name: 'no thread', cache: undefined, expected: false },
+    {
+      name: 'thread from older activity',
+      cache: cached({ notificationUpdatedAt: '2026-05-14T10:00:00Z' }),
+      expected: false,
+    },
+    {
+      name: 'nothing to fetch without an issue number',
+      notification: notification('commit', { subject: { type: 'Commit', number: undefined } }),
+      cache: undefined,
+      expected: true,
+    },
+  ];
+  for (const entry of cases) {
+    assert.equal(
+      isCommentThreadCurrent(entry.notification || notification('issue'), entry.cache),
+      entry.expected,
+      entry.name
+    );
+  }
 });

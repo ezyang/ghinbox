@@ -118,6 +118,17 @@ test('formatDigestStatus summarizes look-at, queue, and freshness', () => {
     ),
     'digest from 10m ago · auto-done failed: No GitHub token configured'
   );
+  assert.equal(
+    formatDigestStatus(
+      {
+        ...digest,
+        auto_done: { attempted: 0, done: 0, trash: { attempted: 2, done: 0, error: 'HTTP 500' } },
+      },
+      { lookAt: [], vibe: [] },
+      now
+    ),
+    'digest from 10m ago · trash sweep failed: HTTP 500'
+  );
 });
 
 test('formatLlmUsage reports calls, tokens, cost, and failures', () => {

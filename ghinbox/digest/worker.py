@@ -10,7 +10,9 @@ After every successful profile snapshot sync the worker ingests:
    items it auto-marked done itself: those stay queued for the next compose
    and then feed the digest for the window, and
 4. marks triaged Feed items done on GitHub (auto-done), so the inbox only keeps
-   what needs the user: surfaced items and direct replies from humans.
+   what needs the user: surfaced items and direct replies from humans, and
+5. marks the classifier's low-priority trash done (before any LLM call), the
+   same sweep the webapp runs after a sync, so it happens with no tab open.
 
 Composing the "Overall vibe" re-reads every note, so it runs only once per
 compose interval (default daily) or when the user asks (Refresh).
@@ -379,6 +381,8 @@ class FeedContext:
     threads: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Real threads for PRs waiting in Reviews (not Feed, not Replies).
     review_duplicate_ids: list[str] = field(default_factory=list)
+    # Low-priority trash with current comment data, safe to mark done unseen.
+    trash_ids: list[str] = field(default_factory=list)
     # Rule-based Replies the LLM may demote: {"id", "unread_comment_ids"}.
     reply_candidates: list[dict[str, Any]] = field(default_factory=list)
     notifications: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -521,6 +525,7 @@ def build_feed_context(
         review_duplicate_ids=[
             str(nid) for nid in classified.get("review_duplicate_ids") or []
         ],
+        trash_ids=[str(nid) for nid in classified.get("sweep_trash_ids") or []],
         reply_candidates=list(classified.get("reply_candidates") or []),
         notifications={str(n.get("id")): n for n in notifications},
     )
@@ -626,6 +631,12 @@ async def update_digest(
     context = await asyncio.to_thread(
         build_feed_context, profile, snapshot, user, reply_demotions(checks)
     )
+    # Trash needs no LLM; sweep it first so an LLM outage can't block it.
+    trash_report = (
+        await _sweep_trash(profile, archiver, context.trash_ids)
+        if archiver is not None
+        else None
+    )
     # Demote-only Replies check first, so demoted items are triaged this pass.
     checks, reply_check_error, newly_demoted = await _check_replies(
         profile, llm, context, checks, user
@@ -696,6 +707,8 @@ async def update_digest(
         fields["auto_done"] = await _auto_done(
             profile, archiver, feed_entries, context, now
         )
+        if trash_report:
+            fields["auto_done"]["trash"] = trash_report
 
     archived_entries = [
         (
@@ -749,6 +762,31 @@ async def update_digest(
         snapshot_synced_at=snapshot.get("synced_at"),
         **fields,
     )
+
+
+async def _sweep_trash(
+    profile: str, archiver: Archiver, ids: list[str]
+) -> dict[str, Any] | None:
+    """Mark low-priority trash done, as the webapp's sweep does after a sync.
+
+    Trash is never triaged or digested; it is chatter the user never sees.
+    """
+    if not ids:
+        return None
+    report: dict[str, Any] = {"attempted": len(ids), "done": 0}
+    try:
+        result = await archiver(ids)
+    except Exception as error:
+        logger.exception("Digest trash sweep failed for %s", profile)
+        return {**report, "error": str(error) or error.__class__.__name__}
+    if result is None:
+        return {**report, "error": "No GitHub token configured"}
+    report["done"] = len(
+        [nid for nid in result.successful_notification_ids or [] if nid in ids]
+    )
+    if result.status != "ok":
+        report["error"] = result.error or result.status
+    return report
 
 
 async def _auto_done(
