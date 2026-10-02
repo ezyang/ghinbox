@@ -8,6 +8,7 @@ const {
   buildMissingIssueCommentCacheEntry,
   buildReviewMetadataCacheEntry,
   buildSearchMetadataCacheEntry,
+  getLiveChangesRequestedBy,
   getPendingReviewMetadataNotifications,
   getPreservedCommentMetadata,
   getReviewMetadataNeeds,
@@ -749,4 +750,38 @@ test('isCommentThreadCurrent requires a thread fetched at the latest activity', 
       entry.name
     );
   }
+});
+
+test('live changes requesters exclude re-requested and non-maintainer reviewers', () => {
+  assert.equal(getLiveChangesRequestedBy({ reviewDecision: 'CHANGES_REQUESTED' }), null);
+  assert.deepEqual(
+    getLiveChangesRequestedBy({
+      latestOpinionatedReviews: {
+        nodes: [
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: true, author: { login: 'Maint' } },
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: true, author: { login: 'me' } },
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: false, author: { login: 'driveby' } },
+          { state: 'APPROVED', authorCanPushToRepository: true, author: { login: 'other' } },
+        ],
+      },
+      reviewRequests: {
+        nodes: [{ requestedReviewer: { login: 'ME' } }, { requestedReviewer: {} }],
+      },
+    }),
+    ['Maint']
+  );
+  const entry = buildReviewMetadataCacheEntry(
+    { updated_at: '2025-01-02T00:00:00Z' },
+    {},
+    {
+      reviewDecision: 'CHANGES_REQUESTED',
+      latestOpinionatedReviews: {
+        nodes: [{ state: 'CHANGES_REQUESTED', authorCanPushToRepository: true, author: { login: 'maint' } }],
+      },
+      reviewRequests: { nodes: [] },
+    },
+    { fetchedAt: '2025-01-02T00:00:00Z' }
+  );
+  assert.deepEqual(entry.liveChangesRequestedBy, ['maint']);
+  assert.deepEqual(getPreservedCommentMetadata(entry).liveChangesRequestedBy, ['maint']);
 });

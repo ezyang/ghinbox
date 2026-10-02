@@ -106,6 +106,7 @@
         function isForcedOutsideOrgReply(notification) {
             return isOutsidePytorchProfileNotification(notification) &&
                 !isMutedReviewRequest(notification) &&
+                !isSyntheticResponsibilityNotification(notification) &&
                 !isNotificationReviewQueue(notification);
         }
 
@@ -170,6 +171,12 @@
                 : false;
         }
 
+        function hasLiveChangesRequest(notification) {
+            return deps.hasNotificationLiveChangesRequest
+                ? deps.hasNotificationLiveChangesRequest(notification)
+                : false;
+        }
+
         function getLabelNames(notification) {
             const cached = cachedFor(notification);
             const labels = Array.isArray(cached?.labelNames)
@@ -226,7 +233,8 @@
             if (!isNotificationReviewResponsibility(notification)) {
                 return false;
             }
-            return !isNotificationApproved(notification);
+            return !isNotificationApproved(notification) &&
+                !hasLiveChangesRequest(notification);
         }
 
         function isNotificationForCurrentUser(notification) {
@@ -256,13 +264,21 @@
                 !isReplyDemoted(notification);
         }
 
-        function isNotificationReviewQueue(notification) {
+        // Review requests, whatever their current review state. Metadata
+        // refreshes cover all of these so a re-request can bring one back.
+        function isNotificationReviewQueueCandidate(notification) {
             return notification.subject?.type === 'PullRequest' &&
                 !isMutedReviewRequest(notification) &&
                 (
                     isSyntheticResponsibilityNotification(notification) ||
                     isNotificationReviewResponsibility(notification)
                 );
+        }
+
+        // A PR with a live changes request waits on its author, not on us.
+        function isNotificationReviewQueue(notification) {
+            return isNotificationReviewQueueCandidate(notification) &&
+                !hasLiveChangesRequest(notification);
         }
 
         function getPullRequestKey(notification) {
@@ -478,6 +494,7 @@
             isNotificationOriginPullRequest,
             isMutedReviewRequest,
             isNotificationReviewQueue,
+            isNotificationReviewQueueCandidate,
             isNotificationReviewResponsibility,
             isReplyDemoted,
             isReviewQueueDuplicate,

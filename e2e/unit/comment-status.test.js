@@ -5,6 +5,7 @@ const {
   getUninterestingReason,
   hasUnresolvedApprovalQualificationFailure,
   isApproved,
+  hasLiveChangesRequest,
   isChangesRequested,
   isNeedsReview,
   isReviewResponsibility,
@@ -88,6 +89,31 @@ test('approved review responsibilities are approved instead of needs-review', ()
   assert.equal(isApproved(closed, approved), false);
   assert.equal(isChangesRequested(closed, changes), false);
   assert.equal(isNeedsReview(closed, cached()), false);
+});
+
+test('live changes requests leave needs-review until a re-request', () => {
+  const pr = notification('PullRequest', { reason: 'review_requested' });
+  const live = cached({
+    reviewDecision: 'CHANGES_REQUESTED',
+    liveChangesRequestedBy: ['maint'],
+  });
+  const reRequested = cached({
+    reviewDecision: 'CHANGES_REQUESTED',
+    liveChangesRequestedBy: [],
+  });
+  const unknown = cached({ reviewDecision: 'CHANGES_REQUESTED' });
+  const notBlocking = cached({
+    reviewDecision: 'REVIEW_REQUIRED',
+    liveChangesRequestedBy: ['driveby'],
+  });
+
+  assert.equal(hasLiveChangesRequest(pr, live), true);
+  assert.equal(isNeedsReview(pr, live), false);
+  assert.equal(hasLiveChangesRequest(pr, reRequested), false);
+  assert.equal(isNeedsReview(pr, reRequested), true);
+  assert.equal(hasLiveChangesRequest(pr, unknown), false);
+  assert.equal(hasLiveChangesRequest(pr, notBlocking), false);
+  assert.equal(hasLiveChangesRequest(pr, null), false);
 });
 
 test('submitted approvals are approved even when reviewDecision is not approved', () => {

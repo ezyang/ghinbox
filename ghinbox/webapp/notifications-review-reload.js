@@ -48,10 +48,14 @@
         };
     }
 
-    function getReviewQueueNotifications(notifications) {
+    // Candidates include PRs hidden by a live changes request, so their
+    // metadata refresh can notice a re-request and bring them back.
+    function getReviewQueueNotifications(notifications, { candidates = false } = {}) {
         const classifier = makeNotificationClassifier();
         return notifications.filter((notification) =>
-            classifier.isNotificationReviewQueue(notification)
+            candidates
+                ? classifier.isNotificationReviewQueueCandidate(notification)
+                : classifier.isNotificationReviewQueue(notification)
         );
     }
 
@@ -196,7 +200,7 @@
             reviewQueueKeys,
             syncLabel
         );
-        const refreshedRepoQueue = getReviewQueueNotifications(state.notifications)
+        const refreshedRepoQueue = getReviewQueueNotifications(state.notifications, { candidates: true })
             .filter((notification) =>
                 GhinboxNotificationIdentity.getRepoInfo(notification)?.fullName ===
                     repoInfo.fullName
@@ -266,7 +270,7 @@
             // Each repo's refresh is independent, so repos run concurrently;
             // within a repo, review metadata follows the PR state check so it
             // skips PRs that turned out to be closed.
-            const reviewQueueNotifications = getReviewQueueNotifications(notifications);
+            const reviewQueueNotifications = getReviewQueueNotifications(notifications, { candidates: true });
             const repoResults = await Promise.allSettled(
                 GhinboxNotificationIdentity.groupNotificationsByRepo(reviewQueueNotifications)
                     .map((group) => refreshReviewRepo(target, group, syncLabel))

@@ -240,3 +240,103 @@ test.describe('PR responsibility queue @classification @mutation', () => {
     expect(notificationActionCalled).toBe(false);
   });
 });
+
+test.describe('PR responsibility queue: live changes requests @classification', () => {
+  const liveChangesRequests = [
+    reviewRequestNotification(20, 'Blocked on changes', 'erin', 'https://avatars.githubusercontent.com/u/5?v=4', '2025-01-05T12:00:00Z'),
+    reviewRequestNotification(21, 'Re-requested after my changes', 'frank', 'https://avatars.githubusercontent.com/u/6?v=4', '2025-01-05T11:00:00Z'),
+    reviewRequestNotification(22, 'Drive-by changes request', 'gina', 'https://avatars.githubusercontent.com/u/7?v=4', '2025-01-05T10:00:00Z'),
+  ];
+  const realThreadForBlockedPr = makeNotificationsResponse([
+    makeNotification({
+      id: 'notif-review-20',
+      reason: 'review_requested',
+      updated_at: '2025-01-05T12:30:00Z',
+      subject: { title: 'Blocked on changes', number: 20 },
+      actors: [
+        { login: 'erin', avatar_url: 'https://avatars.githubusercontent.com/u/5?v=4' },
+      ],
+      ui: { action_tokens: TEST_ACTION_TOKENS },
+    }),
+  ]);
+  const prFields = {
+    // Another maintainer asked for changes and has not been re-requested:
+    // the ball is with the author.
+    pr20: {
+      reviewDecision: 'CHANGES_REQUESTED',
+      author: { login: 'erin' },
+      labels: { nodes: [] },
+      latestOpinionatedReviews: {
+        nodes: [
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: true, author: { login: 'maint' } },
+        ],
+      },
+      reviewRequests: {
+        nodes: [{ requestedReviewer: { login: 'testuser' } }],
+      },
+    },
+    // My own changes request, but the author re-requested my review.
+    pr21: {
+      reviewDecision: 'CHANGES_REQUESTED',
+      author: { login: 'frank' },
+      labels: { nodes: [] },
+      latestOpinionatedReviews: {
+        nodes: [
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: true, author: { login: 'testuser' } },
+        ],
+      },
+      reviewRequests: {
+        nodes: [{ requestedReviewer: { login: 'testuser' } }],
+      },
+    },
+    // Changes requested by someone without write access does not block.
+    pr22: {
+      reviewDecision: 'REVIEW_REQUIRED',
+      author: { login: 'gina' },
+      labels: { nodes: [] },
+      latestOpinionatedReviews: {
+        nodes: [
+          { state: 'CHANGES_REQUESTED', authorCanPushToRepository: false, author: { login: 'driveby' } },
+        ],
+      },
+      reviewRequests: {
+        nodes: [{ requestedReviewer: { login: 'testuser' } }],
+      },
+    },
+  };
+
+  test('keeps PRs with a live changes request out of Reviews', async ({ page }) => {
+    await addAuthCacheInitScript(page);
+    await mockDefaultApiRoutes(page, { notifications: realThreadForBlockedPr });
+    await mockReviewRequests(page, liveChangesRequests);
+    await mockGraphqlReviewMetadata(page, prFields);
+    await page.route('**/github/rest/repos/test/repo/collaborators/*/permission', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ permission: 'read', role_name: 'read' }),
+      })
+    );
+    await page.goto('notifications.html');
+    await clearAppStorage(page);
+    await disableAutoClean(page);
+
+    await page.locator('#profile-select').selectOption('custom');
+    await page.locator('#repo-input').fill('test/repo');
+    await page.locator('#sync-btn').click();
+    await expect(page.locator('#status-bar')).toContainText('Synced 4 notifications');
+
+    await viewTab(page, 'others-prs').click();
+    await expect(page.locator('[data-id="review-request:test/repo#21"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#22"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#20"]')).not.toBeAttached();
+    await expect(page.locator('[data-id="notif-review-20"]')).not.toBeAttached();
+    await expect(page.locator('#view-others-prs .count')).toHaveText('2');
+
+    // The real inbox thread is ordinary Feed activity until the author
+    // addresses the changes request.
+    await viewTab(page, 'issues').click();
+    await expect(page.locator('[data-id="notif-review-20"]')).toBeVisible();
+    await expect(page.locator('[data-id="review-request:test/repo#20"]')).not.toBeAttached();
+  });
+});

@@ -130,12 +130,24 @@
         return getReviewDecision(cached) === 'CHANGES_REQUESTED';
     }
 
+    // A maintainer asked for changes and has not been re-requested, so the
+    // PR is waiting on its author, not on another review. A re-request
+    // (including of the current user after their own changes request) clears it.
+    function hasLiveChangesRequest(notification, cached) {
+        if (!isChangesRequested(notification, cached)) {
+            return false;
+        }
+        const liveBy = cached.liveChangesRequestedBy;
+        return Array.isArray(liveBy) && liveBy.length > 0;
+    }
+
     function isNeedsReview(notification, cached) {
         return (
             isOpenPullRequest(notification) &&
             isReviewResponsibility(notification) &&
             !hasMergedogLabel(notification, cached) &&
-            !isApproved(notification, cached)
+            !isApproved(notification, cached) &&
+            !hasLiveChangesRequest(notification, cached)
         );
     }
 
@@ -235,6 +247,7 @@
         hasMergedogLabel,
         isApproved,
         isChangesRequested,
+        hasLiveChangesRequest,
         isNeedsReview,
         isReviewResponsibility,
         isUninteresting,

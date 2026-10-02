@@ -135,6 +135,8 @@ function classifyNotifications(payload) {
         commentStatus.isApproved(notification, cachedFor(notification)),
       isNotificationChangesRequested: (notification) =>
         commentStatus.isChangesRequested(notification, cachedFor(notification)),
+      hasNotificationLiveChangesRequest: (notification) =>
+        commentStatus.hasLiveChangesRequest(notification, cachedFor(notification)),
       getUninterestingReason: (notification) =>
         commentStatus.getUninterestingReason(notification, cachedFor(notification), {
           currentUserLogin,

@@ -78,6 +78,9 @@
             changedFiles: cached?.changedFiles,
             diffstatFetchedAt: cached?.diffstatFetchedAt,
         };
+        if (Array.isArray(cached?.liveChangesRequestedBy)) {
+            preserved.liveChangesRequestedBy = cached.liveChangesRequestedBy;
+        }
         if (Array.isArray(cached?.stateEvents)) {
             preserved.stateEvents = cached.stateEvents;
         }
@@ -245,6 +248,29 @@
             .filter((name) => typeof name === 'string');
     }
 
+    // Maintainers whose changes request still stands: their latest opinionated
+    // review requests changes and they have not been re-requested since. Null
+    // when the response predates these fields.
+    function getLiveChangesRequestedBy(entry) {
+        const reviews = entry?.latestOpinionatedReviews?.nodes;
+        const requests = entry?.reviewRequests?.nodes;
+        if (!Array.isArray(reviews) || !Array.isArray(requests)) {
+            return null;
+        }
+        const requested = new Set(
+            requests
+                .map((request) => String(request?.requestedReviewer?.login || '').toLowerCase())
+                .filter(Boolean)
+        );
+        return reviews
+            .filter((review) =>
+                review?.state === 'CHANGES_REQUESTED' &&
+                review?.authorCanPushToRepository !== false
+            )
+            .map((review) => review?.author?.login)
+            .filter((login) => login && !requested.has(String(login).toLowerCase()));
+    }
+
     function buildReviewMetadataCacheEntry(notification, cached, entry, options = {}) {
         const fetchedAt = options.fetchedAt || new Date().toISOString();
         const labelNames = getReviewMetadataLabelNames(entry, options);
@@ -259,6 +285,7 @@
             labelNames: Array.isArray(labelNames) ? labelNames : cached?.labelNames,
             labelNamesFetchedAt: fetchedAt,
             diffstatFetchedAt: fetchedAt,
+            liveChangesRequestedBy: getLiveChangesRequestedBy(entry),
         };
         if (options.includeDiffstatFields !== false) {
             next.additions = entry?.additions ?? null;
@@ -381,6 +408,7 @@
         buildCommentSuccessCacheEntry,
         buildMissingIssueCommentCacheEntry,
         buildReviewMetadataCacheEntry,
+        getLiveChangesRequestedBy,
         buildSearchMetadataCacheEntry,
         getCommentFetchWindow,
         getCommentCacheThreads,

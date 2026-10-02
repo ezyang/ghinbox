@@ -987,6 +987,9 @@ function makeNotificationClassifier(options = {}) {
             isNotificationChangesRequested: typeof isNotificationChangesRequested === 'function'
                 ? isNotificationChangesRequested
                 : undefined,
+            hasNotificationLiveChangesRequest: typeof hasNotificationLiveChangesRequest === 'function'
+                ? hasNotificationLiveChangesRequest
+                : undefined,
             isNotificationFromCommitter: typeof isNotificationFromCommitter === 'function'
                 ? isNotificationFromCommitter
                 : undefined,

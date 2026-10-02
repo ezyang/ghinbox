@@ -453,7 +453,7 @@ function buildReviewDecisionQuery(issueNumbers) {
     const fields = issueNumbers
         .map(
             (issueNumber) =>
-                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation additions deletions changedFiles author { login } labels(first: 20) { nodes { name } } }`
+                `pr${issueNumber}: pullRequest(number: ${issueNumber}) { reviewDecision authorAssociation additions deletions changedFiles author { login } labels(first: 20) { nodes { name } } latestOpinionatedReviews(first: 20) { nodes { state authorCanPushToRepository author { login } } } reviewRequests(first: 30) { nodes { requestedReviewer { ... on User { login } } } } }`
         )
         .join('\n');
     return `
@@ -996,6 +996,11 @@ function isNotificationApproved(notification) {
 function isNotificationChangesRequested(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
     return COMMENT_STATUS.isChangesRequested(notification, cached);
+}
+
+function hasNotificationLiveChangesRequest(notification) {
+    const cached = state.commentCache.threads[getNotificationKey(notification)];
+    return COMMENT_STATUS.hasLiveChangesRequest(notification, cached);
 }
 
 function isNotificationFromCommitter(notification) {
