@@ -1555,7 +1555,7 @@ class TestLoginRefresh:
         monkeypatch.setattr(login_routes, "NotificationsFetcher", NewFetcher)
         monkeypatch.setattr(login_routes, "run_fetcher_call", fake_run_fetcher_call)
 
-        result = asyncio.run(login_routes._initialize_fetcher_after_login("default"))
+        result = asyncio.run(login_routes.initialize_fetcher_after_login("default"))
 
         assert result is True
         assert calls == [

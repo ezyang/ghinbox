@@ -14,7 +14,11 @@ from fastapi.staticfiles import StaticFiles
 from ghinbox.api.routes import router as notifications_router
 from ghinbox.api.github_proxy import router as github_proxy_router
 from ghinbox.api.local_state_routes import router as local_state_router
-from ghinbox.api.login_routes import router as login_router
+from ghinbox.api.login_routes import (
+    initialize_fetcher_after_login,
+    login_completed_since_needs_auth,
+    router as login_router,
+)
 from ghinbox.api.observability import (
     ObservabilityMiddleware,
     router as observability_router,
@@ -30,6 +34,7 @@ from ghinbox.api.snapshot_routes import (
 from ghinbox.api.snapshot_store import init_snapshot_db
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
 from ghinbox.api.webhook_routes import router as webhook_router
+from ghinbox.auth import DEFAULT_ACCOUNT
 from ghinbox.digest.store import init_digest_db
 from ghinbox.digest.worker import on_snapshot_synced
 from ghinbox.api.fetcher import (
@@ -68,7 +73,11 @@ async def lifespan(app: FastAPI):
     register_post_sync_hook(on_snapshot_synced)
 
     account = os.environ.get("GHINBOX_ACCOUNT")
-    if account:
+    if login_completed_since_needs_auth(account or DEFAULT_ACCOUNT):
+        # Web login finished in a previous worker; this one was respawned by
+        # auto-reload from the parent's stale needs-auth environment.
+        await initialize_fetcher_after_login(account or DEFAULT_ACCOUNT)
+    elif account:
         headless = os.environ.get("GHINBOX_HEADLESS", "1") == "1"
         fetcher = NotificationsFetcher(account=account, headless=headless)
         set_fetcher(fetcher)

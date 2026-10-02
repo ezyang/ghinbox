@@ -31,6 +31,7 @@ from ghinbox.auth import (
     load_username,
     DEFAULT_ACCOUNT,
 )
+from ghinbox.api.login_routes import enter_needs_auth_mode
 from ghinbox.api.rate_governor import (
     DEFAULT_RATE_FLOOR_BACKGROUND,
     DEFAULT_RATE_FLOOR_INTERACTIVE,
@@ -504,7 +505,7 @@ def main() -> int:
                 print(f"No valid auth for account '{account}'.")
                 print("Starting server with web-based login...")
                 print("Visit the server URL to login via browser.")
-                os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+                enter_needs_auth_mode(account)
                 os.environ["GHINBOX_ACCOUNT"] = account
                 os.environ["GHINBOX_HEADLESS"] = "1"
         else:
@@ -547,7 +548,7 @@ def main() -> int:
                             # Headless mode: redirect to web login
                             print("Browser auth is also invalid.")
                             print("Starting server with web-based login...")
-                            os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+                            enter_needs_auth_mode(account)
 
                     if os.environ.get("GHINBOX_NEEDS_AUTH") != "1":
                         print("Re-provisioning token (browser window will open)...")

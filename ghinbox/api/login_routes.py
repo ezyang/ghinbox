@@ -31,6 +31,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
+# The server parent sets GHINBOX_NEEDS_AUTH at startup, but web login can only
+# clear it in the worker; an auto-reload respawns the worker from the parent's
+# env. Recording the auth state's mtime alongside the flag lets a new worker
+# tell that a login has replaced the auth the parent judged invalid.
+NEEDS_AUTH_STATE_MTIME_ENV = "GHINBOX_NEEDS_AUTH_STATE_MTIME"
+
+
+def _auth_state_mtime(account: str) -> float:
+    path = get_auth_state_path(account)
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
+def enter_needs_auth_mode(account: str) -> None:
+    """Mark the server as needing web login for the account's current auth."""
+    os.environ["GHINBOX_NEEDS_AUTH"] = "1"
+    os.environ[NEEDS_AUTH_STATE_MTIME_ENV] = repr(_auth_state_mtime(account))
+
+
+def login_completed_since_needs_auth(account: str) -> bool:
+    """Whether auth state was rewritten after needs-auth mode was entered."""
+    if os.environ.get("GHINBOX_NEEDS_AUTH") != "1":
+        return False
+    recorded = os.environ.get(NEEDS_AUTH_STATE_MTIME_ENV)
+    if recorded is None or not has_valid_auth(account):
+        return False
+    return _auth_state_mtime(account) > float(recorded)
+
 
 # Request/Response Models
 
@@ -516,7 +543,7 @@ async def needs_login() -> dict:
     return {"needs_login": False, "account": account}
 
 
-async def _initialize_fetcher_after_login(account: str) -> bool:
+async def initialize_fetcher_after_login(account: str) -> bool:
     """Initialize the NotificationsFetcher after successful login.
 
     This is called when login completes successfully to set up the fetcher
@@ -525,13 +552,14 @@ async def _initialize_fetcher_after_login(account: str) -> bool:
     Returns:
         True if fetcher was initialized successfully
     """
-    logger.warning("_initialize_fetcher_after_login called for account: %s", account)
+    logger.warning("initialize_fetcher_after_login called for account: %s", account)
 
     # Clear the needs-auth flag FIRST - always do this
     old_needs_auth = os.environ.get("GHINBOX_NEEDS_AUTH")
     if "GHINBOX_NEEDS_AUTH" in os.environ:
         del os.environ["GHINBOX_NEEDS_AUTH"]
         logger.warning("Cleared GHINBOX_NEEDS_AUTH (was: %s)", old_needs_auth)
+    os.environ.pop(NEEDS_AUTH_STATE_MTIME_ENV, None)
 
     # Set the account
     os.environ["GHINBOX_ACCOUNT"] = account
@@ -589,7 +617,7 @@ async def reload_auth() -> dict:
             detail=f"No valid auth state found at {auth_path}. Complete login first.",
         )
 
-    success = await _initialize_fetcher_after_login(account)
+    success = await initialize_fetcher_after_login(account)
 
     # Provision token if missing or invalid
     token_status = "skipped"
