@@ -16,7 +16,9 @@ from ghinbox.api.rate_governor import (
 )
 from ghinbox.api.snapshot_store import (
     get_snapshot_profile,
+    get_sync_state,
     init_snapshot_db,
+    interrupt_orphaned_syncs,
     save_snapshot,
     save_snapshot_profile,
     set_sync_state,
@@ -217,6 +219,35 @@ def test_periodic_sync_refreshes_persisted_profile(
     )
     assert snapshot_routes.run_due_periodic_sync(15 * 60, NOW) is None
     assert len(started) == 1
+
+
+def test_sync_orphaned_by_restart_is_interrupted_and_resynced(
+    db_path: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = _record_started_syncs(monkeypatch)
+    save_snapshot("profile:pytorch", [], db_path=db_path)
+    save_snapshot_profile(
+        "profile:pytorch",
+        [{"kind": "query", "owner": None, "repo": None, "query": "org:pytorch"}],
+        db_path=db_path,
+    )
+    # The previous server process died mid-sync, leaving no task behind.
+    set_sync_state(
+        "profile:pytorch",
+        status="running",
+        phase="notifications",
+        started_at=(NOW - timedelta(days=3)).isoformat(),
+        db_path=db_path,
+    )
+    assert snapshot_routes.run_due_periodic_sync(15 * 60, NOW) is None
+
+    interrupt_orphaned_syncs(db_path)
+
+    state = get_sync_state("profile:pytorch", db_path)
+    assert state["status"] == "error"
+    assert state["error"] == "Interrupted by server restart"
+    assert snapshot_routes.run_due_periodic_sync(15 * 60, NOW) == "profile:pytorch"
+    assert [key for key, _ in started] == ["profile:pytorch"]
 
 
 def test_periodic_sync_starts_one_repo_per_tick(

@@ -748,3 +748,25 @@ def set_sync_state(
     finally:
         conn.close()
     return get_sync_state(repo, db_path)
+
+
+def interrupt_orphaned_syncs(db_path: str | None = None) -> None:
+    """Mark syncs a previous server process left "running" as failed.
+
+    Sync tasks live only in the process that started them, so at startup any
+    "running" row is an orphan (the process was killed or slept mid-sync).
+    Left alone it would block periodic sync forever and keep clients polling.
+    finished_at stays empty so the next periodic tick retries immediately.
+    """
+    conn = _connect(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                UPDATE snapshot_sync_state
+                SET status = 'error', error = 'Interrupted by server restart'
+                WHERE status = 'running'
+                """
+            )
+    finally:
+        conn.close()

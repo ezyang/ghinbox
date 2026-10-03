@@ -31,7 +31,7 @@ from ghinbox.api.snapshot_routes import (
     start_periodic_snapshot_sync,
     stop_periodic_snapshot_sync,
 )
-from ghinbox.api.snapshot_store import init_snapshot_db
+from ghinbox.api.snapshot_store import init_snapshot_db, interrupt_orphaned_syncs
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
 from ghinbox.api.webhook_routes import router as webhook_router
 from ghinbox.auth import DEFAULT_ACCOUNT
@@ -69,6 +69,7 @@ def _get_webapp_dir() -> Path | None:
 async def lifespan(app: FastAPI):
     """Initialize fetcher on startup if account is configured."""
     init_snapshot_db()
+    interrupt_orphaned_syncs()
     init_digest_db()
     register_post_sync_hook(on_snapshot_synced)
 
