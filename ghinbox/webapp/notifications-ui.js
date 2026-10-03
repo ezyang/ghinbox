@@ -974,6 +974,16 @@ function renderNotificationItem(notif, diffstatContext) {
     const demotedWhy = replyDemotion && replyDemotion.updated_at === notif.updated_at
         ? replyDemotion.why || 'FYI'
         : '';
+    const reviewVerdict = state.view === 'others-prs' && typeof getDigestReviewVerdict === 'function'
+        ? GhinboxDigest.describeReviewVerdict(getDigestReviewVerdict(notif))
+        : null;
+    const reviewVerdictHtml = reviewVerdict
+        ? `<div class="notification-review-verdict" data-verdict="${reviewVerdict.verdict}">${
+            reviewVerdict.chips
+                .map((chip) => `<span class="review-bucket" data-bucket="${chip.bucket}">${escapeHtml(chip.label)}</span>`)
+                .join('')
+        }${reviewVerdict.why ? `<span class="review-verdict-why">${escapeHtml(reviewVerdict.why)}</span>` : ''}</div>`
+        : '';
 
     li.innerHTML = `
         <input
@@ -1001,6 +1011,7 @@ function renderNotificationItem(notif, diffstatContext) {
             </div>
             ${digestWhy ? `<div class="notification-digest-why">${escapeHtml(digestWhy)}</div>` : ''}
             ${demotedWhy ? `<div class="notification-reply-demoted">Not a reply: ${escapeHtml(demotedWhy)}</div>` : ''}
+            ${reviewVerdictHtml}
         </div>
         ${renderNotificationActors(notif)}
         <div class="notification-actions-inline">
@@ -1156,6 +1167,7 @@ function render() {
     const viewFilters = state.viewFilters[state.view] || DEFAULT_VIEW_FILTERS[state.view];
     const currentStateFilter = viewFilters.state || 'all';
     const currentAuthorFilter = viewFilters.author || 'all';
+    const currentVerdictFilter = viewFilters.verdict || 'all';
     const currentAudienceFilter = viewFilters.audience || 'all';
     const currentInterestFilter = viewFilters.interest || 'all';
     const currentBookmarkFilter = viewFilters.bookmark || 'all';
@@ -1166,6 +1178,7 @@ function render() {
         const group = tab.closest('.subfilter-tabs')?.dataset.subfilterGroup || 'state';
         const currentSubfilter =
             group === 'author' ? currentAuthorFilter :
+            group === 'verdict' ? currentVerdictFilter :
             group === 'audience' ? currentAudienceFilter :
             group === 'interest' ? currentInterestFilter :
             group === 'bookmark' ? currentBookmarkFilter :

@@ -967,6 +967,9 @@ function makeNotificationClassifier(options = {}) {
         replyDemotions: typeof getDigestReplyDemotions === 'function'
             ? getDigestReplyDemotions()
             : null,
+        reviewVerdicts: typeof getDigestReviewVerdicts === 'function'
+            ? getDigestReviewVerdicts()
+            : null,
         currentUserLogin: state.currentUserLogin,
         commentCache: state.commentCache,
         routeOutsidePytorchToReplies: state.profileId === DEFAULT_PROFILE_ID,

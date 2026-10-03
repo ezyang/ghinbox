@@ -297,3 +297,38 @@ test('feed digest lists Replies candidates and applies FYI demotions', () => {
   assert.deepEqual(after.reply_candidates, before.reply_candidates);
   assert.equal(after.classifications[1].is_reply_demoted, true);
 });
+
+test('feed digest finds External review requests once author permissions are known', () => {
+  const reviewRequest = (number, author, association) =>
+    notification(`review-request:pytorch/pytorch#${number}`, 'review_requested', {
+      responsibility_source: 'review-requested',
+      repository: { full_name: 'pytorch/pytorch' },
+      subject: { title: `PR ${number}`, type: 'PullRequest', number, state: 'open' },
+      actors: [{ login: author }],
+      author_association: association,
+      labels: [],
+    });
+  const notifications = [
+    reviewRequest(1, 'Outsider', 'CONTRIBUTOR'),
+    reviewRequest(2, 'committer', 'MEMBER'),
+    reviewRequest(3, 'newbie', 'FIRST_TIME_CONTRIBUTOR'),
+  ];
+
+  const unknown = classifyNotifications({ currentUserLogin: 'ezyang', notifications });
+  assert.deepEqual(unknown.external_review_ids, []);
+  assert.deepEqual(unknown.author_permission_requests, [
+    { repo: 'pytorch/pytorch', login: 'Outsider' },
+    { repo: 'pytorch/pytorch', login: 'committer' },
+    { repo: 'pytorch/pytorch', login: 'newbie' },
+  ]);
+
+  const known = classifyNotifications({
+    currentUserLogin: 'ezyang',
+    notifications,
+    authorPermissions: { 'pytorch/pytorch': { outsider: 'read', committer: 'write' } },
+  });
+  assert.deepEqual(known.external_review_ids, ['review-request:pytorch/pytorch#1']);
+  assert.deepEqual(known.author_permission_requests, [
+    { repo: 'pytorch/pytorch', login: 'newbie' },
+  ]);
+});

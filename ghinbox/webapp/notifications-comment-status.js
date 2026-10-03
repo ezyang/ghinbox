@@ -36,6 +36,23 @@
         return reason === 'review_requested' || reason === 'approved';
     }
 
+    // The author's repository permission (write/admin = committer), fetched
+    // per author into the comment cache.
+    function hasAuthorPermission(notification, cached) {
+        if (notification?.subject?.type !== 'PullRequest' || !cached || cached.error) {
+            return false;
+        }
+        return Object.prototype.hasOwnProperty.call(cached, 'authorPermission');
+    }
+
+    function isFromCommitter(notification, cached) {
+        if (!hasAuthorPermission(notification, cached)) {
+            return false;
+        }
+        const permission = String(cached.authorPermission || '').toLowerCase();
+        return permission === 'write' || permission === 'admin';
+    }
+
     function getReviewDecision(cached) {
         return String(cached?.reviewDecision || '').toUpperCase();
     }
@@ -245,7 +262,9 @@
         getUninterestingReason,
         hasUnresolvedApprovalQualificationFailure,
         hasMergedogLabel,
+        hasAuthorPermission,
         isApproved,
+        isFromCommitter,
         isChangesRequested,
         hasLiveChangesRequest,
         isNeedsReview,

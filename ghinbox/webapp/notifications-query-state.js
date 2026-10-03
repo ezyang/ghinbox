@@ -11,6 +11,7 @@
         VALID_FEED_TYPE,
         VALID_INTEREST,
         VALID_ORDERS,
+        VALID_VERDICT,
         VALID_VIEWS,
         VIEW_NAMES,
         VIEW_QUERY_KEYS,
@@ -141,6 +142,13 @@
                     (viewName === normalizedView ? legacyAuthor : null);
                 if (authorParam && VALID_AUTHOR.has(authorParam)) {
                     filters[viewName].author = authorParam;
+                    hasFilterParams = true;
+                }
+            }
+            if (config.verdict) {
+                const verdictParam = params.get(config.verdict);
+                if (verdictParam && VALID_VERDICT.has(verdictParam)) {
+                    filters[viewName].verdict = verdictParam;
                     hasFilterParams = true;
                 }
             }

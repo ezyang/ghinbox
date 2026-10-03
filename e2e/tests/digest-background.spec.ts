@@ -10,7 +10,9 @@ import {
   makeProfileServerSnapshotPayload,
   mockDigest,
   mockProfileSnapshot,
+  mockCollaboratorPermission,
   openCleanSyncPage,
+  subfilterTab,
   TEST_ACTION_TOKENS,
   viewTab,
 } from './app-fixture';
@@ -337,6 +339,114 @@ test.describe('Feed digest and background refresh @sync', () => {
     await triggerBackgroundRefresh(page);
     await expect(page.locator('[data-id="bg-fresh"]')).toBeVisible();
     await expect(page.locator('[data-id="bg-done"]')).toHaveCount(0);
+  });
+
+  test('External review requests show the digest verdict; "Worth a look" hides skips', async ({
+    page,
+  }) => {
+    const external = (number: number, title: string) => ({
+      ...reviewRequest(number, title),
+      actors: [{ login: `outsider${number}` }],
+      author_association: 'CONTRIBUTOR',
+    });
+    const easy = external(501, 'Fix fake tensor stride crash');
+    const skipped = external(502, 'Refactor ROCm build flags');
+    const unjudged = external(503, 'Brand new external PR');
+    await mockProfileSnapshot(page, {
+      get: profileSnapshot([easy, skipped, unjudged], '2025-01-05T12:01:00+00:00'),
+    });
+    await page.route('**/github/rest/review-requests**', (route) =>
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications: [easy, skipped, unjudged] }),
+      })
+    );
+    await mockCollaboratorPermission(page, 'read', { repo: 'pytorch/pytorch' });
+    // Comment fetches must succeed: a failed fetch leaves the author unknown.
+    await page.route(/\/github\/rest\/repos\/pytorch\/pytorch\/(issues|pulls)\/50\d\//, (route) =>
+      route.fulfill({ contentType: 'application/json', body: '[]' })
+    );
+    const pullMetadata = (number: number) => ({
+      state: 'OPEN',
+      isDraft: false,
+      reviewDecision: null,
+      authorAssociation: 'CONTRIBUTOR',
+      additions: 3,
+      deletions: 1,
+      changedFiles: 1,
+      author: { login: `outsider${number}` },
+      labels: { nodes: [] },
+    });
+    await page.route('**/github/graphql', (route) =>
+      route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            rateLimit: { limit: 5000, remaining: 4999, resetAt: '2026-01-02T01:00:00Z' },
+            repository: {
+              pr501: pullMetadata(501),
+              pr502: pullMetadata(502),
+              pr503: pullMetadata(503),
+            },
+          },
+        }),
+      })
+    );
+    await mockDigest(
+      page,
+      makeDigestPayload({
+        review_assessments: [
+          {
+            pr: 'pytorch/pytorch#501',
+            id: easy.id,
+            verdict: 'look',
+            buckets: ['easy', 'context'],
+            why: 'Three-line fix with a test in fake_tensor.py',
+          },
+          {
+            pr: 'pytorch/pytorch#502',
+            id: skipped.id,
+            verdict: 'skip',
+            buckets: [],
+            why: 'ROCm build tweak outside your areas',
+          },
+        ],
+      })
+    );
+    await page.reload();
+
+    await viewTab(page, 'others-prs').click();
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 3 review notifications');
+    await subfilterTab(page, 'others-prs', 'external', 'author').click();
+    const easyRow = page.locator(`[data-id="${easy.id}"]`);
+    const skippedRow = page.locator(`[data-id="${skipped.id}"]`);
+    const unjudgedRow = page.locator(`[data-id="${unjudged.id}"]`);
+    await expect(easyRow.locator('.notification-review-verdict')).toHaveAttribute(
+      'data-verdict',
+      'look'
+    );
+    await expect(easyRow.locator('.review-bucket')).toHaveText([
+      'Easy review',
+      'You know this code',
+    ]);
+    await expect(easyRow.locator('.review-verdict-why')).toHaveText(
+      'Three-line fix with a test in fake_tensor.py'
+    );
+    await expect(skippedRow.locator('.notification-review-verdict')).toHaveText(
+      'Skip: ROCm build tweak outside your areas'
+    );
+    await expect(unjudgedRow).toBeVisible();
+    await expect(unjudgedRow.locator('.notification-review-verdict')).toHaveCount(0);
+    await expect(subfilterTab(page, 'others-prs', 'skip', 'verdict').locator('.count')).toHaveText(
+      '1'
+    );
+
+    // Demote-only: the filter hides judged skips, never unjudged PRs.
+    await subfilterTab(page, 'others-prs', 'look', 'verdict').click();
+    await expect(skippedRow).toHaveCount(0);
+    await expect(easyRow).toBeVisible();
+    await expect(unjudgedRow).toBeVisible();
+    await expect(page).toHaveURL(/others_prs_verdict=look/);
   });
 
   test('background pull does not undo a fresher Reviews reload', async ({ page }) => {

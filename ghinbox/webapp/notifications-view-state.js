@@ -36,6 +36,7 @@
         'cleaned': new Set(['all']),
     };
     const VALID_AUTHOR = new Set(['all', 'committer', 'ai', 'external']);
+    const VALID_VERDICT = new Set(['all', 'look', 'skip']);
     const VALID_AUDIENCE = new Set(['all', 'for-you', 'for-others']);
     const VALID_INTEREST = new Set(['all', 'has-new', 'no-new']);
     const VALID_BOOKMARK = new Set(['all', 'new', 'bookmarked']);
@@ -53,6 +54,7 @@
         'others-prs': {
             state: 'all',
             author: 'all',
+            verdict: 'all',
             interest: 'all',
         },
         'cleaned': { state: 'all' },
@@ -88,6 +90,7 @@
         'others-prs': {
             state: 'others_prs_state',
             author: 'others_prs_author',
+            verdict: 'others_prs_verdict',
             interest: 'others_prs_interest',
             order: 'others_prs_order',
         },
@@ -192,6 +195,15 @@
                         { value: 'external', label: 'External' },
                     ],
                 },
+                {
+                    group: 'verdict',
+                    ariaLabel: 'Filter reviews by digest verdict',
+                    allLabel: 'All verdicts',
+                    options: [
+                        { value: 'look', label: 'Worth a look' },
+                        { value: 'skip', label: 'Skip' },
+                    ],
+                },
             ],
         },
         'cleaned': {
@@ -242,6 +254,12 @@
                     normalized[view].author = normalizeSetValue(
                         normalized[view].author,
                         VALID_AUTHOR
+                    );
+                }
+                if ('verdict' in normalized[view]) {
+                    normalized[view].verdict = normalizeSetValue(
+                        normalized[view].verdict,
+                        VALID_VERDICT
                     );
                 }
                 if ('audience' in normalized[view]) {
@@ -372,6 +390,7 @@
         VALID_INTEREST,
         VALID_ORDERS,
         VALID_STATE_BY_VIEW,
+        VALID_VERDICT,
         VALID_VIEWS,
         VIEW_CONFIG,
         VIEW_NAMES,

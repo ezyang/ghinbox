@@ -61,6 +61,48 @@
         return demotions;
     }
 
+    const REVIEW_BUCKET_LABELS = {
+        easy: 'Easy review',
+        context: 'You know this code',
+        important: 'Important',
+    };
+
+    // Muse's verdicts on External review requests: "owner/repo#number"
+    // (lowercase repo, like the classifier's PR key) -> { verdict, buckets, why }.
+    function reviewVerdictsByPr(digest) {
+        const verdicts = new Map();
+        for (const item of digest?.review_assessments || []) {
+            if (!item || !item.pr || !item.verdict) {
+                continue;
+            }
+            verdicts.set(String(item.pr).toLowerCase(), {
+                verdict: item.verdict,
+                buckets: (item.buckets || []).filter((bucket) => REVIEW_BUCKET_LABELS[bucket]),
+                why: item.why || '',
+            });
+        }
+        return verdicts;
+    }
+
+    // What a Reviews row shows for a verdict: bucket chips for "look", a
+    // muted reason for "skip", nothing when Muse could not decide.
+    function describeReviewVerdict(entry) {
+        if (entry?.verdict === 'look') {
+            return {
+                verdict: 'look',
+                chips: entry.buckets.map((bucket) => ({
+                    bucket,
+                    label: REVIEW_BUCKET_LABELS[bucket],
+                })),
+                why: entry.why,
+            };
+        }
+        if (entry?.verdict === 'skip') {
+            return { verdict: 'skip', chips: [], why: entry.why ? `Skip: ${entry.why}` : 'Skip' };
+        }
+        return null;
+    }
+
     function shouldShowDigestPanel({ view, digest, visible }) {
         if (view !== 'issues' || !digest || digest.enabled === false) {
             return false;
@@ -116,6 +158,9 @@
         if (digest.reply_check_error) {
             parts.push(`reply check failed: ${digest.reply_check_error}`);
         }
+        if (digest.reviews?.error) {
+            parts.push(`review check failed: ${digest.reviews.error}`);
+        }
         if (digest.auto_done?.error) {
             parts.push(`auto-done failed: ${digest.auto_done.error}`);
         }
@@ -141,7 +186,7 @@
         if (!total || !total.calls) {
             return '';
         }
-        const kinds = ['triage', 'reply_check', 'compose']
+        const kinds = ['triage', 'reply_check', 'review', 'compose']
             .filter((kind) => usage[kind]?.calls)
             .map((kind) => `${usage[kind].calls} ${kind.replace('_', ' ')}`);
         const parts = [
@@ -216,6 +261,8 @@
         selectVisibleDigest,
         digestWhyById,
         replyDemotionsById,
+        reviewVerdictsByPr,
+        describeReviewVerdict,
         shouldShowDigestPanel,
         formatDigestStatus,
         formatLlmUsage,

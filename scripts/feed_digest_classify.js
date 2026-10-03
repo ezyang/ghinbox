@@ -13,6 +13,7 @@ const commentCachePolicy = require(path.join(webappDir, 'notifications-comment-c
 const commentInterest = require(path.join(webappDir, 'notifications-comment-interest.js'));
 const commentStatus = require(path.join(webappDir, 'notifications-comment-status.js'));
 const filtering = require(path.join(webappDir, 'notifications-filtering.js'));
+const reviewRequests = require(path.join(webappDir, 'notifications-review-requests.js'));
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -52,6 +53,7 @@ function normalizeInput(payload) {
       currentUserLogin: '',
       routeOutsidePytorchToReplies: false,
       replyDemotions: {},
+      authorPermissions: {},
     };
   }
 
@@ -67,17 +69,62 @@ function normalizeInput(payload) {
     routeOutsidePytorchToReplies: Boolean(payload?.routeOutsidePytorchToReplies),
     // id -> updated_at of Replies candidates the LLM judged FYI.
     replyDemotions: payload?.replyDemotions || {},
+    // repo (lowercase owner/name) -> author login (lowercase) -> permission,
+    // fetched by the digest worker for review requests.
+    authorPermissions: payload?.authorPermissions || {},
   };
+}
+
+// The server snapshot's threads lack what the webapp's Reviews reload adds:
+// search metadata on synthetic review requests (seedSearchMetadataCache) and
+// the author's repository permission (prefetchAuthorPermissions). Fill those
+// in so External review requests classify as they do in the browser. Changed
+// threads are also stored under the webapp's notification key, which is how
+// the classifier itself looks threads up.
+function withReviewMetadata(notifications, commentThreads, authorPermissions) {
+  const threads = { ...commentThreads };
+  for (const notification of notifications) {
+    if (notification?.subject?.type !== 'PullRequest') {
+      continue;
+    }
+    const original = getThread(commentThreads, notification);
+    let thread = original;
+    if (
+      reviewRequests.isSyntheticReviewRequest(notification) &&
+      !thread?.authorLogin
+    ) {
+      thread = commentCachePolicy.buildSearchMetadataCacheEntry(notification, thread || {});
+    }
+    const login = String(thread?.authorLogin || '').toLowerCase();
+    const repo = filtering.getNotificationRepositoryFullName(notification);
+    const permission = authorPermissions?.[repo]?.[login];
+    if (login && typeof permission === 'string' && thread?.authorPermission === undefined) {
+      thread = { ...thread, authorPermission: permission };
+    }
+    if (thread !== original) {
+      threads[getNotificationKey(notification)] = thread;
+      if (notification.id) {
+        threads[notification.id] = thread;
+      }
+    }
+  }
+  return threads;
 }
 
 function classifyNotifications(payload) {
   const {
     notifications,
-    commentThreads,
+    commentThreads: snapshotThreads,
     currentUserLogin,
     routeOutsidePytorchToReplies,
     replyDemotions,
+    authorPermissions,
   } = normalizeInput(payload);
+  const commentThreads = withReviewMetadata(
+    notifications,
+    snapshotThreads,
+    authorPermissions
+  );
   const directedCache = new Map();
 
   function cachedFor(notification) {
@@ -137,6 +184,10 @@ function classifyNotifications(payload) {
         commentStatus.isChangesRequested(notification, cachedFor(notification)),
       hasNotificationLiveChangesRequest: (notification) =>
         commentStatus.hasLiveChangesRequest(notification, cachedFor(notification)),
+      isNotificationFromCommitter: (notification) =>
+        commentStatus.isFromCommitter(notification, cachedFor(notification)),
+      hasNotificationAuthorPermission: (notification) =>
+        commentStatus.hasAuthorPermission(notification, cachedFor(notification)),
       getUninterestingReason: (notification) =>
         commentStatus.getUninterestingReason(notification, cachedFor(notification), {
           currentUserLogin,
@@ -163,6 +214,25 @@ function classifyNotifications(payload) {
         .getUnreadComments(notification, interestOptions(notification))
         .map((comment) => comment.id),
     }));
+
+  function authorPermissionRequests(classifier) {
+    const requests = new Map();
+    for (const notification of notifications) {
+      if (
+        !classifier.matchesView(notification, 'others-prs') ||
+        !classifier.isNotificationNeedsReview(notification) ||
+        !classifier.needsAuthorPermission(notification)
+      ) {
+        continue;
+      }
+      const login = String(cachedFor(notification)?.authorLogin || '');
+      const repo = filtering.getNotificationRepositoryFullName(notification);
+      if (login && repo) {
+        requests.set(`${repo}#${login.toLowerCase()}`, { repo, login });
+      }
+    }
+    return Array.from(requests.values());
+  }
 
   const classifications = notifications.map((notification) => {
     const id = notification?.id || getNotificationKey(notification);
@@ -213,6 +283,13 @@ function classifyNotifications(payload) {
       .filter((classification) => classification.is_review_duplicate)
       .map((classification) => classification.id),
     reply_candidates: replyCandidates,
+    // Reviews > Needs review > External, for the digest's review check.
+    external_review_ids: notifications
+      .filter((notification) => classifier.isExternalReviewCandidate(notification))
+      .map((notification) => notification?.id || getNotificationKey(notification)),
+    // Authors whose permission would decide whether a waiting review request
+    // is External; the worker fetches these and classifies again.
+    author_permission_requests: authorPermissionRequests(classifier),
     classifications,
   };
 }

@@ -1,7 +1,9 @@
 """SQLite cache for the background feed digest.
 
 Mostly a disposable, rebuildable view (SOUL.md axiom 1): deleting these tables
-costs the LLM calls needed to re-triage the current Feed and re-check Replies. The one exception is
+costs the LLM calls needed to re-triage the current Feed, re-check Replies and
+re-assess External review requests (plus the GitHub calls for their PR files
+and author permissions). The one exception is
 the digest queue: notes for items the worker already marked done on GitHub but
 has not composed into a digest yet. Losing them only drops ambient items from
 the next "Overall vibe" (see SOUL.md).
@@ -43,6 +45,20 @@ def init_digest_db(db_path: str | None = None) -> None:
                     why TEXT NOT NULL,
                     checked_at TEXT NOT NULL,
                     PRIMARY KEY (profile, notification_id)
+                );
+                CREATE TABLE IF NOT EXISTS digest_review_assessments (
+                    profile TEXT NOT NULL,
+                    pr_key TEXT NOT NULL,
+                    assessment TEXT NOT NULL,
+                    assessed_at TEXT NOT NULL,
+                    PRIMARY KEY (profile, pr_key)
+                );
+                CREATE TABLE IF NOT EXISTS digest_author_permissions (
+                    repo TEXT NOT NULL,
+                    login TEXT NOT NULL,
+                    permission TEXT NOT NULL,
+                    fetched_at TEXT NOT NULL,
+                    PRIMARY KEY (repo, login)
                 );
                 CREATE TABLE IF NOT EXISTS digest_state (
                     profile TEXT PRIMARY KEY,
@@ -235,6 +251,122 @@ def save_reply_checks(
                     for row in rows
                     if row["notification_id"] not in keep_ids
                 ],
+            )
+    finally:
+        conn.close()
+
+
+def get_review_assessments(
+    profile: str, db_path: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Return ``{pr_key: assessment}`` for External review requests."""
+    conn = connect_snapshot_db(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT pr_key, assessment FROM digest_review_assessments
+            WHERE profile = ?
+            """,
+            (profile,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {row["pr_key"]: json.loads(row["assessment"]) for row in rows}
+
+
+def save_review_assessments(
+    profile: str,
+    assessments: dict[str, dict[str, Any]],
+    keep_keys: set[str],
+    db_path: str | None = None,
+) -> None:
+    """Upsert assessments by PR key and drop those outside ``keep_keys``."""
+    now = utc_now_iso()
+    conn = connect_snapshot_db(db_path)
+    try:
+        with conn:
+            conn.executemany(
+                """
+                INSERT INTO digest_review_assessments (
+                    profile, pr_key, assessment, assessed_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(profile, pr_key) DO UPDATE SET
+                    assessment = excluded.assessment,
+                    assessed_at = excluded.assessed_at
+                """,
+                [
+                    (profile, pr_key, json.dumps(assessment), now)
+                    for pr_key, assessment in assessments.items()
+                ],
+            )
+            rows = conn.execute(
+                "SELECT pr_key FROM digest_review_assessments WHERE profile = ?",
+                (profile,),
+            ).fetchall()
+            conn.executemany(
+                """
+                DELETE FROM digest_review_assessments
+                WHERE profile = ? AND pr_key = ?
+                """,
+                [
+                    (profile, row["pr_key"])
+                    for row in rows
+                    if row["pr_key"] not in keep_keys
+                ],
+            )
+    finally:
+        conn.close()
+
+
+def get_author_permissions(
+    max_age: timedelta,
+    now: datetime | None = None,
+    db_path: str | None = None,
+) -> dict[str, dict[str, str]]:
+    """Return ``{repo: {login: permission}}`` fetched within ``max_age``."""
+    now = now or datetime.now(timezone.utc)
+    cutoff = (now - max_age).astimezone(timezone.utc).isoformat()
+    conn = connect_snapshot_db(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT repo, login, permission FROM digest_author_permissions
+            WHERE fetched_at >= ?
+            """,
+            (cutoff,),
+        ).fetchall()
+    finally:
+        conn.close()
+    permissions: dict[str, dict[str, str]] = {}
+    for row in rows:
+        permissions.setdefault(row["repo"], {})[row["login"]] = row["permission"]
+    return permissions
+
+
+def save_author_permission(
+    repo: str,
+    login: str,
+    permission: str,
+    now: datetime | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Cache one author's permission (keys lowercased, like the classifier's)."""
+    fetched_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    conn = connect_snapshot_db(db_path)
+    try:
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO digest_author_permissions (
+                    repo, login, permission, fetched_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(repo, login) DO UPDATE SET
+                    permission = excluded.permission,
+                    fetched_at = excluded.fetched_at
+                """,
+                (repo.lower(), login.lower(), permission, fetched_at.isoformat()),
             )
     finally:
         conn.close()

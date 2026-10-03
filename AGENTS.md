@@ -77,6 +77,21 @@
     delegated @claude tasks and forced outside-org replies are never
     candidates; with no verdict, or when the LLM fails, items stay in
     Replies.
+  - Review screen (`ghinbox/digest/reviews.py`): after triage, the worker
+    asks the LLM (`review` calls, batches of 4) which of the user's buckets
+    each Reviews > Needs review > External PR fits: `easy`, `context` (code
+    the user knows), `important`; none = "skip". The rubric is
+    `ghinbox/digest/review_rubric.md` (override with
+    `GHINBOX_REVIEW_RUBRIC_FILE`); editing it re-judges every PR. External
+    needs author permissions, which the worker fetches and caches for 7 days
+    (`digest_author_permissions`) and then reclassifies with the shared JS
+    classifier. Each changed PR costs one `/pulls/N` read; only a new head
+    SHA also fetches `/pulls/N/files` (patches) and calls the LLM. Verdicts
+    live in `digest_review_assessments`, are served as `review_assessments`,
+    and render as chips on Reviews rows; the "Worth a look" filter hides
+    only "skip" verdicts (demote-only, unjudged PRs stay). Failures land in
+    `reviews.error` and never break the Feed digest.
+    `GHINBOX_DIGEST_REVIEWS=0` disables it.
   - Reviews duplicates: a real thread for a PR waiting in Reviews shows in
     neither Feed nor Replies; the client's duplicate cleanup and the digest
     worker mark it done.

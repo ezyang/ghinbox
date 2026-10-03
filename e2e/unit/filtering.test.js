@@ -97,14 +97,18 @@ test('normalizes persisted legacy and partial view filters', () => {
     state: 'all',
     author: 'external',
     interest: 'all',
+    verdict: 'all',
   });
   assert.deepEqual(normalizeViewFilters({ 'others-prs': { author: 'ai' } })['others-prs'], {
     state: 'all',
     author: 'ai',
     interest: 'all',
+    verdict: 'all',
   });
   assert.equal(normalizeViewFilters({ 'others-prs': 'closed' })['others-prs'].state, 'done');
   assert.equal(normalizeViewFilters({ 'others-prs': { state: 'draft' } })['others-prs'].state, 'done');
+  assert.equal(normalizeViewFilters({ 'others-prs': { verdict: 'bogus' } })['others-prs'].verdict, 'all');
+  assert.equal(normalizeViewFilters({ 'others-prs': { verdict: 'look' } })['others-prs'].verdict, 'look');
 });
 
 test('classifies notifications into view counts', () => {
@@ -241,6 +245,43 @@ test('computes subfilter counts after cross-filters', () => {
     ai: 1,
     external: 0,
   });
+  // No digest verdicts yet: nothing is skipped.
+  assert.deepEqual(counts.verdict, { all: 6, look: 6, skip: 0 });
+});
+
+test('digest review verdicts hide only skipped PRs under "Worth a look"', () => {
+  const pr = (id, number) => notification(id, 'PullRequest', 'open', 'review_requested', {
+    repository: { full_name: 'PyTorch/PyTorch' },
+    subject: { type: 'PullRequest', state: 'open', title: id, number },
+  });
+  const notifications = [pr('looked', 1), pr('skipped', 2), pr('unjudged', 3)];
+  const reviewVerdicts = new Map([
+    ['pytorch/pytorch#1', { verdict: 'look', buckets: ['easy'], why: 'tiny fix' }],
+    ['pytorch/pytorch#2', { verdict: 'skip', buckets: [], why: 'drive-by' }],
+  ]);
+  const deps = {
+    ...baseDeps,
+    isNotificationFromCommitter: () => false,
+    hasNotificationAuthorPermission: () => true,
+  };
+  const reviews = (verdict) => input({
+    notifications,
+    view: 'others-prs',
+    viewFilters: normalizeViewFilters({ 'others-prs': { verdict } }),
+    reviewVerdicts,
+    deps,
+  });
+
+  assert.deepEqual(ids(getFilteredNotifications(reviews('all'))), ['looked', 'skipped', 'unjudged']);
+  assert.deepEqual(ids(getFilteredNotifications(reviews('look'))), ['looked', 'unjudged']);
+  assert.deepEqual(ids(getFilteredNotifications(reviews('skip'))), ['skipped']);
+  const counts = getSubfilterCounts(reviews('look'));
+  assert.deepEqual(counts.verdict, { all: 3, look: 2, skip: 1 });
+  assert.equal(counts.author.external, 2);
+  assert.equal(
+    makeClassifier({ reviewVerdicts, deps }).getReviewVerdict(notifications[1]).why,
+    'drive-by'
+  );
 });
 
 test('computes feed interest subfilter counts', () => {

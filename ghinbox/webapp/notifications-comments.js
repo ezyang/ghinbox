@@ -1018,26 +1018,13 @@ function hasNotificationLiveChangesRequest(notification) {
 }
 
 function isNotificationFromCommitter(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return false;
-    }
-    const permission = String(cached.authorPermission || '').toLowerCase();
-    return permission === 'write' || permission === 'admin';
+    return COMMENT_STATUS.isFromCommitter(notification, cached);
 }
 
 function hasNotificationAuthorPermission(notification) {
-    if (notification.subject?.type !== 'PullRequest') {
-        return false;
-    }
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    if (!cached || cached.error) {
-        return false;
-    }
-    return Object.prototype.hasOwnProperty.call(cached, 'authorPermission');
+    return COMMENT_STATUS.hasAuthorPermission(notification, cached);
 }
 
 function isUninterestingComment(comment) {

@@ -6,6 +6,8 @@ const {
   formatLlmUsage,
   isClientBusy,
   replyDemotionsById,
+  reviewVerdictsByPr,
+  describeReviewVerdict,
   selectVisibleDigest,
   shouldApplyBackgroundSnapshot,
   shouldShowDigestPanel,
@@ -209,6 +211,29 @@ test('replyDemotionsById keys FYI verdicts by id and the judged updated_at', () 
     ['a', { updated_at: '2026-09-23T10:00:00Z', why: 'thanks only' }],
   ]);
   assert.equal(replyDemotionsById(null).size, 0);
+});
+
+test('reviewVerdictsByPr keys verdicts by PR and describes them for Reviews rows', () => {
+  const verdicts = reviewVerdictsByPr({
+    review_assessments: [
+      { pr: 'PyTorch/PyTorch#1', verdict: 'look', buckets: ['context', 'bogus'], why: 'symbolic shapes' },
+      { pr: 'pytorch/pytorch#2', verdict: 'skip', buckets: [], why: '' },
+      { pr: 'pytorch/pytorch#3' },
+    ],
+  });
+  assert.deepEqual([...verdicts.keys()], ['pytorch/pytorch#1', 'pytorch/pytorch#2']);
+  assert.deepEqual(describeReviewVerdict(verdicts.get('pytorch/pytorch#1')), {
+    verdict: 'look',
+    chips: [{ bucket: 'context', label: 'You know this code' }],
+    why: 'symbolic shapes',
+  });
+  assert.deepEqual(describeReviewVerdict(verdicts.get('pytorch/pytorch#2')), {
+    verdict: 'skip',
+    chips: [],
+    why: 'Skip',
+  });
+  assert.equal(describeReviewVerdict(null), null);
+  assert.equal(reviewVerdictsByPr(null).size, 0);
 });
 
 test('formatDigestStatus reports demoted replies and reply check failures', () => {

@@ -12,13 +12,16 @@ After every successful profile snapshot sync the worker ingests:
 4. marks triaged Feed items done on GitHub (auto-done), so the inbox only keeps
    what needs the user: surfaced items and direct replies from humans, and
 5. marks the classifier's low-priority trash done (before any LLM call), the
-   same sweep the webapp runs after a sync, so it happens with no tab open.
+   same sweep the webapp runs after a sync, so it happens with no tab open, and
+6. screens External review requests (``reviews.py``): which ones fit the
+   user's "worth a look" buckets, judged from the PR text and diff.
 
 Composing the "Overall vibe" re-reads every note, so it runs only once per
 compose interval (default daily) or when the user asks (Refresh).
 
-Auto-done is the only GitHub call made here; otherwise the cost is LLM calls,
-bounded per run and logged per call (``digest_llm_calls``). New activity on an
+Auto-done and the review screen's PR/permission reads are the only GitHub
+calls made here; otherwise the cost is LLM calls, bounded per run and logged
+per call (``digest_llm_calls``). New activity on an
 auto-done item brings it back to the inbox and through the pipeline again.
 """
 
@@ -41,7 +44,7 @@ from ghinbox.api.fetcher import ActionResult
 from ghinbox.api.notification_shapes import utc_now_iso
 from ghinbox.api.snapshot_store import get_snapshot
 from ghinbox.auth_common import load_username
-from ghinbox.digest import prompts
+from ghinbox.digest import prompts, reviews
 from ghinbox.digest.feed import (
     DEFAULT_CURRENT_USER,
     build_report_items,
@@ -52,6 +55,7 @@ from ghinbox.digest.feed import (
     routes_outside_pytorch_to_replies,
 )
 from ghinbox.digest.store import (
+    get_author_permissions,
     get_item_notes,
     get_reply_checks,
     prune_item_notes,
@@ -386,6 +390,10 @@ class FeedContext:
     # Rule-based Replies the LLM may demote: {"id", "unread_comment_ids"}.
     reply_candidates: list[dict[str, Any]] = field(default_factory=list)
     notifications: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Reviews > Needs review > External, for the review screen.
+    external_review_ids: list[str] = field(default_factory=list)
+    # Authors whose (uncached) permission decides if a review is External.
+    author_permission_requests: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _comment_excerpt(comment: dict[str, Any]) -> dict[str, str]:
@@ -499,6 +507,7 @@ def build_feed_context(
     snapshot: dict[str, Any],
     current_user: str,
     demotions: dict[str, str] | None = None,
+    author_permissions: dict[str, dict[str, str]] | None = None,
 ) -> FeedContext:
     notifications = snapshot.get("notifications") or []
     threads = (snapshot.get("comment_cache") or {}).get("threads") or {}
@@ -508,6 +517,7 @@ def build_feed_context(
         current_user,
         route_outside_pytorch_to_replies=routes_outside_pytorch_to_replies(profile),
         reply_demotions=demotions,
+        author_permissions=author_permissions,
     )
     feed_ids = {str(nid) for nid in classified["feed_ids"]}
     feed = [n for n in notifications if str(n.get("id", "")) in feed_ids]
@@ -528,6 +538,12 @@ def build_feed_context(
         trash_ids=[str(nid) for nid in classified.get("sweep_trash_ids") or []],
         reply_candidates=list(classified.get("reply_candidates") or []),
         notifications={str(n.get("id")): n for n in notifications},
+        external_review_ids=[
+            str(nid) for nid in classified.get("external_review_ids") or []
+        ],
+        author_permission_requests=list(
+            classified.get("author_permission_requests") or []
+        ),
     )
 
 
@@ -615,10 +631,12 @@ async def update_digest(
     current_user: str | None = None,
     now: datetime | None = None,
     force_compose: bool = False,
+    review_fetcher: reviews.ReviewFetcher | None = None,
 ) -> dict[str, Any]:
     """Run one ingest (triage + auto-done) pass, composing if due or forced.
 
     ``archiver`` marks items done on GitHub; None disables auto-done.
+    ``review_fetcher`` reads PRs for the review screen; None disables it.
     """
     user = current_user or digest_current_user()
     now = now or datetime.now(timezone.utc)
@@ -628,8 +646,18 @@ async def update_digest(
     state = update_digest_state(profile, status="running", started_at=utc_now_iso())
 
     checks = get_reply_checks(profile)
+    permissions = (
+        get_author_permissions(reviews.PERMISSION_MAX_AGE, now)
+        if review_fetcher is not None
+        else None
+    )
     context = await asyncio.to_thread(
-        build_feed_context, profile, snapshot, user, reply_demotions(checks)
+        build_feed_context,
+        profile,
+        snapshot,
+        user,
+        reply_demotions(checks),
+        permissions,
     )
     # Trash needs no LLM; sweep it first so an LLM outage can't block it.
     trash_report = (
@@ -643,7 +671,12 @@ async def update_digest(
     )
     if newly_demoted:
         context = await asyncio.to_thread(
-            build_feed_context, profile, snapshot, user, reply_demotions(checks)
+            build_feed_context,
+            profile,
+            snapshot,
+            user,
+            reply_demotions(checks),
+            permissions,
         )
     demoted = reply_demotions(checks)
     feed_ids = {item["id"] for item in context.items}
@@ -709,6 +742,13 @@ async def update_digest(
         )
         if trash_report:
             fields["auto_done"]["trash"] = trash_report
+    fields["reviews"] = (
+        await _screen_reviews(
+            profile, llm, review_fetcher, context, snapshot, user, now
+        )
+        if review_fetcher is not None
+        else None
+    )
 
     archived_entries = [
         (
@@ -761,6 +801,69 @@ async def update_digest(
         counts=counts,
         snapshot_synced_at=snapshot.get("synced_at"),
         **fields,
+    )
+
+
+async def _screen_reviews(
+    profile: str,
+    llm: LlmRunner,
+    fetcher: reviews.ReviewFetcher,
+    context: FeedContext,
+    snapshot: dict[str, Any],
+    current_user: str,
+    now: datetime,
+) -> dict[str, Any]:
+    """Judge External review requests; failures never break the Feed digest.
+
+    Whether a review request is External depends on its author's permission,
+    so uncached authors are looked up first and the snapshot reclassified.
+    """
+    try:
+        fetched, error = 0, None
+        if context.author_permission_requests:
+            fetched, error = await reviews.refresh_author_permissions(
+                context.author_permission_requests, fetcher, now
+            )
+            if fetched:
+                context = await asyncio.to_thread(
+                    build_feed_context,
+                    profile,
+                    snapshot,
+                    current_user,
+                    reply_demotions(get_reply_checks(profile)),
+                    get_author_permissions(reviews.PERMISSION_MAX_AGE, now),
+                )
+
+        async def ask(prompt: str, item_count: int) -> str:
+            return await _ask_llm(profile, llm, "review", prompt, item_count)
+
+        report = await reviews.assess_reviews(
+            profile,
+            ask,
+            fetcher,
+            context.notifications,
+            context.threads,
+            context.external_review_ids,
+            current_user,
+            now,
+        )
+    except Exception as exc:
+        logger.exception("Digest review screen failed for %s", profile)
+        return {"error": str(exc) or exc.__class__.__name__}
+    report["permissions_fetched"] = fetched
+    report["permissions_pending"] = len(context.author_permission_requests)
+    report["error"] = report.get("error") or error
+    return report
+
+
+def _has_more_reviews(state: dict[str, Any]) -> bool:
+    """Whether another pass would make review-screen progress."""
+    report = state.get("reviews") or {}
+    if report.get("error"):
+        return False
+    return bool(
+        (report.get("pending") and report.get("progress"))
+        or (report.get("permissions_pending") and report.get("permissions_fetched"))
     )
 
 
@@ -843,7 +946,10 @@ _compose_requested: set[str] = set()
 
 
 async def _run_until_drained(
-    profile: str, llm: LlmRunner, archiver: Archiver | None
+    profile: str,
+    llm: LlmRunner,
+    archiver: Archiver | None,
+    review_fetcher: reviews.ReviewFetcher | None = None,
 ) -> None:
     try:
         while True:
@@ -851,7 +957,11 @@ async def _run_until_drained(
             force_compose = profile in _compose_requested
             try:
                 state = await update_digest(
-                    profile, llm=llm, archiver=archiver, force_compose=force_compose
+                    profile,
+                    llm=llm,
+                    archiver=archiver,
+                    force_compose=force_compose,
+                    review_fetcher=review_fetcher,
                 )
             except Exception as error:
                 _compose_requested.discard(profile)
@@ -867,7 +977,11 @@ async def _run_until_drained(
                 _compose_requested.discard(profile)
             # Large backlogs drain across passes (bounded batches per pass);
             # a sync that landed mid-run also earns another pass.
-            if not state.get("pending_count") and profile not in _rerun_requested:
+            if (
+                not state.get("pending_count")
+                and not _has_more_reviews(state)
+                and profile not in _rerun_requested
+            ):
                 return
     finally:
         _running.pop(profile, None)
@@ -879,11 +993,14 @@ def schedule_digest_update(
     llm: LlmRunner | None = None,
     archiver: Archiver | None = None,
     force_compose: bool = False,
+    review_fetcher: reviews.ReviewFetcher | None = None,
 ) -> bool:
     """Start (or queue another pass of) the digest worker for ``profile``.
 
     ``force_compose`` recomposes once the queue drains, even if not due.
-    Without an explicit ``archiver``, auto-done follows ``GHINBOX_DIGEST_AUTO_DONE``.
+    Without an explicit ``archiver``, auto-done follows ``GHINBOX_DIGEST_AUTO_DONE``;
+    without a ``review_fetcher``, the review screen follows
+    ``GHINBOX_DIGEST_REVIEWS``.
     """
     if force_compose:
         _compose_requested.add(profile)
@@ -893,8 +1010,10 @@ def schedule_digest_update(
         return False
     if archiver is None and auto_done_enabled():
         archiver = archive_on_github
+    if review_fetcher is None and reviews.reviews_enabled():
+        review_fetcher = reviews.GitHubReviewFetcher()
     _running[profile] = asyncio.create_task(
-        _run_until_drained(profile, llm or run_llm, archiver)
+        _run_until_drained(profile, llm or run_llm, archiver, review_fetcher)
     )
     return True
 

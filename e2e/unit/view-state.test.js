@@ -29,6 +29,7 @@ test('normalizeViewFilters accepts legacy strings and normalizes invalid values'
     state: 'done',
     author: 'all',
     interest: 'has-new',
+    verdict: 'all',
   });
   assert.deepEqual(filters['pr-notifications'], {
     state: 'all',

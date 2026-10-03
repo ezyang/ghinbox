@@ -66,6 +66,18 @@
         return match ? `${match[1]}/${match[2]}`.toLowerCase() : '';
     }
 
+    // "owner/repo#number" (lowercase repo); digest review verdicts use it too.
+    function getPullRequestKey(notification) {
+        if (notification?.subject?.type !== 'PullRequest') {
+            return '';
+        }
+        const number = notification.subject.number;
+        const repository = getNotificationRepositoryFullName(notification);
+        return typeof number === 'number' && repository
+            ? `${repository}#${number}`
+            : '';
+    }
+
     function isPytorchCoreNotification(notification) {
         return EXTERNAL_REVIEW_REPOSITORIES.has(
             getNotificationRepositoryFullName(notification)
@@ -97,6 +109,11 @@
         const replyDemotions = options.replyDemotions instanceof Map
             ? options.replyDemotions
             : new Map(Object.entries(options.replyDemotions || {}));
+        // Muse's verdicts on External review requests, keyed by
+        // "owner/repo#number": { verdict: 'look' | 'skip' | ..., buckets, why }.
+        const reviewVerdicts = options.reviewVerdicts instanceof Map
+            ? options.reviewVerdicts
+            : new Map(Object.entries(options.reviewVerdicts || {}));
 
         function isOutsidePytorchProfileNotification(notification) {
             return routeOutsidePytorchToReplies &&
@@ -281,17 +298,6 @@
                 !hasLiveChangesRequest(notification);
         }
 
-        function getPullRequestKey(notification) {
-            if (notification?.subject?.type !== 'PullRequest') {
-                return '';
-            }
-            const number = notification.subject.number;
-            const repository = getNotificationRepositoryFullName(notification);
-            return typeof number === 'number' && repository
-                ? `${repository}#${number}`
-                : '';
-        }
-
         function getReviewQueuePullRequestKeys() {
             if (reviewQueuePullRequestKeys === null) {
                 reviewQueuePullRequestKeys = new Set();
@@ -343,6 +349,28 @@
                 return false;
             }
             return !isNotificationFromCommitter(notification);
+        }
+
+        // External PRs need the author's permission; the background digest
+        // fetches it for review requests that lack one.
+        function needsAuthorPermission(notification) {
+            return notification.subject?.type === 'PullRequest' &&
+                isPytorchCoreNotification(notification) &&
+                !hasNotificationAuthorPermission(notification);
+        }
+
+        // What Reviews > Needs review > External lists; the digest asks
+        // Muse whether each is worth the user's time.
+        function isExternalReviewCandidate(notification) {
+            return matchesView(notification, 'others-prs') &&
+                isNotificationNeedsReview(notification) &&
+                !isNotificationFromAiAuthor(notification) &&
+                isNotificationFromExternal(notification);
+        }
+
+        function getReviewVerdict(notification) {
+            const key = getPullRequestKey(notification);
+            return (key && reviewVerdicts.get(key)) || null;
         }
 
         function isNotificationImportant(notification) {
@@ -476,9 +504,11 @@
         return {
             cachedFor,
             getNotificationSize,
+            getReviewVerdict,
             getUninterestingReason,
             hasNotificationAuthorPermission,
             isCommitNotification,
+            isExternalReviewCandidate,
             isForcedOutsideOrgReply,
             isMyPr,
             isNotificationApproved,
@@ -501,6 +531,7 @@
             isSyntheticResponsibilityNotification,
             isTrashNotification,
             matchesView,
+            needsAuthorPermission,
         };
     }
 
@@ -547,6 +578,24 @@
             }
             if (authorFilter === 'external') {
                 return !isAiAuthor && classifier.isNotificationFromExternal(notif);
+            }
+            return true;
+        });
+    }
+
+    // Demote-only: "Worth a look" hides only what Muse judged skippable, so a
+    // PR it has not assessed (or could not) is never hidden.
+    function applyVerdictFilter(notifications, verdictFilter, classifier) {
+        if (verdictFilter === 'all') {
+            return notifications;
+        }
+        return notifications.filter((notif) => {
+            const skipped = classifier.getReviewVerdict(notif)?.verdict === 'skip';
+            if (verdictFilter === 'look') {
+                return !skipped;
+            }
+            if (verdictFilter === 'skip') {
+                return skipped;
             }
             return true;
         });
@@ -635,6 +684,7 @@
 
         if (view === 'others-prs') {
             filtered = applyAuthorFilter(filtered, filters.author || 'all', classifier);
+            filtered = applyVerdictFilter(filtered, filters.verdict || 'all', classifier);
         }
 
         if (view === 'pr-notifications') {
@@ -724,6 +774,7 @@
                     approved: 0,
                 },
                 author: { all: 0, committer: 0, ai: 0, external: 0 },
+                verdict: { all: 0, look: 0, skip: 0 },
                 audience: { all: 0, 'for-you': 0, 'for-others': 0 },
                 interest: {
                     all: trashNotifications.length,
@@ -746,6 +797,7 @@
         const filters = input.viewFilters?.[view] || DEFAULT_VIEW_FILTERS[view] || {};
         const stateFilter = filters.state || 'all';
         const authorFilter = filters.author || 'all';
+        const verdictFilter = filters.verdict || 'all';
         const audienceFilter = filters.audience || 'all';
         const bookmarkFilter = filters.bookmark || 'new';
         const interestFilter = filters.interest || 'all';
@@ -765,6 +817,7 @@
             ai: 0,
             external: 0,
         };
+        const verdictCounts = { all: 0, look: 0, skip: 0 };
         const audienceCounts = {
             all: 0,
             'for-you': 0,
@@ -782,10 +835,25 @@
         };
 
         const baseForStateCounts = view === 'others-prs'
-            ? applyAuthorFilter(viewNotifications, authorFilter, classifier)
+            ? applyVerdictFilter(
+                applyAuthorFilter(viewNotifications, authorFilter, classifier),
+                verdictFilter,
+                classifier
+            )
             : viewNotifications;
         const baseForAuthorCounts = view === 'others-prs'
-            ? applyStateFilter(viewNotifications, stateFilter, classifier)
+            ? applyVerdictFilter(
+                applyStateFilter(viewNotifications, stateFilter, classifier),
+                verdictFilter,
+                classifier
+            )
+            : [];
+        const baseForVerdictCounts = view === 'others-prs'
+            ? applyAuthorFilter(
+                applyStateFilter(viewNotifications, stateFilter, classifier),
+                authorFilter,
+                classifier
+            )
             : [];
         const baseForAudienceCounts = view === 'pr-notifications'
             ? applyStateFilter(viewNotifications, stateFilter, classifier)
@@ -829,6 +897,14 @@
                     authorCounts.external++;
                 }
             });
+            verdictCounts.all = baseForVerdictCounts.length;
+            baseForVerdictCounts.forEach((notif) => {
+                if (classifier.getReviewVerdict(notif)?.verdict === 'skip') {
+                    verdictCounts.skip++;
+                } else {
+                    verdictCounts.look++;
+                }
+            });
         }
 
         if (view === 'pr-notifications') {
@@ -869,6 +945,7 @@
         let baseForInterestCounts = applyStateFilter(viewNotifications, stateFilter, classifier);
         if (view === 'others-prs') {
             baseForInterestCounts = applyAuthorFilter(baseForInterestCounts, authorFilter, classifier);
+            baseForInterestCounts = applyVerdictFilter(baseForInterestCounts, verdictFilter, classifier);
         }
         if (view === 'pr-notifications') {
             baseForInterestCounts = applyAudienceFilter(baseForInterestCounts, audienceFilter, classifier);
@@ -890,6 +967,7 @@
         return {
             state: stateCounts,
             author: authorCounts,
+            verdict: verdictCounts,
             audience: audienceCounts,
             bookmark: bookmarkCounts,
             type: typeCounts,
@@ -907,8 +985,11 @@
         applyFeedTypeFilter,
         applyInterestFilter,
         applyStateFilter,
+        applyVerdictFilter,
         cloneDefaultViewFilters,
         getFilteredNotifications,
+        getNotificationRepositoryFullName,
+        getPullRequestKey,
         isNotificationOutsidePytorchOrgs,
         isPytorchCoreNotification,
         getSubfilterCounts,

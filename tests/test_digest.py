@@ -41,6 +41,8 @@ def db_path(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GHINBOX_SNAPSHOT_DB_PATH", path)
     # Tests opt into auto-done explicitly with a fake archiver.
     monkeypatch.setenv("GHINBOX_DIGEST_AUTO_DONE", "0")
+    # The review screen reads GitHub; its tests pass a fake fetcher.
+    monkeypatch.setenv("GHINBOX_DIGEST_REVIEWS", "0")
     init_snapshot_db(path)
     init_digest_db(path)
     yield path

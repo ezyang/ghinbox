@@ -12,6 +12,7 @@ from ghinbox.digest.store import (
     get_item_notes,
     get_llm_usage,
     get_reply_checks,
+    get_review_assessments,
 )
 from ghinbox.digest.worker import (
     digest_profiles,
@@ -82,6 +83,23 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         ),
         key=lambda item: item["id"],
     )
+    # Verdicts on External review requests, keyed like the client's PR key.
+    # The worker prunes PRs that left Reviews, so this is the current set.
+    review_assessments = sorted(
+        (
+            {
+                "pr": pr_key,
+                "id": assessment.get("notification_id"),
+                "verdict": assessment.get("verdict"),
+                "buckets": assessment.get("buckets") or [],
+                "why": assessment.get("why") or "",
+                "summary": assessment.get("summary") or "",
+            }
+            for pr_key, assessment in get_review_assessments(profile).items()
+            if assessment.get("verdict") in ("look", "skip")
+        ),
+        key=lambda item: item["pr"],
+    )
     running = is_digest_running(profile)
     return {
         "profile": profile,
@@ -105,6 +123,8 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         },
         "look_at": look_at,
         "reply_demotions": reply_demotions,
+        "reviews": state.get("reviews"),
+        "review_assessments": review_assessments,
         "vibe": vibe,
     }
 

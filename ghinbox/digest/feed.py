@@ -40,11 +40,14 @@ def classify_notifications(
     *,
     route_outside_pytorch_to_replies: bool = False,
     reply_demotions: dict[str, str] | None = None,
+    author_permissions: dict[str, dict[str, str]] | None = None,
 ) -> dict:
     """Classify notifications by shelling out to the webapp's JS classifier.
 
     ``reply_demotions`` maps Replies candidates the LLM judged FYI to the
     ``updated_at`` it judged; the classifier moves those to the Feed.
+    ``author_permissions`` (``{repo: {login: permission}}``, lowercase keys)
+    lets it tell External review requests from committers' ones.
     """
     node = shutil.which("node")
     if not node:
@@ -58,6 +61,7 @@ def classify_notifications(
         "currentUserLogin": current_user,
         "routeOutsidePytorchToReplies": route_outside_pytorch_to_replies,
         "replyDemotions": reply_demotions or {},
+        "authorPermissions": author_permissions or {},
     }
     try:
         result = subprocess.run(

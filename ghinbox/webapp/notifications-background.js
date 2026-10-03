@@ -5,6 +5,7 @@
     let digestProfileId = null;
     let digestWhy = new Map();
     let replyDemotions = new Map();
+    let reviewVerdicts = new Map();
     let digestPollTimer = null;
     let backgroundTimer = null;
     let openAllUrls = [];
@@ -39,6 +40,7 @@
             digestProfileId = profileId;
             digestWhy = GhinboxDigest.digestWhyById(data);
             replyDemotions = GhinboxDigest.replyDemotionsById(data);
+            reviewVerdicts = GhinboxDigest.reviewVerdictsByPr(data);
         } catch (error) {
             console.error('Failed to load feed digest:', error);
         }
@@ -79,6 +81,16 @@
 
     function getDigestReplyDemotions() {
         return digestProfileId === state.profileId ? replyDemotions : new Map();
+    }
+
+    // Muse's verdicts on External review requests, keyed by PR key.
+    function getDigestReviewVerdicts() {
+        return digestProfileId === state.profileId ? reviewVerdicts : new Map();
+    }
+
+    function getDigestReviewVerdict(notification) {
+        const key = GhinboxFiltering.getPullRequestKey(notification);
+        return (key && getDigestReviewVerdicts().get(key)) || null;
     }
 
     function renderVibe(container, vibe) {
@@ -171,6 +183,8 @@
     window.refreshDigest = refreshDigest;
     window.getDigestWhy = getDigestWhy;
     window.getDigestReplyDemotions = getDigestReplyDemotions;
+    window.getDigestReviewVerdicts = getDigestReviewVerdicts;
+    window.getDigestReviewVerdict = getDigestReviewVerdict;
     window.renderDigestPanel = renderDigestPanel;
     window.startBackgroundRefresh = startBackgroundRefresh;
     window.backgroundRefreshTick = backgroundTick;

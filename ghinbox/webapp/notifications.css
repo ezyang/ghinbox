@@ -373,6 +373,36 @@
             font-size: 12px;
         }
 
+        .notification-review-verdict {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            margin-top: 2px;
+            font-size: 12px;
+        }
+
+        .review-bucket {
+            padding: 0 6px;
+            border-radius: 10px;
+            border: 1px solid var(--color-success-fg);
+            color: var(--color-success-fg);
+            font-weight: 500;
+        }
+
+        .review-bucket[data-bucket="important"] {
+            border-color: var(--color-warning-fg);
+            color: var(--color-warning-fg);
+        }
+
+        .notification-review-verdict[data-verdict="look"] .review-verdict-why {
+            color: var(--color-fg-default);
+        }
+
+        .notification-review-verdict[data-verdict="skip"] .review-verdict-why {
+            color: var(--color-fg-muted);
+        }
+
         .digest-look-at-empty {
             margin: 8px 0 0 0;
             color: var(--color-fg-muted);
