@@ -917,6 +917,14 @@ function getDiffstatRenderContext(notifications) {
     };
 }
 
+// Replies rows open the reply rather than GitHub's pushed-commits page.
+function getNotificationLinkUrl(notif) {
+    if (state.view !== 'pr-notifications') {
+        return notif.subject.url;
+    }
+    return GhinboxFormat.getReplyLinkUrl(notif.subject, getNotificationReplyComment(notif));
+}
+
 function renderNotificationItem(notif, diffstatContext) {
     const li = document.createElement('li');
     const isSelected = state.selected.has(notif.id);
@@ -979,7 +987,7 @@ function renderNotificationItem(notif, diffstatContext) {
         </div>
         <div class="notification-content">
             <div class="notification-header">
-                <a href="${escapeHtml(notif.subject.url)}" class="notification-title" target="_blank" rel="noopener">
+                <a href="${escapeHtml(getNotificationLinkUrl(notif))}" class="notification-title" target="_blank" rel="noopener">
                     ${renderInlineCode(notif.subject.title)}
                 </a>
                 ${authorHtml}

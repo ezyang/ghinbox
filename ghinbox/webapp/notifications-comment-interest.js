@@ -339,15 +339,17 @@
             .some((comment) => isDelegatedTaskCompletion(comment, currentUser));
     }
 
-    function isNotificationDirectedAtCurrentUser(notification, options = {}) {
+    // The first unread comment that makes the notification a reply to the
+    // current user, or null when nothing is directed at them.
+    function findDirectedComment(notification, options = {}) {
         const currentUser = normalizeLogin(options.currentUserLogin);
         if (!currentUser) {
-            return false;
+            return null;
         }
 
         const comments = sortComments(options.comments || []);
         if (!comments.length) {
-            return false;
+            return null;
         }
 
         const suppressParticipationReplies = Boolean(options.suppressParticipationReplies);
@@ -356,7 +358,7 @@
             ? getLatestCloseEventTimestampMs(options.stateEvents || options.events || [])
             : null;
         if (isClosedOrMergedNotification(notification) && latestCloseEventMs === null) {
-            return false;
+            return null;
         }
         const isAfterCloseEvent = (comment) => {
             if (latestCloseEventMs === null) {
@@ -369,14 +371,13 @@
                 !isUninterestingComment(comment)) &&
             isAfterCloseEvent(comment);
 
-        if (
-            getDirectReviewThreadReplies(comments, currentUser)
-                .some(isInterestingUnreadComment)
-        ) {
-            return true;
+        const directReviewThreadReply = getDirectReviewThreadReplies(comments, currentUser)
+            .find(isInterestingUnreadComment);
+        if (directReviewThreadReply) {
+            return directReviewThreadReply;
         }
 
-        const hasUnreadCommentFromOtherUser = comments.some((comment) => {
+        const unreadCommentFromOtherUser = comments.find((comment) => {
             if (!isInterestingUnreadComment(comment)) {
                 return false;
             }
@@ -390,13 +391,13 @@
             (notification.subject?.type === 'Issue' ||
                 notification.subject?.type === 'PullRequest') &&
             (notificationReason === 'author' || notificationAuthor === currentUser) &&
-            hasUnreadCommentFromOtherUser &&
+            unreadCommentFromOtherUser &&
             !suppressParticipationReplies
         ) {
-            return true;
+            return unreadCommentFromOtherUser;
         }
 
-        return comments.some((comment, index) => {
+        return comments.find((comment, index) => {
             if (!isInterestingUnreadComment(comment)) {
                 return false;
             }
@@ -422,7 +423,11 @@
                 .find(isMainThreadComment);
             const previousAuthor = normalizeLogin(previousMainThreadComment?.user?.login);
             return previousAuthor === currentUser;
-        });
+        }) || null;
+    }
+
+    function isNotificationDirectedAtCurrentUser(notification, options = {}) {
+        return findDirectedComment(notification, options) !== null;
     }
 
     function shouldShowMoveToFeed(notification, options = {}) {
@@ -679,6 +684,7 @@
         isCurrentUserCcLine,
         isDelegatedTaskCompletion,
         isMainThreadComment,
+        findDirectedComment,
         isNotificationDirectedAtCurrentUser,
         isNotificationForCurrentUser,
         isNotificationUninteresting,

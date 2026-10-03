@@ -523,7 +523,7 @@ function handleOpenAllFiltered() {
     const { notifications, show } = getOpenAllTargets();
     if (!show) return;
 
-    openUrlsInNewTabs(notifications.map((notif) => notif.subject.url));
+    openUrlsInNewTabs(notifications.map(getNotificationLinkUrl));
 }
 
 function openUrlsInNewTabs(rawUrls) {

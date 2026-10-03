@@ -959,16 +959,30 @@ function isNotificationDirectedAtCurrentUser(notification) {
     ) {
         return true;
     }
-    const comments = getSortedNotificationComments(notification);
+    return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(
+        notification,
+        getDirectedCommentOptions(notification)
+    );
+}
+
+// The comment that made this notification a reply, for linking to it.
+function getNotificationReplyComment(notification) {
+    return COMMENT_INTEREST.findDirectedComment(
+        notification,
+        getDirectedCommentOptions(notification)
+    );
+}
+
+function getDirectedCommentOptions(notification) {
     const cached = state.commentCache.threads[getNotificationKey(notification)];
-    return COMMENT_INTEREST.isNotificationDirectedAtCurrentUser(notification, {
+    return {
         authorLogin: cached?.authorLogin,
-        comments,
+        comments: getSortedNotificationComments(notification),
         currentUserLogin: state.currentUserLogin,
         lastReadAt: cached?.lastReadAt,
         stateEvents: cached?.stateEvents,
         suppressParticipationReplies: notification?.ui?.replies_muted,
-    });
+    };
 }
 
 function getUninterestingReason(notification) {

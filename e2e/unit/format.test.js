@@ -6,6 +6,7 @@ const {
   getDiffstatHue,
   getIconStateClass,
   getNotificationIconName,
+  getReplyLinkUrl,
   getStateBadgeInfo,
 } = require('../../ghinbox/webapp/notifications-format.js');
 
@@ -118,5 +119,40 @@ test('formatServerSyncProgressDetails shows only noteworthy facts', () => {
   ];
   for (const { sync, expected } of cases) {
     assert.equal(formatServerSyncProgressDetails(sync), expected, JSON.stringify(sync));
+  }
+});
+
+test('getReplyLinkUrl swaps pushed-commit links for the reply or the PR', () => {
+  const compare =
+    'https://github.com/o/r/pull/3/changes/1111111..2222222?notification_referrer_id=NT_x';
+  const reply = { html_url: 'https://github.com/o/r/pull/3#issuecomment-5' };
+  const cases = [
+    { url: compare, reply, expected: reply.html_url },
+    { url: compare, reply: null, expected: 'https://github.com/o/r/pull/3' },
+    { url: compare, reply: { html_url: null }, expected: 'https://github.com/o/r/pull/3' },
+    {
+      url: 'https://github.com/o/r/pull/3/commits/abcdef1234567',
+      reply: null,
+      expected: 'https://github.com/o/r/pull/3',
+    },
+    {
+      url: 'https://github.com/o/r/commit/abcdef1234567',
+      reply,
+      expected: reply.html_url,
+    },
+    {
+      url: 'https://github.com/o/r/commit/abcdef1234567',
+      reply: null,
+      expected: 'https://github.com/o/r/commit/abcdef1234567',
+    },
+    {
+      url: 'https://github.com/o/r/pull/3#issuecomment-9',
+      reply,
+      expected: 'https://github.com/o/r/pull/3#issuecomment-9',
+    },
+    { url: 'https://github.com/o/r/issues/4', reply, expected: 'https://github.com/o/r/issues/4' },
+  ];
+  for (const { url, reply: replyComment, expected } of cases) {
+    assert.equal(getReplyLinkUrl({ url }, replyComment), expected, url);
   }
 });

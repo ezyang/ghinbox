@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   filterCommentsAfterOwnComment,
+  findDirectedComment,
   filterRelevantCommentsForNotification,
   getDirectReviewThreadReplies,
   getUninterestingReason,
@@ -94,6 +95,43 @@ test('directed PR replies must be unread and interesting', () => {
     }),
     false
   );
+});
+
+test('findDirectedComment returns the first unread comment that makes a reply', () => {
+  const options = (comments) => ({
+    comments,
+    currentUserLogin: 'testuser',
+    lastReadAt: '2025-01-01T00:05:00Z',
+  });
+  const cases = [
+    {
+      name: 'PR mention after the user',
+      comments: [
+        comment(1, 'testuser', 'test fails look real'),
+        comment(6, 'pytorch-bot[bot]', 'Rebase failed.'),
+        comment(7, 'alice', '@testuser fixed, PTAL'),
+        comment(8, 'alice', '@testuser also this'),
+      ],
+      expected: 7,
+    },
+    {
+      name: 'review thread reply',
+      comments: [
+        comment(1, 'testuser', 'Simpler?', { isReviewComment: true }),
+        comment(6, 'alice', 'Done.', { isReviewComment: true, in_reply_to_id: 1 }),
+      ],
+      expected: 6,
+    },
+    {
+      name: 'nothing directed',
+      comments: [comment(1, 'testuser', 'LGTM'), comment(6, 'alice', 'Thanks all')],
+      expected: null,
+    },
+  ];
+  for (const { name, comments, expected } of cases) {
+    const found = findDirectedComment(notification(), options(comments));
+    assert.equal(found ? found.id : null, expected, name);
+  }
 });
 
 test('main-thread comments after the user are directed at the current user', () => {

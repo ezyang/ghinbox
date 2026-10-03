@@ -152,6 +152,25 @@
         return details.length > 0 ? ` (${details.join(', ')})` : '';
     }
 
+    // GitHub links a notification whose latest event is a push to the
+    // pushed commits (/pull/N/changes/a..b, /pull/N/commits/sha, /commit/sha).
+    // A reply row should open the reply instead, falling back to the PR.
+    const PUSH_SUBJECT_URL =
+        /^(https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+)\/(?:changes|commits|files)\/[^?#]+/i;
+    const COMMIT_SUBJECT_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/commit\/[0-9a-f]{7,40}(?:[?#/]|$)/i;
+
+    function getReplyLinkUrl(subject, replyComment) {
+        const url = String(subject?.url || '');
+        const pushMatch = url.match(PUSH_SUBJECT_URL);
+        if (!pushMatch && !COMMIT_SUBJECT_URL.test(url)) {
+            return url;
+        }
+        if (replyComment?.html_url) {
+            return replyComment.html_url;
+        }
+        return pushMatch ? pushMatch[1] : url;
+    }
+
     return {
         formatReason,
         formatRelativeTime,
@@ -160,6 +179,7 @@
         getDiffstatHue,
         getIconStateClass,
         getNotificationIconName,
+        getReplyLinkUrl,
         getStateBadgeInfo,
     };
 });
