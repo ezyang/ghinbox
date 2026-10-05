@@ -470,7 +470,12 @@ async function handleMarkDone() {
     const { ids, show } = getMarkDoneTargets(filteredNotifications);
     if (!show || ids.length === 0) return;
 
-    const selectedIds = ids;
+    await markIdsDoneWithUndo(ids, { reselectFailed: true });
+}
+
+// Optimistically remove the notifications, archive them on GitHub, restore
+// any that fail, and push one undo entry for the ones that succeeded.
+async function markIdsDoneWithUndo(selectedIds, { reselectFailed = false } = {}) {
     const notificationLookup = new Map(
         state.notifications.map(notification => [notification.id, notification])
     );
@@ -503,7 +508,9 @@ async function handleMarkDone() {
             .map(result => notificationLookup.get(result.id))
             .filter(Boolean);
         restoreNotificationsInOrder(failedNotifications);
-        failedNotifications.forEach(notification => state.selected.add(notification.id));
+        if (reselectFailed) {
+            failedNotifications.forEach(notification => state.selected.add(notification.id));
+        }
         persistNotifications();
     }
 
@@ -526,16 +533,17 @@ function handleOpenAllFiltered() {
     openUrlsInNewTabs(notifications.map(getNotificationLinkUrl));
 }
 
+// Returns how many tabs actually opened (0 if cancelled or all blocked).
 function openUrlsInNewTabs(rawUrls) {
     const urls = Array.from(new Set(rawUrls.filter(Boolean)));
     if (urls.length === 0) {
-        return;
+        return 0;
     }
     if (urls.length >= 10) {
         const confirmed = confirm(
             `Open ${urls.length} notifications in new tabs?`
         );
-        if (!confirmed) return;
+        if (!confirmed) return 0;
     }
 
     const openAllStamp = Date.now();
@@ -558,13 +566,14 @@ function openUrlsInNewTabs(rawUrls) {
             `${openedLabel}${blockedCount} ${blockedCount !== 1 ? 'tabs were' : 'tab was'} blocked. Allow pop-ups to open all notifications.`,
             'info'
         );
-        return;
+        return openedCount;
     }
     showStatus(
         `Opened ${openedCount} notification${openedCount !== 1 ? 's' : ''}`,
         'success',
         { autoDismiss: true }
     );
+    return openedCount;
 }
 
 async function handleUnsubscribeAll() {

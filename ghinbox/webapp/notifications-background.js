@@ -8,7 +8,7 @@
     let reviewVerdicts = new Map();
     let digestPollTimer = null;
     let backgroundTimer = null;
-    let openAllUrls = [];
+    let openAllItems = [];
 
     function digestUrl(profileId, suffix = '') {
         return `/api/digest/${encodeURIComponent(profileId)}${suffix}`;
@@ -135,10 +135,10 @@
         usageLine.textContent = usage;
         usageLine.hidden = !usage;
         panel.querySelector('.digest-look-at-empty').hidden = visible.lookAt.length > 0;
-        openAllUrls = visible.lookAt.map((item) => item.url).filter(Boolean);
+        openAllItems = visible.lookAt.filter((item) => item.url);
         const openAll = panel.querySelector('.digest-open-all');
-        openAll.hidden = openAllUrls.length === 0;
-        openAll.textContent = `Open ${openAllUrls.length} worth a look`;
+        openAll.hidden = openAllItems.length === 0;
+        openAll.textContent = `Open ${openAllItems.length} worth a look`;
         renderVibe(panel.querySelector('.digest-vibe'), visible.vibe);
         panel.querySelector('.digest-vibe-details').hidden = visible.vibe.length === 0;
     }
@@ -172,8 +172,16 @@
     }
 
     if (panel) {
+        // Opening them is handling them: mark them done (undoable) so the
+        // panel clears; new activity brings an item back through triage.
         panel.querySelector('.digest-open-all').addEventListener('click', () => {
-            openUrlsInNewTabs(openAllUrls);
+            const items = openAllItems;
+            if (!openUrlsInNewTabs(items.map((item) => item.url))) {
+                return;
+            }
+            withActionContext('Mark worth a look done', () =>
+                markIdsDoneWithUndo(items.map((item) => String(item.id)))
+            );
         });
         panel.querySelector('.digest-refresh').addEventListener('click', () => {
             withActionContext('Refresh digest', handleDigestRefresh);

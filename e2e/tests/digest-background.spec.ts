@@ -112,7 +112,6 @@ test.describe('Feed digest and background refresh @sync', () => {
         ],
       })
     );
-    const openedUrls = await captureOpenedWindows(page);
     await page.reload();
 
     const panel = page.locator('#digest-panel');
@@ -138,14 +137,49 @@ test.describe('Feed digest and background refresh @sync', () => {
     await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#102)');
 
     await expect(panel.locator('.digest-open-all')).toHaveText('Open 1 worth a look');
-    await panel.locator('.digest-open-all').click();
-    await expect.poll(openedUrls).toEqual([alpha.subject.url]);
 
     await panel.locator('.digest-refresh').click();
     await expect.poll(() => digestServer.runCount).toBe(1);
 
     await viewTab(page, 'others-prs').click();
     await expect(panel).toBeHidden();
+  });
+
+  test('opening what is worth a look marks it done, with undo', async ({ page }) => {
+    const alpha = feedIssue('open-alpha', 111, 'Alpha regression');
+    const beta = feedIssue('open-beta', 112, 'Beta needs you too');
+    const ambient = feedIssue('open-ambient', 113, 'Ambient churn');
+    await mockProfileSnapshot(page, {
+      get: profileSnapshot([alpha, beta, ambient], '2025-01-05T12:01:00+00:00'),
+    });
+    await mockDigest(
+      page,
+      makeDigestPayload({
+        look_at: [digestItem(alpha, 'alice asked you'), digestItem(beta, 'bob replied')],
+      })
+    );
+    const openedUrls = await captureOpenedWindows(page);
+    const actions = await captureHtmlActions(page);
+    await page.reload();
+
+    const panel = page.locator('#digest-panel');
+    await expect(panel.locator('.digest-open-all')).toHaveText('Open 2 worth a look');
+    await panel.locator('.digest-open-all').click();
+    await expect.poll(openedUrls).toEqual([alpha.subject.url, beta.subject.url]);
+    await expect
+      .poll(() => actions.map((action) => [action.action, action.notification_ids]))
+      .toEqual([['archive', ['open-alpha', 'open-beta']]]);
+    await expect(page.locator('[data-id="open-alpha"]')).toHaveCount(0);
+    await expect(page.locator('[data-id="open-beta"]')).toHaveCount(0);
+    await expect(page.locator('[data-id="open-ambient"]')).toBeVisible();
+    // Handled: the panel has nothing left to open.
+    await expect(panel.locator('.digest-open-all')).toBeHidden();
+    await expect(panel.locator('.digest-look-at-empty')).toBeVisible();
+
+    await page.keyboard.press('u');
+    await expect(page.locator('[data-id="open-alpha"]')).toBeVisible();
+    await expect(page.locator('[data-id="open-beta"]')).toBeVisible();
+    await expect(panel.locator('.digest-open-all')).toHaveText('Open 2 worth a look');
   });
 
   test('Replies the digest judged FYI move to Feed until new activity', async ({ page }) => {
