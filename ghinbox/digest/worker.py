@@ -121,8 +121,9 @@ def digest_profiles() -> set[str]:
 
 
 # High-volume repos, plus low-volume ones the user never wants to read
-# (test-infra): triage still surfaces anything that needs them.
-DEFAULT_DIGEST_REPOS = "pytorch/pytorch,pytorch/test-infra"
+# (test-infra; ciforge, a sandbox of copied pytorch issues for testing issue
+# triage): triage still surfaces anything that needs them.
+DEFAULT_DIGEST_REPOS = "pytorch/pytorch,pytorch/test-infra,pytorch/ciforge"
 
 
 def is_digested_repo(repo: str | None) -> bool:

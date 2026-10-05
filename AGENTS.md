@@ -67,7 +67,8 @@
     Served at `GET /api/digest/{profile}`. Env: `GHINBOX_DIGEST_ENABLED=0`
     disables it, `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses
     profiles, `GHINBOX_DIGEST_REPOS` (default
-    `pytorch/pytorch,pytorch/test-infra`; `*` for all) chooses the repos whose
+    `pytorch/pytorch,pytorch/test-infra,pytorch/ciforge`; `*` for all)
+    chooses the repos whose
     Feed items are digested (triage, Replies check, auto-done): high-volume
     repos plus ones you never read; low-volume side repos like
     meta-pytorch/spmd_types stay in the Feed untouched. And
