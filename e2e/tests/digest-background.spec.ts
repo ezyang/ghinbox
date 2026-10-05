@@ -80,7 +80,7 @@ test.describe('Feed digest and background refresh @sync', () => {
     await openCleanSyncPage(page);
   });
 
-  test('Feed rows flag what is worth a look; the panel shows queue, vibe, and LLM usage', async ({
+  test('Feed rows flag what is worth a look; the panel shows queue, unusual items, and LLM usage', async ({
     page,
   }) => {
     const alpha = feedIssue('digest-alpha', 101, 'Alpha regression');
@@ -103,10 +103,9 @@ test.describe('Feed digest and background refresh @sync', () => {
           digestItem(alpha, 'alice asked you directly'),
           { ...digestItem(beta, 'hi'), id: 'already-done', title: 'Gone item' },
         ],
-        vibe: [
+        unusual: [
           {
-            title: 'Inductor',
-            text: 'Lots of <b>inductor</b> churn this week.',
+            text: 'Three <b>separate</b> reports of the same guard crash.',
             examples: [digestItem(beta, '')],
           },
         ],
@@ -130,11 +129,12 @@ test.describe('Feed digest and background refresh @sync', () => {
       'LLM, last 24h: 12 calls (11 triage, 1 compose) · 184k in / 10k out tokens'
     );
     await expect(panel.locator('.digest-look-at-empty')).toBeHidden();
-    // Vibe prose is text, never HTML.
-    await expect(panel.locator('.digest-vibe-theme')).toContainText(
-      'Lots of <b>inductor</b> churn this week.'
+    // LLM output is text, never HTML.
+    await expect(panel.locator('.digest-unusual-entry')).toContainText(
+      'Three <b>separate</b> reports of the same guard crash.'
     );
-    await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#102)');
+    await expect(panel.locator('.digest-unusual-entry a')).toHaveText('(pytorch#102)');
+    await expect(panel.locator('.digest-unusual-empty')).toBeHidden();
 
     await expect(panel.locator('.digest-open-all')).toHaveText('Open 1 worth a look');
 
@@ -250,7 +250,7 @@ test.describe('Feed digest and background refresh @sync', () => {
     await expect(page.locator('#view-issues .count')).toHaveText('0');
   });
 
-  test('digest keeps vibe examples the server already marked done', async ({ page }) => {
+  test('digest keeps unusual-item examples the server already marked done', async ({ page }) => {
     const surfaced = feedIssue('auto-surfaced', 401, 'Needs you');
     const autoDone = feedIssue('auto-done', 402, 'Ambient churn');
     await mockProfileSnapshot(page, {
@@ -262,10 +262,9 @@ test.describe('Feed digest and background refresh @sync', () => {
         counts: { feed_count: 9, direct_count: 0, broadcast_count: 7, auto_done_count: 8 },
         auto_done: { at: '2025-01-05T12:02:00+00:00', attempted: 3, done: 2, error: 'HTTP 500' },
         look_at: [digestItem(surfaced, 'worth a look')],
-        vibe: [
+        unusual: [
           {
-            title: 'Inductor',
-            text: 'Quiet week.',
+            text: 'A new contributor is rewriting the ROCm allocator.',
             examples: [digestItem(autoDone, '')],
           },
         ],
@@ -277,11 +276,25 @@ test.describe('Feed digest and background refresh @sync', () => {
     await expect(page.locator('[data-id="auto-surfaced"] .notification-digest-why')).toHaveText(
       'worth a look'
     );
-    await expect(panel.locator('.digest-vibe-theme a')).toHaveText('(pytorch#402)');
+    await expect(panel.locator('.digest-unusual-entry a')).toHaveText('(pytorch#402)');
     await expect(page.locator('[data-id="auto-done"]')).toHaveCount(0);
     await expect(panel.locator('.digest-status')).toContainText('1 worth a look');
     await expect(panel.locator('.digest-usage')).toBeHidden();
     await expect(panel.locator('.digest-status')).toContainText('auto-done failed: HTTP 500');
+  });
+
+  test('a normal day says nothing is out of the ordinary', async ({ page }) => {
+    await mockProfileSnapshot(page, {
+      get: profileSnapshot([feedIssue('calm-1', 1, 'Routine')], '2025-01-05T12:01:00+00:00'),
+    });
+    await mockDigest(page, makeDigestPayload({ composed_item_count: 37, unusual: [] }));
+    await page.reload();
+
+    const panel = page.locator('#digest-panel');
+    await expect(panel.locator('.digest-unusual-empty')).toHaveText(
+      'Nothing out of the ordinary in 37 items.'
+    );
+    await expect(panel.locator('.digest-unusual-entry')).toHaveCount(0);
   });
 
   test('digest panel stays hidden when the server has no digest', async ({ page }) => {

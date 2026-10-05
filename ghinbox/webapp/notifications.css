@@ -351,7 +351,7 @@
             margin-left: auto;
         }
 
-        .digest-vibe a {
+        .digest-unusual a {
             color: var(--color-accent-fg);
         }
 
@@ -408,18 +408,29 @@
             color: var(--color-fg-muted);
         }
 
-        .digest-vibe-details {
+        .digest-unusual-section {
             margin-top: 8px;
         }
 
-        .digest-vibe-details summary {
-            cursor: pointer;
+        .digest-unusual-section h4 {
+            margin: 0;
+            font-size: 14px;
             font-weight: 600;
         }
 
-        .digest-vibe-theme {
-            margin: 6px 0;
+        .digest-unusual {
+            margin: 4px 0 0 0;
+            padding-left: 20px;
+        }
+
+        .digest-unusual-entry {
+            margin: 2px 0;
             line-height: 1.45;
+        }
+
+        .digest-unusual-empty {
+            margin: 4px 0 0 0;
+            color: var(--color-fg-muted);
         }
 
         /* Empty state */

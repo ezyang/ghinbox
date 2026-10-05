@@ -93,21 +93,16 @@
         return (key && getDigestReviewVerdicts().get(key)) || null;
     }
 
-    function renderVibe(container, vibe) {
+    function renderUnusual(container, unusual) {
         container.replaceChildren(
-            ...vibe.map((theme) => {
-                const p = document.createElement('p');
-                p.className = 'digest-vibe-theme';
-                if (theme.title) {
-                    const title = document.createElement('strong');
-                    title.textContent = `${theme.title}. `;
-                    p.append(title);
-                }
-                p.append(theme.text);
-                theme.examples.forEach((example) => {
-                    p.append(' ', makeLink(example, `(${itemLabel(example)})`));
+            ...unusual.map((entry) => {
+                const li = document.createElement('li');
+                li.className = 'digest-unusual-entry';
+                li.append(entry.text);
+                entry.examples.forEach((example) => {
+                    li.append(' ', makeLink(example, `(${itemLabel(example)})`));
                 });
-                return p;
+                return li;
             })
         );
     }
@@ -139,8 +134,15 @@
         const openAll = panel.querySelector('.digest-open-all');
         openAll.hidden = openAllItems.length === 0;
         openAll.textContent = `Open ${openAllItems.length} worth a look`;
-        renderVibe(panel.querySelector('.digest-vibe'), visible.vibe);
-        panel.querySelector('.digest-vibe-details').hidden = visible.vibe.length === 0;
+        renderUnusual(panel.querySelector('.digest-unusual'), visible.unusual);
+        const nothingUnusual = visible.unusual.length
+            ? ''
+            : GhinboxDigest.formatNothingUnusual(current);
+        const emptyLine = panel.querySelector('.digest-unusual-empty');
+        emptyLine.textContent = nothingUnusual;
+        emptyLine.hidden = !nothingUnusual;
+        panel.querySelector('.digest-unusual-section').hidden =
+            !visible.unusual.length && !nothingUnusual;
     }
 
     async function backgroundTick() {

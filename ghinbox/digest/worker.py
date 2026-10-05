@@ -16,7 +16,8 @@ After every successful profile snapshot sync the worker ingests:
 6. screens External review requests (``reviews.py``): which ones fit the
    user's "worth a look" buckets, judged from the PR text and diff.
 
-Composing the "Overall vibe" re-reads every note, so it runs only once per
+Composing "Out of the ordinary" re-reads every note against the user's
+baseline of a normal Feed (``feed_baseline.md``), so it runs only once per
 compose interval (default daily) or when the user asks (Refresh).
 
 Auto-done and the review screen's PR/permission reads are the only GitHub
@@ -38,6 +39,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from ghinbox.api.fetcher import ActionResult
@@ -89,7 +91,7 @@ TRIAGE_MAX_COMMENTS = 6
 TRIAGE_FIRST_SIGHT_COMMENTS = 4
 # Background composes are paced; the digest panel's Refresh bypasses this.
 DEFAULT_COMPOSE_INTERVAL_HOURS = 24
-# Auto-done items keep feeding the digest (the vibe) for this long after the
+# Auto-done items keep feeding the digest ("Out of the ordinary") for this long after the
 # compose that first included them.
 DEFAULT_WINDOW_HOURS = 24
 
@@ -126,6 +128,15 @@ def digest_compose_interval_seconds() -> float:
     except ValueError:
         hours = DEFAULT_COMPOSE_INTERVAL_HOURS
     return max(0.0, hours * 3600)
+
+
+DEFAULT_BASELINE_PATH = Path(__file__).with_name("feed_baseline.md")
+
+
+def load_baseline() -> str:
+    """The user's description of a normal Feed (``GHINBOX_DIGEST_BASELINE_FILE``)."""
+    path = Path(os.environ.get("GHINBOX_DIGEST_BASELINE_FILE") or DEFAULT_BASELINE_PATH)
+    return path.read_text(encoding="utf-8")
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -616,8 +627,10 @@ def _digest_counts(
     }
 
 
-def _signature(entries: list[tuple[dict[str, Any], dict[str, Any]]]) -> str:
-    digest = hashlib.sha256()
+def _signature(
+    entries: list[tuple[dict[str, Any], dict[str, Any]]], baseline: str
+) -> str:
+    digest = hashlib.sha256(baseline.encode())
     for item, _ in sorted(entries, key=lambda entry: entry[0]["id"]):
         digest.update(f"{item['id']}@{item.get('updated_at')}\n".encode())
     return digest.hexdigest()
@@ -759,9 +772,10 @@ async def update_digest(
     ]
     entries = feed_entries + archived_entries
     counts = _digest_counts(entries)
-    signature = _signature(entries)
+    baseline = load_baseline()
+    signature = _signature(entries, baseline)
     # Compose once the queue is drained, and only when due (or forced) and
-    # the digested set changed since the last compose.
+    # the digested set (or the baseline) changed since the last compose.
     wants_compose = force_compose or (
         signature != state.get("input_signature")
         and is_compose_due(
@@ -774,7 +788,7 @@ async def update_digest(
                 profile,
                 llm,
                 "compose",
-                prompts.build_compose_prompt(entries, user, counts),
+                prompts.build_compose_prompt(entries, user, counts, baseline),
                 len(entries),
             )
             digest = prompts.parse_compose_response(
@@ -782,7 +796,7 @@ async def update_digest(
                 {item["id"] for item, _ in entries},
             )
         else:
-            digest = {"vibe": []}
+            digest = {"unusual": []}
         fields.update(
             digest=digest,
             input_signature=signature,

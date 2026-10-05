@@ -6,7 +6,7 @@ re-assess External review requests (plus the GitHub calls for their PR files
 and author permissions). The one exception is
 the digest queue: notes for items the worker already marked done on GitHub but
 has not composed into a digest yet. Losing them only drops ambient items from
-the next "Overall vibe" (see SOUL.md).
+the next "Out of the ordinary" (see SOUL.md).
 """
 
 from __future__ import annotations

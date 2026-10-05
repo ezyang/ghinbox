@@ -771,7 +771,7 @@ export function makeDigestPayload(overrides: Record<string, unknown> = {}) {
     counts: { feed_count: 0, direct_count: 0, broadcast_count: 0 },
     snapshot_synced_at: null,
     look_at: [],
-    vibe: [],
+    unusual: [],
     ...overrides,
   };
 }

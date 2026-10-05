@@ -19,20 +19,30 @@
 
     // The server digest lags the client: items marked done here stay in the
     // server snapshot until the next sync, so "Look at these" (surfaced items,
-    // annotated in the list itself) shows only what is still live. Vibe
-    // examples are context, not a to-do list: the server marks most digested
-    // items done itself, so they are kept as-is.
+    // annotated in the list itself) shows only what is still live.
+    // "Out of the ordinary" examples are context, not a to-do list: the
+    // server marks most digested items done itself, so they are kept as-is.
     function selectVisibleDigest(digest, liveIds) {
         const live = liveIds instanceof Set ? liveIds : new Set(liveIds || []);
         const lookAt = (digest?.look_at || []).filter((item) => live.has(String(item.id)));
-        const vibe = (digest?.vibe || [])
-            .filter((theme) => theme && theme.text)
-            .map((theme) => ({
-                title: theme.title || '',
-                text: theme.text,
-                examples: theme.examples || [],
+        const unusual = (digest?.unusual || [])
+            .filter((entry) => entry && entry.text)
+            .map((entry) => ({
+                text: entry.text,
+                examples: entry.examples || [],
             }));
-        return { lookAt, vibe };
+        return { lookAt, unusual };
+    }
+
+    // A normal day is information too: say so once a digest has composed.
+    function formatNothingUnusual(digest) {
+        if (!digest?.composed_at) {
+            return '';
+        }
+        const count = digest.composed_item_count || 0;
+        return count
+            ? `Nothing out of the ordinary in ${count} ${count === 1 ? 'item' : 'items'}.`
+            : 'Nothing out of the ordinary.';
     }
 
     // Why each surfaced ("worth a look") item matters, for its list row.
@@ -114,7 +124,7 @@
             digest.composed_at ||
             digest.queue_count > 0 ||
             visible.lookAt.length > 0 ||
-            visible.vibe.length > 0
+            visible.unusual.length > 0
         );
     }
 
@@ -265,6 +275,7 @@
         describeReviewVerdict,
         shouldShowDigestPanel,
         formatDigestStatus,
+        formatNothingUnusual,
         formatLlmUsage,
         shouldApplyBackgroundSnapshot,
         isClientBusy,

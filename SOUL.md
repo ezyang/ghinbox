@@ -31,7 +31,7 @@ migration, because there is no data to migrate.
   digest worker has triaged and marked done on GitHub but not yet composed
   into a digest. GitHub no longer lists them, so the queue is local-only
   truth. It is acceptable because only items triage judged not to need the
-  user can land there; losing it costs a thinner "Overall vibe", never an
+  user can land there; losing it costs a thinner "Out of the ordinary", never an
   unseen request.
 - Schema changes drop and rebuild; we do not write migration machinery.
 

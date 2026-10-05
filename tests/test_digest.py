@@ -138,10 +138,9 @@ class FakeLlm:
             "```json\n"
             + json.dumps(
                 {
-                    "vibe": [
+                    "unusual": [
                         {
-                            "title": "Dynamo",
-                            "text": "Busy week.",
+                            "text": "Three people hit the same guard bug.",
                             "example_ids": ids + ["invented"],
                         },
                     ],
@@ -203,16 +202,18 @@ def test_parse_compose_response_caps_and_drops_unknown_ids() -> None:
     known = {str(n) for n in range(30)}
     digest = prompts.parse_compose_response(
         {
-            "vibe": [
-                {"title": "t", "text": "p", "example_ids": ["1", "nope", "2", "3"]},
-                {"title": "empty", "text": ""},
+            "unusual": [
+                {"text": "p", "example_ids": ["1", "nope", "2", "3", "4"]},
+                {"text": ""},
             ]
-            + [{"title": "x", "text": "q"}] * 20,
+            + [{"text": "q"}] * 20,
         },
         known,
     )
-    assert digest["vibe"][0] == {"title": "t", "text": "p", "example_ids": ["1", "2"]}
-    assert len(digest["vibe"]) == prompts.MAX_VIBE_THEMES
+    assert digest["unusual"][0] == {"text": "p", "example_ids": ["1", "2", "3"]}
+    assert len(digest["unusual"]) == prompts.MAX_UNUSUAL
+    # A normal day: nothing out of the ordinary is a valid answer.
+    assert prompts.parse_compose_response({"unusual": []}, known) == {"unusual": []}
 
 
 def test_update_digest_triages_new_items_and_composes(db_path: str) -> None:
@@ -239,14 +240,45 @@ def test_update_digest_triages_new_items_and_composes(db_path: str) -> None:
     assert state["pending_count"] == 0
     assert state["counts"]["feed_count"] == 2
     assert state["digest"] == {
-        "vibe": [
-            {"title": "Dynamo", "text": "Busy week.", "example_ids": ["n-1", "n-2"]}
+        "unusual": [
+            {
+                "text": "Three people hit the same guard bug.",
+                "example_ids": ["n-1", "n-2"],
+            }
         ]
     }
 
     # Nothing changed: no LLM calls at all.
     asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
     assert len(llm.prompts) == 2
+
+
+def test_compose_judges_against_the_baseline_and_rereads_it_when_edited(
+    db_path: str, tmp_path, monkeypatch
+) -> None:
+    baseline = tmp_path / "baseline.md"
+    baseline.write_text("Inductor perf PRs are routine.\n")
+    monkeypatch.setenv("GHINBOX_DIGEST_BASELINE_FILE", str(baseline))
+    monkeypatch.setenv("GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS", "0")
+    _save([_notification("n-1", 1, "2026-09-01T00:00:00Z")], db_path)
+    llm = FakeLlm()
+
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+    assert llm.compose_calls == 1
+    assert (
+        "Baseline (written by ezyang):\nInductor perf PRs are routine."
+        in (llm.prompts[-1])
+    )
+
+    # Same items, same baseline: nothing to recompose.
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+    assert llm.compose_calls == 1
+
+    # Editing the baseline re-judges the same items.
+    baseline.write_text("Inductor perf PRs are routine. So are ROCm ports.\n")
+    asyncio.run(worker.update_digest(PROFILE, llm=llm, current_user="ezyang"))
+    assert llm.compose_calls == 2
+    assert "So are ROCm ports." in llm.prompts[-1]
 
 
 def test_update_digest_retriages_only_updated_items_and_prunes(db_path: str) -> None:
@@ -620,9 +652,9 @@ def test_digest_response_joins_snapshot_and_drops_gone_items(db_path: str) -> No
 
     # n-1 was the surfaced item; the user handled it, so nothing is left.
     assert response["look_at"] == []
-    assert response["vibe"][0]["text"] == "Busy week."
-    assert [e["id"] for e in response["vibe"][0]["examples"]] == ["n-2"]
-    assert response["vibe"][0]["examples"][0]["url"] == (
+    assert response["unusual"][0]["text"] == "Three people hit the same guard bug."
+    assert [e["id"] for e in response["unusual"][0]["examples"]] == ["n-2"]
+    assert response["unusual"][0]["examples"][0]["url"] == (
         "https://github.com/pytorch/pytorch/issues/2"
     )
     assert response["snapshot_synced_at"]
@@ -713,7 +745,7 @@ def test_is_surfaced_table() -> None:
         )
 
 
-def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
+def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_digest(
     db_path: str,
 ) -> None:
     now = datetime(2026, 9, 2, tzinfo=timezone.utc)
@@ -766,8 +798,12 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_vibe(
     response = digest_routes.build_digest_response(PROFILE)
     assert [item["id"] for item in response["look_at"]] == ["n-1"]
     assert response["look_at"][0]["why"] == "worth it"
-    assert [e["id"] for e in response["vibe"][0]["examples"]] == ["n-1", "n-2"]
-    assert response["vibe"][0]["examples"][1]["url"] == (
+    assert [e["id"] for e in response["unusual"][0]["examples"]] == [
+        "n-1",
+        "n-2",
+        "n-3",
+    ]
+    assert response["unusual"][0]["examples"][1]["url"] == (
         "https://github.com/pytorch/pytorch/issues/2"
     )
 

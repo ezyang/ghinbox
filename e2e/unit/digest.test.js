@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   digestWhyById,
   formatDigestStatus,
+  formatNothingUnusual,
   formatLlmUsage,
   isClientBusy,
   replyDemotionsById,
@@ -23,25 +24,37 @@ const digest = {
     { id: 'a', title: 'A', why: 'ping' },
     { id: 'done', title: 'Done', why: 'gone' },
   ],
-  vibe: [
-    { title: 'Dynamo', text: 'Busy.', examples: [{ id: 'b' }, { id: 'done' }] },
-    { title: 'Empty', text: '', examples: [] },
+  composed_item_count: 40,
+  unusual: [
+    { text: 'Three reports of one guard bug.', examples: [{ id: 'b' }, { id: 'done' }] },
+    { text: '', examples: [] },
   ],
 };
 
-test('selectVisibleDigest drops look-at items no longer live, keeps vibe examples', () => {
+test('selectVisibleDigest drops look-at items no longer live, keeps unusual examples', () => {
   const visible = selectVisibleDigest(digest, new Set(['a', 'b']));
   assert.deepEqual(visible.lookAt.map((item) => item.id), ['a']);
-  // Vibe examples are often items the server already auto-marked done.
-  assert.deepEqual(visible.vibe, [
-    { title: 'Dynamo', text: 'Busy.', examples: [{ id: 'b' }, { id: 'done' }] },
+  // Unusual examples are often items the server already auto-marked done.
+  assert.deepEqual(visible.unusual, [
+    { text: 'Three reports of one guard bug.', examples: [{ id: 'b' }, { id: 'done' }] },
   ]);
-  assert.deepEqual(selectVisibleDigest(null, []), { lookAt: [], vibe: [] });
+  assert.deepEqual(selectVisibleDigest(null, []), { lookAt: [], unusual: [] });
+});
+
+test('formatNothingUnusual reports a normal day only once a digest composed', () => {
+  assert.equal(formatNothingUnusual(digest), 'Nothing out of the ordinary in 40 items.');
+  assert.equal(
+    formatNothingUnusual({ ...digest, composed_item_count: 1 }),
+    'Nothing out of the ordinary in 1 item.'
+  );
+  assert.equal(formatNothingUnusual({ ...digest, composed_item_count: 0 }), 'Nothing out of the ordinary.');
+  assert.equal(formatNothingUnusual({ status: 'idle', composed_at: null }), '');
+  assert.equal(formatNothingUnusual(null), '');
 });
 
 test('shouldShowDigestPanel decision table', () => {
   const visible = selectVisibleDigest(digest, ['a', 'b']);
-  const empty = { lookAt: [], vibe: [] };
+  const empty = { lookAt: [], unusual: [] };
   const cases = [
     ['Feed with a composed digest', { view: 'issues', digest, visible }, true],
     ['other views hide it', { view: 'others-prs', digest, visible }, false],
@@ -115,7 +128,7 @@ test('formatDigestStatus summarizes look-at, queue, and freshness', () => {
         ...digest,
         auto_done: { attempted: 3, done: 0, error: 'No GitHub token configured' },
       },
-      { lookAt: [], vibe: [] },
+      { lookAt: [], unusual: [] },
       now
     ),
     'digest from 10m ago · auto-done failed: No GitHub token configured'
@@ -126,7 +139,7 @@ test('formatDigestStatus summarizes look-at, queue, and freshness', () => {
         ...digest,
         auto_done: { attempted: 0, done: 0, trash: { attempted: 2, done: 0, error: 'HTTP 500' } },
       },
-      { lookAt: [], vibe: [] },
+      { lookAt: [], unusual: [] },
       now
     ),
     'digest from 10m ago · trash sweep failed: HTTP 500'

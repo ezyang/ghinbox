@@ -31,9 +31,9 @@ def build_digest_response(profile: str) -> dict[str, Any]:
 
     "Look at these" is the surfaced (high-attention) items still in the
     snapshot, newest first; the client further filters against its live list,
-    which reflects marks-done immediately. Vibe examples may also be items the
-    worker auto-marked done; those render from the metadata saved with their
-    notes.
+    which reflects marks-done immediately. "Out of the ordinary" examples may
+    also be items the worker auto-marked done; those render from the metadata
+    saved with their notes.
     """
     state = get_digest_state(profile)
     snapshot = get_snapshot(f"profile:{profile}") or {}
@@ -59,17 +59,16 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         key=lambda item: str(item.get("updated_at") or ""),
         reverse=True,
     )
-    vibe = [
+    unusual = [
         {
-            "title": theme.get("title", ""),
-            "text": theme.get("text", ""),
+            "text": entry.get("text", ""),
             "examples": [
                 known[example_id]
-                for example_id in theme.get("example_ids") or []
+                for example_id in entry.get("example_ids") or []
                 if example_id in known
             ],
         }
-        for theme in digest.get("vibe") or []
+        for entry in digest.get("unusual") or []
     ]
     # Replies the LLM judged FYI; the client's classifier moves each to the
     # Feed while its updated_at still matches the judged one.
@@ -108,6 +107,7 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         "error": state.get("error"),
         "reply_check_error": state.get("reply_check_error"),
         "composed_at": state.get("composed_at"),
+        "composed_item_count": state.get("composed_item_count", 0),
         "next_compose_at": next_compose_at(state),
         "pending_count": state.get("pending_count", 0),
         "queue_count": state.get("queue_count", 0),
@@ -125,7 +125,7 @@ def build_digest_response(profile: str) -> dict[str, Any]:
         "reply_demotions": reply_demotions,
         "reviews": state.get("reviews"),
         "review_assessments": review_assessments,
-        "vibe": vibe,
+        "unusual": unusual,
     }
 
 

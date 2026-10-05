@@ -58,8 +58,11 @@
     profile sync it triages new/updated Feed items with an LLM (notes cached
     per item/updated_at in SQLite); "high" attention items become "Look at
     these" (sticky until the user handles them) and render as annotations on
-    the Feed rows themselves. Composing the "Overall vibe" re-reads every note,
-    so it runs once per `GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS` (default 24)
+    the Feed rows themselves. Composing "Out of the ordinary" re-reads every
+    note against the user's baseline of a normal Feed
+    (`ghinbox/digest/feed_baseline.md`, override with
+    `GHINBOX_DIGEST_BASELINE_FILE`; editing it recomposes) and lists only what
+    departs from it (empty on a normal day), so it runs once per `GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS` (default 24)
     or when the panel's Refresh (`POST /api/digest/{profile}/run`) forces it.
     Served at `GET /api/digest/{profile}`. Env: `GHINBOX_DIGEST_ENABLED=0`
     disables it, `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses
@@ -106,7 +109,7 @@
     "medium" with a direct human mention/reply that the Replies check did not
     demote; other direct pings in the Feed are marked done. Auto-done
     items wait in the digest queue (`queue_count`, local-only; see SOUL.md)
-    until the next compose, then keep feeding the vibe for
+    until the next compose, then keep feeding the digest for
     `GHINBOX_DIGEST_WINDOW_HOURS` (default 24); new activity brings an item
     back through the pipeline. The same pass first marks the classifier's
     low-priority trash done (bot-only chatter on your PRs, approved/closed
