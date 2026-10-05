@@ -88,11 +88,6 @@
         return digestProfileId === state.profileId ? reviewVerdicts : new Map();
     }
 
-    function getDigestReviewVerdict(notification) {
-        const key = GhinboxFiltering.getPullRequestKey(notification);
-        return (key && getDigestReviewVerdicts().get(key)) || null;
-    }
-
     function renderUnusual(container, unusual) {
         container.replaceChildren(
             ...unusual.map((entry) => {
@@ -194,7 +189,6 @@
     window.getDigestWhy = getDigestWhy;
     window.getDigestReplyDemotions = getDigestReplyDemotions;
     window.getDigestReviewVerdicts = getDigestReviewVerdicts;
-    window.getDigestReviewVerdict = getDigestReviewVerdict;
     window.renderDigestPanel = renderDigestPanel;
     window.startBackgroundRefresh = startBackgroundRefresh;
     window.backgroundRefreshTick = backgroundTick;

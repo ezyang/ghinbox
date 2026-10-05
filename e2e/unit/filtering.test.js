@@ -477,6 +477,108 @@ test('review importance only separates external authors for pytorch/pytorch', ()
   assert.equal(isPytorchCoreNotification(review('vision', 'pytorch/vision')), false);
 });
 
+test('PyTorch workflow labels route review requests by whose turn it is', () => {
+  let nextNumber = 1;
+  const review = (id, labels, repo = 'pytorch/pytorch') => notification(
+    id,
+    'PullRequest',
+    'open',
+    'review_requested',
+    {
+      repository: {
+        owner: repo.split('/')[0],
+        name: repo.split('/')[1],
+        full_name: repo,
+      },
+      subject: { type: 'PullRequest', state: 'open', title: id, number: nextNumber++ },
+      labels: labels.map((name) => ({ name })),
+    }
+  );
+  const cases = [
+    {
+      name: 'external PR with no workflow label',
+      notification: review('plain', ['triaged', 'open source']),
+      reviewQueue: true,
+      important: false,
+      externalCandidate: true,
+    },
+    {
+      name: 'external PR ready for review is promoted to Important',
+      notification: review('ready', ['triaged', 'open source', 'ready for review']),
+      reviewQueue: true,
+      important: true,
+      externalCandidate: false,
+    },
+    {
+      name: 'in progress waits on the author',
+      notification: review('in-progress', ['triaged', 'in progress']),
+      reviewQueue: false,
+      important: false,
+      externalCandidate: false,
+    },
+    {
+      name: 'missing actionable issue waits on the author',
+      notification: review('missing', ['bot-triaged', 'Missing Actionable Issue']),
+      reviewQueue: false,
+      important: false,
+      externalCandidate: false,
+    },
+    {
+      name: 'workflow labels mean nothing outside pytorch/pytorch',
+      notification: review('vision', ['in progress'], 'pytorch/vision'),
+      reviewQueue: true,
+      important: true,
+      externalCandidate: false,
+    },
+  ];
+
+  const notifications = cases.map((entry) => entry.notification);
+  // Muse judged both skippable before the ready PR passed pre-review.
+  const reviewVerdicts = {
+    'pytorch/pytorch#1': { verdict: 'skip' },
+    'pytorch/pytorch#2': { verdict: 'skip' },
+  };
+  const deps = {
+    ...baseDeps,
+    isNotificationFromCommitter: () => false,
+    hasNotificationAuthorPermission: () => true,
+  };
+  const classifier = makeClassifier({ notifications, reviewVerdicts, deps });
+  cases.forEach((entry) => {
+    assert.equal(
+      classifier.matchesView(entry.notification, 'others-prs'),
+      entry.reviewQueue,
+      `${entry.name}: in Reviews`
+    );
+    assert.equal(
+      classifier.isNotificationNeedsReview(entry.notification),
+      entry.reviewQueue,
+      `${entry.name}: needs review`
+    );
+    assert.equal(
+      classifier.isNotificationImportant(entry.notification),
+      entry.important,
+      `${entry.name}: important`
+    );
+    assert.equal(
+      classifier.isExternalReviewCandidate(entry.notification),
+      entry.externalCandidate,
+      `${entry.name}: external review candidate`
+    );
+  });
+
+  const reviews = (author, verdict = 'all') => ids(getFilteredNotifications(input({
+    notifications,
+    view: 'others-prs',
+    viewFilters: normalizeViewFilters({ 'others-prs': { author, verdict } }),
+    reviewVerdicts,
+    deps,
+  })));
+  assert.deepEqual(reviews('committer'), ['ready', 'vision']);
+  assert.deepEqual(reviews('external'), ['plain']);
+  assert.deepEqual(reviews('all', 'look'), ['ready', 'vision']);
+});
+
 test('real threads for PRs waiting in Reviews leave Feed and Replies', () => {
   const pr = (id, repo, number, extra = {}) => ({
     id,

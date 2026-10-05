@@ -23,6 +23,10 @@
         'pytorch/pytorch-canary',
         'facebookresearch/fairscale',
     ]);
+    // PyTorch's PR workflow labels say whose turn it is (CONTRIBUTING.md,
+    // "PR lifecycle"). Bots manage them on pytorch/pytorch only.
+    const AWAITING_AUTHOR_LABELS = new Set(['in progress', 'missing actionable issue']);
+    const READY_FOR_REVIEW_LABEL = 'ready for review';
 
     const DEFAULT_VIEW_FILTERS = viewState.DEFAULT_VIEW_FILTERS;
     const DEFAULT_VIEW_ORDERS = viewState.DEFAULT_VIEW_ORDERS;
@@ -212,6 +216,21 @@
             return getLabelNames(notification).includes('mergedog');
         }
 
+        // The author must act (get through automated review, or link an
+        // actionable issue) before the PR needs a reviewer again.
+        function isAwaitingAuthor(notification) {
+            return notification.subject?.type === 'PullRequest' &&
+                isPytorchCoreNotification(notification) &&
+                getLabelNames(notification).some((label) => AWAITING_AUTHOR_LABELS.has(label));
+        }
+
+        // Passed pre-review and automated review: a reviewer's turn.
+        function isReadyForReview(notification) {
+            return notification.subject?.type === 'PullRequest' &&
+                isPytorchCoreNotification(notification) &&
+                getLabelNames(notification).includes(READY_FOR_REVIEW_LABEL);
+        }
+
         function isNotificationDone(notification) {
             const notifState = notification.subject?.state;
             return (
@@ -251,7 +270,8 @@
                 return false;
             }
             return !isNotificationApproved(notification) &&
-                !hasLiveChangesRequest(notification);
+                !hasLiveChangesRequest(notification) &&
+                !isAwaitingAuthor(notification);
         }
 
         function isNotificationForCurrentUser(notification) {
@@ -292,10 +312,12 @@
                 );
         }
 
-        // A PR with a live changes request waits on its author, not on us.
+        // A PR with a live changes request, or a workflow label handing it
+        // to its author, waits on the author, not on us.
         function isNotificationReviewQueue(notification) {
             return isNotificationReviewQueueCandidate(notification) &&
-                !hasLiveChangesRequest(notification);
+                !hasLiveChangesRequest(notification) &&
+                !isAwaitingAuthor(notification);
         }
 
         function getReviewQueuePullRequestKeys() {
@@ -365,10 +387,16 @@
             return matchesView(notification, 'others-prs') &&
                 isNotificationNeedsReview(notification) &&
                 !isNotificationFromAiAuthor(notification) &&
-                isNotificationFromExternal(notification);
+                isNotificationFromExternal(notification) &&
+                !isNotificationImportant(notification);
         }
 
+        // Pre-review already accepted a ready-for-review PR, so a "skip"
+        // verdict from before no longer applies.
         function getReviewVerdict(notification) {
+            if (isReadyForReview(notification)) {
+                return null;
+            }
             const key = getPullRequestKey(notification);
             return (key && reviewVerdicts.get(key)) || null;
         }
@@ -383,7 +411,8 @@
             if (repository && !isPytorchCoreNotification(notification)) {
                 return true;
             }
-            return isNotificationFromCommitter(notification);
+            return isNotificationFromCommitter(notification) ||
+                isReadyForReview(notification);
         }
 
         function isNotificationFromAiAuthor(notification) {
@@ -510,6 +539,7 @@
             isCommitNotification,
             isExternalReviewCandidate,
             isForcedOutsideOrgReply,
+            isAwaitingAuthor,
             isMyPr,
             isNotificationApproved,
             isNotificationChangesRequested,
@@ -523,6 +553,7 @@
             isNotificationNeedsReview,
             isNotificationOriginPullRequest,
             isMutedReviewRequest,
+            isReadyForReview,
             isNotificationReviewQueue,
             isNotificationReviewQueueCandidate,
             isNotificationReviewResponsibility,
@@ -577,7 +608,9 @@
                 return isAiAuthor;
             }
             if (authorFilter === 'external') {
-                return !isAiAuthor && classifier.isNotificationFromExternal(notif);
+                return !isAiAuthor &&
+                    classifier.isNotificationFromExternal(notif) &&
+                    !classifier.isNotificationImportant(notif);
             }
             return true;
         });

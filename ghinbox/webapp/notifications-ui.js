@@ -925,7 +925,7 @@ function getNotificationLinkUrl(notif) {
     return GhinboxFormat.getReplyLinkUrl(notif.subject, getNotificationReplyComment(notif));
 }
 
-function renderNotificationItem(notif, diffstatContext) {
+function renderNotificationItem(notif, diffstatContext, classifier) {
     const li = document.createElement('li');
     const isSelected = state.selected.has(notif.id);
     const isActive = state.activeNotificationId === notif.id;
@@ -974,8 +974,8 @@ function renderNotificationItem(notif, diffstatContext) {
     const demotedWhy = replyDemotion && replyDemotion.updated_at === notif.updated_at
         ? replyDemotion.why || 'FYI'
         : '';
-    const reviewVerdict = state.view === 'others-prs' && typeof getDigestReviewVerdict === 'function'
-        ? GhinboxDigest.describeReviewVerdict(getDigestReviewVerdict(notif))
+    const reviewVerdict = state.view === 'others-prs'
+        ? GhinboxDigest.describeReviewVerdict(classifier.getReviewVerdict(notif))
         : null;
     const reviewVerdictHtml = reviewVerdict
         ? `<div class="notification-review-verdict" data-verdict="${reviewVerdict.verdict}">${
@@ -1293,9 +1293,10 @@ function render() {
 
     if (filteredNotifications.length > 0) {
         const diffstatContext = getDiffstatRenderContext(filteredNotifications);
+        const classifier = makeNotificationClassifier();
         const fragment = document.createDocumentFragment();
         filteredNotifications.forEach((notif) => {
-            fragment.appendChild(renderNotificationItem(notif, diffstatContext));
+            fragment.appendChild(renderNotificationItem(notif, diffstatContext, classifier));
         });
         elements.notificationsList.appendChild(fragment);
     }
