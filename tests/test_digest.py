@@ -688,6 +688,59 @@ class FakeArchiver:
         return ActionResult(status="ok", successful_notification_ids=done)
 
 
+def test_digest_skips_low_volume_repos(db_path: str, monkeypatch) -> None:
+    side = _notification(
+        "side-1",
+        3,
+        "2026-09-01T00:00:00Z",
+        repository={"full_name": "meta-pytorch/spmd_types"},
+    )
+    _save([_notification("n-1", 1, "2026-09-01T00:00:00Z"), side], db_path)
+    llm = FakeLlm()
+    archiver = FakeArchiver()
+
+    state = asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+
+    # Low-volume repos stay in the Feed untouched: no triage, no auto-done.
+    assert llm.triage_calls == 1
+    assert "side-1" not in "".join(llm.prompts)
+    assert set(get_item_notes(PROFILE)) == {"n-1"}
+    assert archiver.calls == [["n-1"]]
+    assert state["counts"]["feed_count"] == 1
+    snapshot = get_snapshot(KEY)
+    assert snapshot is not None
+    assert [n["id"] for n in snapshot["notifications"]] == ["side-1"]
+
+    # GHINBOX_DIGEST_REPOS opts more repos (or "*" for all) into the digest.
+    monkeypatch.setenv(
+        "GHINBOX_DIGEST_REPOS", "pytorch/pytorch, Meta-PyTorch/spmd_types"
+    )
+    asyncio.run(
+        worker.update_digest(PROFILE, llm=llm, archiver=archiver, current_user="ezyang")
+    )
+    assert archiver.calls[-1] == ["side-1"]
+
+
+def test_digest_repos_table(monkeypatch) -> None:
+    cases = [
+        (None, "pytorch/pytorch", True),
+        (None, "PyTorch/PyTorch", True),
+        (None, "meta-pytorch/spmd_types", False),
+        (None, None, False),
+        ("*", "meta-pytorch/spmd_types", True),
+        ("pytorch/pytorch,pytorch/xla", "pytorch/xla", True),
+        ("pytorch/xla", "pytorch/pytorch", False),
+    ]
+    for raw, repo, expected in cases:
+        if raw is None:
+            monkeypatch.delenv("GHINBOX_DIGEST_REPOS", raising=False)
+        else:
+            monkeypatch.setenv("GHINBOX_DIGEST_REPOS", raw)
+        assert worker.is_digested_repo(repo) is expected, (raw, repo)
+
+
 def test_mention_signal_table() -> None:
     cases = [
         ([], None),

@@ -120,6 +120,21 @@ def digest_profiles() -> set[str]:
     return {name.strip() for name in raw.split(",") if name.strip()}
 
 
+DEFAULT_DIGEST_REPOS = "pytorch/pytorch"
+
+
+def is_digested_repo(repo: str | None) -> bool:
+    """Whether a repo's Feed is high-volume enough to digest (``GHINBOX_DIGEST_REPOS``).
+
+    Low-volume repos (side projects like meta-pytorch/spmd_types) are easy to
+    read in full, so their Feed items skip triage and auto-done and stay put.
+    ``*`` digests every repo.
+    """
+    raw = os.environ.get("GHINBOX_DIGEST_REPOS") or DEFAULT_DIGEST_REPOS
+    repos = {name.strip().lower() for name in raw.split(",") if name.strip()}
+    return "*" in repos or (bool(repo) and str(repo).lower() in repos)
+
+
 def digest_compose_interval_seconds() -> float:
     """Minimum gap between background composes (``GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS``)."""
     raw = os.environ.get("GHINBOX_DIGEST_COMPOSE_INTERVAL_HOURS")
@@ -530,7 +545,14 @@ def build_feed_context(
         reply_demotions=demotions,
         author_permissions=author_permissions,
     )
-    feed_ids = {str(nid) for nid in classified["feed_ids"]}
+    by_notification_id = {str(n.get("id")): n for n in notifications}
+    # Only high-volume repos are digested; the rest stay put for the user.
+    digested_ids = {
+        nid
+        for nid, n in by_notification_id.items()
+        if is_digested_repo((n.get("repository") or {}).get("full_name"))
+    }
+    feed_ids = {str(nid) for nid in classified["feed_ids"]} & digested_ids
     feed = [n for n in notifications if str(n.get("id", "")) in feed_ids]
     reply_nature = find_reply_nature_in_feed(feed, threads, current_user)
     items = build_report_items(feed, threads, {n["id"] for n in reply_nature})
@@ -547,8 +569,12 @@ def build_feed_context(
             str(nid) for nid in classified.get("review_duplicate_ids") or []
         ],
         trash_ids=[str(nid) for nid in classified.get("sweep_trash_ids") or []],
-        reply_candidates=list(classified.get("reply_candidates") or []),
-        notifications={str(n.get("id")): n for n in notifications},
+        reply_candidates=[
+            candidate
+            for candidate in classified.get("reply_candidates") or []
+            if str(candidate.get("id")) in digested_ids
+        ],
+        notifications=by_notification_id,
         external_review_ids=[
             str(nid) for nid in classified.get("external_review_ids") or []
         ],

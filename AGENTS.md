@@ -66,7 +66,10 @@
     or when the panel's Refresh (`POST /api/digest/{profile}/run`) forces it.
     Served at `GET /api/digest/{profile}`. Env: `GHINBOX_DIGEST_ENABLED=0`
     disables it, `GHINBOX_DIGEST_PROFILES` (default `pytorch`) chooses
-    profiles, and `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less
+    profiles, `GHINBOX_DIGEST_REPOS` (default `pytorch/pytorch`; `*` for all)
+    chooses the high-volume repos whose Feed items are digested (triage,
+    Replies check, auto-done; low-volume side repos like
+    meta-pytorch/spmd_types stay in the Feed untouched), and `GHINBOX_DIGEST_LLM_COMMAND` overrides the tool-less
     `pi -p --mode json` (Muse) command; it must stay tool-less because prompts
     carry untrusted GitHub text. Use a `{prompt_file}` argument for CLIs that
     can't read stdin. Queue classification still comes from the client's UMD
