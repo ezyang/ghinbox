@@ -120,11 +120,13 @@ def digest_profiles() -> set[str]:
     return {name.strip() for name in raw.split(",") if name.strip()}
 
 
-DEFAULT_DIGEST_REPOS = "pytorch/pytorch"
+# High-volume repos, plus low-volume ones the user never wants to read
+# (test-infra): triage still surfaces anything that needs them.
+DEFAULT_DIGEST_REPOS = "pytorch/pytorch,pytorch/test-infra"
 
 
 def is_digested_repo(repo: str | None) -> bool:
-    """Whether a repo's Feed is high-volume enough to digest (``GHINBOX_DIGEST_REPOS``).
+    """Whether the digest handles a repo's Feed (``GHINBOX_DIGEST_REPOS``).
 
     Low-volume repos (side projects like meta-pytorch/spmd_types) are easy to
     read in full, so their Feed items skip triage and auto-done and stay put.

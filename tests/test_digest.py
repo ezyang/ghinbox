@@ -727,6 +727,7 @@ def test_digest_repos_table(monkeypatch) -> None:
     cases = [
         (None, "pytorch/pytorch", True),
         (None, "PyTorch/PyTorch", True),
+        (None, "pytorch/test-infra", True),
         (None, "meta-pytorch/spmd_types", False),
         (None, None, False),
         ("*", "meta-pytorch/spmd_types", True),
