@@ -240,8 +240,8 @@ def is_surfaced(
 
     "High" items, plus "medium" ones with a direct human mention or reply the
     Replies check did not already dismiss. Once surfaced, an item stays
-    surfaced (exempt from auto-done) until the user handles it, even across
-    new activity.
+    surfaced (exempt from auto-done) until the user handles it (marks it done,
+    or comments after it: ``user_commented_since``), even across new activity.
     """
     if note.get("attention") == "high" or (previous or {}).get("surfaced"):
         return True
@@ -250,6 +250,26 @@ def is_surfaced(
         and mention_signal(item.get("reply_signals") or []) == "direct"
         and item["id"] not in demoted_ids
     )
+
+
+def user_commented_since(thread: dict[str, Any] | None, user: str, since: Any) -> bool:
+    """Whether ``user`` commented after ``since`` (the activity triage judged).
+
+    GitHub does not bump a notification's ``updated_at`` for the user's own
+    comments, so this reads the thread rather than waiting for a re-triage.
+    """
+    since_at = _parse_time(since)
+    if since_at is None:
+        return False
+    user_lower = user.lower()
+    for comment in (thread or {}).get("comments") or []:
+        if not isinstance(comment, dict):
+            continue
+        login = str((comment.get("user") or {}).get("login") or "")
+        at = _parse_time(comment.get("created_at") or comment.get("createdAt"))
+        if login.lower() == user_lower and at is not None and at > since_at:
+            return True
+    return False
 
 
 def _keeps_archived_note(
@@ -734,6 +754,17 @@ async def update_digest(
     }
     prune_item_notes(profile, feed_ids | archived_ids)
     notes = {nid: note for nid, note in notes.items() if nid in feed_ids | archived_ids}
+    # The user commenting after a surfaced item means they saw it: unstick it
+    # so auto-done clears it (new activity is then judged on its own).
+    handled = {
+        nid: {**note, "surfaced": False}
+        for nid, note in notes.items()
+        if nid in feed_ids
+        and note.get("surfaced")
+        and user_commented_since(context.threads.get(nid), user, note.get("updated_at"))
+    }
+    save_item_notes(profile, handled)
+    notes.update(handled)
     pending = [
         item
         for item in context.items
@@ -763,7 +794,11 @@ async def update_digest(
         batch_by_id = {item["id"]: item for item in batch}
         for nid, note in batch_notes.items():
             note["triaged_at"] = now.isoformat()
-            if is_surfaced(note, batch_by_id[nid], notes.get(nid), demoted):
+            if is_surfaced(
+                note, batch_by_id[nid], notes.get(nid), demoted
+            ) and not user_commented_since(
+                context.threads.get(nid), user, note.get("updated_at")
+            ):
                 note["surfaced"] = True
         save_item_notes(profile, batch_notes)
         notes.update(batch_notes)

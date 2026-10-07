@@ -894,6 +894,69 @@ def test_auto_done_marks_digested_feed_items_done_and_keeps_them_in_the_digest(
     assert state["counts"]["feed_count"] == 1
 
 
+def test_user_comment_after_a_surfaced_item_unsticks_it(db_path: str) -> None:
+    """Commenting after a surfaced item means the user saw it; auto-done it.
+
+    GitHub does not bump updated_at for the user's own comment, so the item
+    is never re-triaged: the worker must read the thread itself.
+    """
+    now = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    llm = FakeLlm({"n-1": "high", "n-2": "high"})
+    archiver = FakeArchiver()
+
+    def run(threads: dict, notifications: list[dict]) -> None:
+        save_snapshot(
+            KEY,
+            notifications,
+            comment_cache={"version": 1, "threads": threads},
+            db_path=db_path,
+        )
+        asyncio.run(
+            worker.update_digest(
+                PROFILE, llm=llm, archiver=archiver, current_user="ezyang", now=now
+            )
+        )
+
+    def comment(login: str, at: str) -> dict:
+        return {"id": f"{login}-{at}", "user": {"login": login}, "created_at": at}
+
+    alice = comment("alice", "2026-09-01T00:00:00Z")
+    first = [
+        _notification("n-1", 1, "2026-09-01T00:00:00Z"),
+        _notification("n-2", 2, "2026-09-01T00:00:00Z"),
+    ]
+    run({"n-1": {"comments": [alice]}, "n-2": {"comments": [alice]}}, first)
+    assert archiver.calls == []
+    notes = get_item_notes(PROFILE)
+    assert (notes["n-1"]["surfaced"], notes["n-2"]["surfaced"]) == (True, True)
+
+    # The user replies on n-1; its updated_at stays put. n-2 gets unrelated
+    # new activity after the user's comment there, which triage now finds dull.
+    # n-3 is first seen already answered: "high", but not surfaced.
+    ezyang = comment("ezyang", "2026-09-01T12:00:00Z")
+    llm.attention.update({"n-2": "low", "n-3": "high"})
+    run(
+        {
+            "n-1": {"comments": [alice, ezyang]},
+            "n-2": {"comments": [alice, ezyang]},
+            "n-3": {"comments": [alice, ezyang]},
+        },
+        [
+            first[0],
+            _notification("n-2", 2, "2026-09-01T18:00:00Z"),
+            _notification("n-3", 3, "2026-09-01T00:00:00Z"),
+        ],
+    )
+    assert archiver.calls == [["n-1", "n-2", "n-3"]]
+    notes = get_item_notes(PROFILE)
+    assert [notes[nid].get("surfaced") for nid in ("n-1", "n-2", "n-3")] == [
+        False,
+        None,
+        None,
+    ]
+    assert digest_routes.build_digest_response(PROFILE)["look_at"] == []
+
+
 def test_auto_done_marks_threads_for_prs_waiting_in_reviews_without_triage(
     db_path: str,
 ) -> None:
