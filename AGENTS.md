@@ -57,7 +57,7 @@
   - The rolling Feed digest (`ghinbox/digest/`) is one such hook. After every
     profile sync it triages new/updated Feed items with an LLM (notes cached
     per item/updated_at in SQLite); "high" attention items become "Look at
-    these" (sticky until the user handles them) and render as annotations on
+    these" (sticky until the user marks them done or comments after them) and render as annotations on
     the Feed rows themselves. Composing "Out of the ordinary" re-reads every
     note against the user's baseline of a normal Feed
     (`ghinbox/digest/feed_baseline.md`, override with
