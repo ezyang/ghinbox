@@ -221,6 +221,7 @@
                 </div>
                 <div class="ship-row-meta">${renderCi(pr)}${notes}</div>
             </div>
+            <span class="ship-status-pill" data-status="${row.status.key}">${escapeHtml(row.status.label)}</span>
             ${renderShipButton(row)}
             ${renderMoreMenu(pr)}
         </li>`;

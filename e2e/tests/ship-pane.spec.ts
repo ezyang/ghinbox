@@ -179,13 +179,17 @@ test.describe('Ship pane @mutation', () => {
     await expect(blockedShip).toHaveText('Ship Stacked');
     await expect(blockedShip).toBeDisabled();
     await expect(blockedShip).toHaveAttribute('data-blocked', 'true');
-    await expect(shipRow(page, 503)).toContainText('Approved; waiting on #502 (awaiting review)');
+    await expect(shipRow(page, 503).locator('.ship-status-pill')).toHaveText('Approved');
+    await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review)');
     await expect(shipRow(page, 502).locator('.ship-it-btn')).toHaveCount(0);
     await expect(shipRow(page, 501).locator('.ship-ci')).toHaveText('1 blocking failure');
     await expect(shipRow(page, 501).locator('.ship-it-btn')).toHaveText('Ship It (1 error)');
-    await expect(shipRow(page, 800)).toContainText('Changes requested');
+    await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveText('Changes requested');
+    await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveAttribute('data-status', 'changes-requested');
+    await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveCSS('color', 'rgb(191, 57, 137)');
+    await expect(shipRow(page, 800).locator('.ship-reason')).toHaveCount(0);
     await expect(review.locator('.ship-row')).toHaveCount(3);
-    await expect(shipRow(page, 700)).toContainText('Awaiting review');
+    await expect(shipRow(page, 700).locator('.ship-status-pill')).toHaveText('Needs review');
     await expect(shipRow(page, 700).locator('.ship-ci')).toHaveText('CI pending (1)');
 
     // Clean ship: Dr. CI's flaky failure is unrelated, so no prompt.
@@ -202,7 +206,7 @@ test.describe('Ship pane @mutation', () => {
 
     await shipRow(page, 600).locator('.ship-it-btn').click();
     await expect.poll(() => posts).toEqual([{ target: 'pytorch/pytorch#600', body: '@pytorchbot merge' }]);
-    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"]`)).toContainText('Merge requested');
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"] .ship-status-pill`)).toHaveText('Merge requested');
     await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
 
     // Shipping over a blocking failure needs every failure acknowledged.
@@ -222,8 +226,8 @@ test.describe('Ship pane @mutation', () => {
       target: 'pytorch/pytorch#501',
       body: '@pytorchbot merge -i',
     });
-    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"]`)).toContainText('Merge requested');
-    await expect(shipRow(page, 503)).toContainText('Approved; waiting on #502 (awaiting review), #501 (landing)');
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"] .ship-status-pill`)).toHaveText('Merge requested');
+    await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review), #501 (landing)');
   });
 
   test('Abandon in the … menu closes the PR at once, with Undo to reopen it', async ({ page }) => {

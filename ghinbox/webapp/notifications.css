@@ -557,6 +557,47 @@
             color: var(--color-warning-fg, #9a6700);
         }
 
+        /* Review status pill, after Phabricator's Needs Review / Waiting
+           For Author / Unpublished: whose move it is, at a glance. */
+        .ship-status-pill {
+            --pill-fg: var(--color-fg-muted);
+            flex-shrink: 0;
+            padding: 2px 10px;
+            border-radius: 999px;
+            background-color: color-mix(in srgb, var(--pill-fg) 14%, transparent);
+            color: var(--pill-fg);
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .ship-status-pill[data-status="needs-review"] {
+            --pill-fg: #bc4c00;
+        }
+
+        .ship-status-pill[data-status="changes-requested"] {
+            --pill-fg: #bf3989;
+        }
+
+        .ship-status-pill[data-status="approved"] {
+            --pill-fg: var(--color-success-fg);
+        }
+
+        .ship-status-pill[data-status="merging"],
+        .ship-status-pill[data-status="merge-requested"] {
+            --pill-fg: var(--color-done-fg);
+        }
+
+        .ship-status-pill[data-status="draft"] {
+            background-color: var(--color-fg-muted);
+            color: var(--color-bg-default);
+        }
+
+        .ship-status-pill[data-status="no-reviewers"] {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px var(--color-border-default);
+        }
+
         .ship-it-btn {
             flex-shrink: 0;
             background-color: var(--color-btn-primary-bg);

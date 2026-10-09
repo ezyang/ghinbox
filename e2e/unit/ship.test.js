@@ -554,18 +554,37 @@ test('buildShipSections splits stacks into action needed and review requested', 
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [
-      [[600, 'Awaiting review']],
-      [[503, 'Approved; waiting on #502 (awaiting review)'], [502, 'Awaiting review']],
+      [[600, null]],
+      [[503, 'Waiting on #502 (awaiting review)'], [502, null]],
     ]
   );
   assert.equal(sections.review[1].stackSize, 3);
   assert.deepEqual(
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[700, 'Merging']]]
+    [[[700, null]]]
   );
   assert.equal(sections.actionCount, 2);
   assert.equal(sections.reviewCount, 3);
   assert.equal(sections.landingCount, 1);
+});
+
+test('every row gets a review status pill, and reasons skip what it says', () => {
+  const cases = [
+    [{ isDraft: true }, 'draft'],
+    [{ reviewDecision: 'CHANGES_REQUESTED' }, 'changes-requested'],
+    [{ reviewDecision: 'APPROVED' }, 'approved'],
+    [{ reviewRequestCount: 0 }, 'no-reviewers'],
+    [{}, 'needs-review'],
+    [{ reviewDecision: 'APPROVED', tail: [comment('ezyang', '@pytorchbot merge', '2026-10-09T01:00:00Z')] }, 'merge-requested'],
+    [{ reviewDecision: 'APPROVED', tail: [comment('pytorchmergebot', fixture('mergebot-started'), '2026-10-09T01:00:00Z')] }, 'merging'],
+  ];
+  for (const [options, key] of cases) {
+    const sections = buildShipSections([pr({ number: 1, ...options })]);
+    const [row] = [...sections.action, ...sections.landing, ...sections.review][0].rows;
+    assert.equal(row.status.key, key, JSON.stringify(options));
+  }
+  const drafty = buildShipSections([pr({ number: 2, isDraft: true, mergeable: 'CONFLICTING' })]);
+  assert.deepEqual(drafty.action[0].rows[0].reasons.map((reason) => reason.label), ['Merge conflict']);
 });
 
 test('buildShipSections moves the landing part of a stack to Landing', () => {
@@ -582,12 +601,12 @@ test('buildShipSections moves the landing part of a stack to Landing', () => {
   ]);
   assert.deepEqual(
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[912, 'Merge requested'], [911, 'Merge requested with #912']]]
+    [[[912, null], [911, 'Landing with #912']]]
   );
   // The top waits for the landing below it.
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[913, 'Approved; waiting on #912 (landing)']]]
+    [[[913, 'Waiting on #912 (landing)']]]
   );
   assert.equal(getShipButtonLabel(sections.review[0].rows[0].plan), 'Ship Stacked');
   assert.equal(sections.actionCount, 0);
@@ -636,6 +655,6 @@ test('buildShipSections hides merged stack members but keeps them for planning',
   ]);
   assert.deepEqual(
     blocked.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[922, 'Approved; waiting on #921 (closed without merging)']]]
+    [[[922, 'Waiting on #921 (closed without merging)']]]
   );
 });

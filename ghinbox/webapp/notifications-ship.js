@@ -762,35 +762,60 @@ ${PR_FRAGMENT}`;
         });
     }
 
+    // The review status pill, after Phabricator's: one glance says whose
+    // move it is.
+    function getReviewStatus(pr, assessment) {
+        if (isLanding(pr)) {
+            return pr.mergebot.state === 'merging'
+                ? { key: 'merging', label: 'Merging' }
+                : { key: 'merge-requested', label: 'Merge requested' };
+        }
+        if (pr.isDraft) {
+            return { key: 'draft', label: 'Draft' };
+        }
+        if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+            return { key: 'changes-requested', label: 'Changes requested' };
+        }
+        if (assessment.approved) {
+            return { key: 'approved', label: 'Approved' };
+        }
+        if (!assessment.waitingOnReview) {
+            return { key: 'no-reviewers', label: 'No reviewers' };
+        }
+        return { key: 'needs-review', label: 'Needs review' };
+    }
+
+    // Blockers the status pill already says.
+    const STATUS_BLOCKERS = ['draft', 'changes-requested', 'no-reviewers'];
+
+    // What the status pill leaves out, if anything.
     function describeWaiting(pr, assessment, plan) {
         if (isLanding(pr)) {
-            const verb = pr.mergebot.state === 'merging' ? 'Merging' : 'Merge requested';
-            return pr.mergebot.underNumber ? `${verb} with #${pr.mergebot.underNumber}` : verb;
+            return pr.mergebot.underNumber ? `Landing with #${pr.mergebot.underNumber}` : null;
         }
         if (plan.reason === 'blocked-below') {
             // PRs landing with a stack top already listed add nothing.
             const listed = new Set(plan.blockedBy.map((item) => item.number));
-            return `Approved; waiting on ${plan.blockedBy
+            return `Waiting on ${plan.blockedBy
                 .filter((item) => !listed.has(item.landingWith))
                 .map((item) => `#${item.number} (${item.why})`)
                 .join(', ')}`;
         }
         if (plan.reason === 'unknown-below') {
-            return `Approved; can't see ${plan.missing.map((number) => `#${number}`).join(', ')} below`;
+            return `Can't see ${plan.missing.map((number) => `#${number}`).join(', ')} below`;
         }
-        if (assessment.approved) {
-            return 'Approved';
-        }
-        return 'Awaiting review';
+        return null;
     }
 
     function buildRow(pr, prsByKey) {
         const assessment = assessPullRequest(pr);
         const plan = planShip(pr, prsByKey);
-        const reasons = assessment.blockers.map((blocker) => ({
-            label: blocker.label,
-            severity: blocker.severity || 'error',
-        }));
+        const reasons = assessment.blockers
+            .filter((blocker) => !STATUS_BLOCKERS.includes(blocker.code))
+            .map((blocker) => ({
+                label: blocker.label,
+                severity: blocker.severity || 'error',
+            }));
         // Approved without a mergebot is still on the author: land it by hand.
         const landByHand = assessment.ready && !pr.usesMergebot;
         if (landByHand) {
@@ -804,6 +829,7 @@ ${PR_FRAGMENT}`;
             assessment,
             plan,
             reasons,
+            status: getReviewStatus(pr, assessment),
             waiting: needsAction ? null : describeWaiting(pr, assessment, plan),
             needsAction,
             landing,
