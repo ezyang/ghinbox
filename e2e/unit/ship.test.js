@@ -7,6 +7,8 @@ const {
   assessPullRequest,
   buildShipSearchQuery,
   buildShipSections,
+  describeCi,
+  describeUnrelated,
   buildStackLookupGraphql,
   getMergebotState,
   getMissingStackNumbers,
@@ -189,6 +191,7 @@ test('getMergebotState follows the merge lifecycle in the last comments', () => 
       expected: {
         state: 'failed',
         reason: 'This PR needs a `release notes:` label',
+        failedJobs: [],
         at: '2026-10-09T01:05:00Z',
       },
     },
@@ -218,6 +221,9 @@ test('getMergebotState follows the merge lifecycle in the last comments', () => 
     { nowMs: NOW }
   );
   assert.match(failed.reason, /^1 jobs have failed, first few of them are: trunk \//);
+  assert.deepEqual(failed.failedJobs, [
+    'trunk / linux-noble-rocm-py3.11-mi350 / test (default, 2, 8, amd-dpx-linux.rocm.gpu.gfx950.1)',
+  ]);
   // A push after the failure retires it.
   assert.equal(
     getMergebotState(
@@ -360,7 +366,7 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
   assert.deepEqual(planShip(top, byKey(prs)), {
     canShip: false,
     reason: 'blocked-below',
-    blockedBy: [{ number: 103, why: 'awaiting review' }],
+    blockedBy: [{ number: 103, why: 'awaiting review', landingWith: null }],
   });
 
   const ready = planShip(make(103), byKey([top, make(103), pending, merged]));
@@ -368,7 +374,7 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
   assert.deepEqual(ready.prNumbers, [103, 102]);
   assert.equal(ready.pendingCount, 1);
   assert.equal(ready.command, '@pytorchbot merge');
-  assert.equal(getShipButtonLabel(ready), 'Ship It (2 PRs)');
+  assert.equal(getShipButtonLabel(ready), 'Ship Stacked (2 PRs)');
 
   // Unknown members (not fetched) hide Ship It rather than guess.
   assert.deepEqual(planShip(top, byKey([top])), {
@@ -379,7 +385,7 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
 
   const draftBelow = make(102, { isDraft: true });
   assert.deepEqual(planShip(make(103), byKey([make(103), draftBelow, merged])).blockedBy, [
-    { number: 102, why: 'draft' },
+    { number: 102, why: 'draft', landingWith: null },
   ]);
 });
 
@@ -393,7 +399,7 @@ test('planShip collects blocking failures across the sub-stack for acknowledgeme
   assert.deepEqual(plan.failures.map((failure) => [failure.prNumber, failure.section]), [
     [201, 'NEW FAILURE'],
   ]);
-  assert.equal(getShipButtonLabel(plan), 'Ship It (2 PRs, 1 error)');
+  assert.equal(getShipButtonLabel(plan), 'Ship Stacked (2 PRs, 1 error)');
 
   const single = pr({ number: 7, reviewDecision: 'APPROVED', drci: DRCI.failing });
   assert.equal(getShipButtonLabel(planShip(single, byKey([single]))), 'Ship It (1 error)');
@@ -454,6 +460,54 @@ test('resolveStackMerges drops a stack member merge once the top PR stopped', ()
   assert.equal(resolveStackMerges([member])[0].mergebot.state, 'merging');
 });
 
+test('resolveStackMerges marks open PRs below a landing stack top as landing', () => {
+  const numbers = [903, 902, 901, 900];
+  const top = pr({
+    number: 903,
+    body: stackBody(numbers, 903),
+    reviewDecision: 'APPROVED',
+    tail: [comment('ezyang', '@pytorchbot merge', '2026-10-09T01:00:00Z')],
+  });
+  const middle = pr({ number: 902, body: stackBody(numbers, 902), reviewDecision: 'APPROVED' });
+  // Failed before the new request: the request retries it.
+  const lower = pr({
+    number: 901,
+    body: stackBody(numbers, 901),
+    reviewDecision: 'APPROVED',
+    tail: [comment('pytorchmergebot', fixture('mergebot-failed-job'), '2026-10-09T00:30:00Z')],
+  });
+  const closed = pr({ number: 900, body: stackBody(numbers, 900), state: 'CLOSED' });
+  const resolved = resolveStackMerges([top, middle, lower, closed]);
+  assert.deepEqual(resolved.map((item) => item.mergebot), [
+    { state: 'requested', at: '2026-10-09T01:00:00Z' },
+    { state: 'requested', at: '2026-10-09T01:00:00Z', underNumber: 903 },
+    { state: 'requested', at: '2026-10-09T01:00:00Z', underNumber: 903 },
+    null,
+  ]);
+  // A failure after the request is newer news and stays.
+  const failedLater = pr({
+    number: 901,
+    body: stackBody(numbers, 901),
+    tail: [comment('pytorchmergebot', fixture('mergebot-failed-job'), '2026-10-09T02:00:00Z')],
+  });
+  assert.equal(resolveStackMerges([top, failedLater])[1].mergebot.state, 'failed');
+});
+
+test('a merge that failed only on jobs Dr. CI calls unrelated is a warning, not an error', () => {
+  const failedTail = [comment('pytorchmergebot', fixture('mergebot-failed-job'), '2026-10-09T01:05:00Z')];
+  // Dr. CI later classified the very job mergebot tripped on as FLAKY.
+  const flakyDrci = DRCI.unrelated.replace('test (default, 7, 8,', 'test (default, 2, 8,');
+  const flaky = pr({ number: 1, reviewDecision: 'APPROVED', drci: flakyDrci, tail: failedTail });
+  const [flakyBlocker] = assessPullRequest(flaky).blockers;
+  assert.equal(flakyBlocker.code, 'merge-failed');
+  assert.equal(flakyBlocker.severity, 'warning');
+  assert.equal(flakyBlocker.label, 'Merge failed on a job Dr. CI now marks FLAKY');
+  const real = pr({ number: 2, reviewDecision: 'APPROVED', drci: DRCI.failing, tail: failedTail });
+  assert.equal(assessPullRequest(real).blockers[0].severity, undefined);
+  assert.equal(describeUnrelated(flaky.ci), '1 unrelated failure (FLAKY)');
+  assert.equal(describeCi(flaky.ci), 'CI green');
+});
+
 test('applyPendingMerges shows a just-posted merge until GitHub has newer news', () => {
   const plain = pr({ number: 1, reviewDecision: 'APPROVED' });
   const [patched] = applyPendingMerges([plain], { [plain.key]: NOW });
@@ -498,10 +552,40 @@ test('buildShipSections splits stacks into action needed and review requested', 
   assert.equal(sections.action[0].rows[2].plan.canShip, true);
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[600, 'Awaiting review']], [[700, 'Merging']]]
+    [[[600, 'Awaiting review']]]
+  );
+  assert.deepEqual(
+    sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    [[[700, 'Merging']]]
   );
   assert.equal(sections.actionCount, 2);
-  assert.equal(sections.reviewCount, 4);
+  assert.equal(sections.reviewCount, 3);
+  assert.equal(sections.landingCount, 1);
+});
+
+test('buildShipSections moves the landing part of a stack to Landing', () => {
+  const numbers = [913, 912, 911];
+  const sections = buildShipSections([
+    pr({ number: 913, body: stackBody(numbers, 913), reviewDecision: 'APPROVED', drci: DRCI.green }),
+    pr({
+      number: 912,
+      body: stackBody(numbers, 912),
+      reviewDecision: 'APPROVED',
+      tail: [comment('ezyang', '@pytorchbot merge', '2026-10-09T01:00:00Z')],
+    }),
+    pr({ number: 911, body: stackBody(numbers, 911), reviewDecision: 'APPROVED' }),
+  ]);
+  assert.deepEqual(
+    sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    [[[912, 'Merge requested'], [911, 'Merge requested with #912']]]
+  );
+  // The top waits for the landing below it.
+  assert.deepEqual(
+    sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    [[[913, 'Approved; waiting on #912 (landing)']]]
+  );
+  assert.equal(getShipButtonLabel(sections.review[0].rows[0].plan), 'Ship Stacked');
+  assert.equal(sections.actionCount, 0);
 });
 
 test('buildShipSections hides merged stack members but keeps them for planning', () => {
@@ -513,4 +597,13 @@ test('buildShipSections hides merged stack members but keeps them for planning',
   assert.deepEqual(sections.action.map((group) => group.rows.map((row) => row.pr.number)), [[902]]);
   assert.equal(sections.action[0].isStack, true);
   assert.equal(sections.action[0].rows[0].plan.canShip, true);
+  // A closed member below is hidden but still blocks the stack.
+  const blocked = buildShipSections([
+    pr({ number: 922, body: stackBody([922, 921], 922), reviewDecision: 'APPROVED', drci: DRCI.green }),
+    pr({ number: 921, body: stackBody([922, 921], 921), state: 'CLOSED' }),
+  ]);
+  assert.deepEqual(
+    blocked.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    [[[922, 'Approved; waiting on #921 (closed without merging)']]]
+  );
 });

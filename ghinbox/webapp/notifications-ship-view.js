@@ -1,7 +1,8 @@
 // Ship pane: the viewer's open PRs, live from GitHub, split into "Action
-// needed" and "Review requested", grouped by ghstack stack. Ship It posts the
-// mergebot command as a PR comment (GitHub is the database); blocking Dr. CI
-// failures must each be acknowledged before a `merge -i` goes out.
+// needed", "Landing" and "Review requested", grouped by ghstack stack. Ship It
+// posts the mergebot command as a PR comment (GitHub is the database);
+// blocking Dr. CI failures must each be acknowledged before a `merge -i` goes
+// out. The per-row "…" menu holds destructive actions (Abandon closes the PR).
 (function () {
     const panel = document.getElementById('ship-panel');
     const dialog = document.getElementById('ship-ack-dialog');
@@ -17,6 +18,7 @@
     let cachedSections = null;
     let cachedVersion = -1;
     let ackRowKey = null;
+    let openMenuKey = null;
 
     function bumpVersion() {
         state.ship.version += 1;
@@ -130,12 +132,19 @@
         const stale = pr.ci.stale
             ? ' <span class="ship-ci-stale" title="Dr. CI has not caught up with the latest push">(older commit)</span>'
             : '';
-        return `<a class="ship-ci" data-ci-state="${pr.ci.state}" href="${escapeHtml(ciLink(pr))}" target="_blank" rel="noopener noreferrer">${escapeHtml(GhinboxShip.describeCi(pr.ci))}</a>${stale}`;
+        const unrelatedText = GhinboxShip.describeUnrelated(pr.ci);
+        const unrelated = unrelatedText
+            ? ` <span class="ship-ci-unrelated" title="Dr. CI does not block a normal merge on these">${escapeHtml(unrelatedText)}</span>`
+            : '';
+        return `<a class="ship-ci" data-ci-state="${pr.ci.state}" href="${escapeHtml(ciLink(pr))}" target="_blank" rel="noopener noreferrer">${escapeHtml(GhinboxShip.describeCi(pr.ci))}</a>${unrelated}${stale}`;
     }
 
     function renderShipButton(row) {
         if (!row.plan.canShip) {
-            return '';
+            if (!GhinboxShip.isBlockedBelow(row.plan)) {
+                return '';
+            }
+            return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-blocked="true" title="${escapeHtml(row.waiting || 'Blocked by the stack below')}" disabled>${escapeHtml(GhinboxShip.getShipButtonLabel(row.plan))}</button>`;
         }
         const shipping = state.ship.shipping.has(row.pr.key);
         const hasErrors = row.plan.failures.length > 0;
@@ -147,10 +156,24 @@
         return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-has-errors="${hasErrors}" title="${escapeHtml(title)}"${shipping ? ' disabled' : ''}>${escapeHtml(label)}</button>`;
     }
 
+    function renderMoreMenu(pr) {
+        const open = openMenuKey === pr.key;
+        const busy = state.ship.abandoning.has(pr.key);
+        const menu = open
+            ? `<div class="ship-menu" role="menu">
+                <button class="ship-menu-item ship-abandon-btn" type="button" role="menuitem" data-pr-key="${escapeHtml(pr.key)}"${busy ? ' disabled' : ''}>${busy ? 'Abandoning…' : 'Abandon'}</button>
+            </div>`
+            : '';
+        return `<div class="ship-more">
+            <button class="btn ship-more-btn" type="button" data-pr-key="${escapeHtml(pr.key)}" aria-haspopup="menu" aria-expanded="${open}" aria-label="More actions for #${pr.number}" title="More actions">…</button>
+            ${menu}
+        </div>`;
+    }
+
     function renderRow(row) {
         const { pr } = row;
         const notes = [
-            ...row.reasons.map((reason) => `<span class="ship-reason">${escapeHtml(reason)}</span>`),
+            ...row.reasons.map((reason) => `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),
             row.waiting ? `<span class="ship-waiting">${escapeHtml(row.waiting)}</span>` : '',
         ].join('');
         return `<li class="ship-row" data-pr-key="${escapeHtml(pr.key)}" data-needs-action="${row.needsAction}">
@@ -162,12 +185,13 @@
                 <div class="ship-row-meta">${renderCi(pr)}${notes}</div>
             </div>
             ${renderShipButton(row)}
+            ${renderMoreMenu(pr)}
         </li>`;
     }
 
     function renderGroup(group) {
         const label = group.isStack
-            ? `<div class="ship-stack-label">Stack · ${group.rows.length} open</div>`
+            ? `<div class="ship-stack-label">Stack · ${group.rows.length} ${group.rows.length === 1 ? 'PR' : 'PRs'}</div>`
             : '';
         return `<li class="ship-group" data-stack="${group.isStack}">
             ${label}
@@ -205,6 +229,7 @@
             (state.ship.fetchedAt ? ` · loaded ${formatRelativeTime(new Date(state.ship.fetchedAt).toISOString())}` : '');
         sectionsContainer.innerHTML =
             renderSection('action', 'Action needed', sections.action, sections.actionCount, 'Nothing needs you.') +
+            renderSection('landing', 'Landing', sections.landing, sections.landingCount, 'Nothing is landing.') +
             renderSection('review', 'Review requested', sections.review, sections.reviewCount, 'Nothing is waiting on reviewers.');
     }
 
@@ -213,7 +238,7 @@
         if (!sections) {
             return null;
         }
-        for (const group of [...sections.action, ...sections.review]) {
+        for (const group of [...sections.action, ...sections.landing, ...sections.review]) {
             const row = group.rows.find((item) => item.pr.key === prKey);
             if (row) {
                 return row;
@@ -242,6 +267,35 @@
             showStatus(`Ship It failed for #${pr.number}: ${error.message || error}`, 'error');
         } finally {
             state.ship.shipping.delete(pr.key);
+            render();
+        }
+    }
+
+    async function abandon(prKey) {
+        const pr = state.ship.prs?.find((item) => item.key === prKey);
+        if (!pr || state.ship.abandoning.has(prKey)) {
+            return;
+        }
+        openMenuKey = null;
+        renderShipPanel();
+        if (!confirm(`Abandon #${pr.number}?\n\n${pr.title}\n\nThis closes the PR on GitHub.`)) {
+            return;
+        }
+        state.ship.abandoning.add(prKey);
+        render();
+        try {
+            await fetchJson(`/github/rest/repos/${pr.repo}/pulls/${pr.number}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ state: 'closed' }),
+            });
+            pr.state = 'CLOSED';
+            bumpVersion();
+            showStatus(`Closed #${pr.number}`, 'success', { autoDismiss: true });
+        } catch (error) {
+            showStatus(`Abandon failed for #${pr.number}: ${error.message || error}`, 'error');
+        } finally {
+            state.ship.abandoning.delete(prKey);
             render();
         }
     }
@@ -308,6 +362,29 @@
         const button = event.target.closest('.ship-it-btn');
         if (button) {
             handleShipClick(button.dataset.prKey);
+            return;
+        }
+        const more = event.target.closest('.ship-more-btn');
+        if (more) {
+            openMenuKey = openMenuKey === more.dataset.prKey ? null : more.dataset.prKey;
+            renderShipPanel();
+            return;
+        }
+        const abandonButton = event.target.closest('.ship-abandon-btn');
+        if (abandonButton) {
+            withActionContext('Abandon PR', () => abandon(abandonButton.dataset.prKey));
+        }
+    });
+    document.addEventListener('click', (event) => {
+        if (openMenuKey && !event.target.closest('.ship-more')) {
+            openMenuKey = null;
+            renderShipPanel();
+        }
+    });
+    document.addEventListener('keydown', (event) => {
+        if (openMenuKey && event.key === 'Escape') {
+            openMenuKey = null;
+            renderShipPanel();
         }
     });
     refreshButton.addEventListener('click', () => {

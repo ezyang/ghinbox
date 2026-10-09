@@ -201,15 +201,12 @@ ${PR_FRAGMENT}`;
     function summarizeCi({ drci, rollup, headSha, url }) {
         if (drci) {
             const blockingJobs = [];
-            let unrelatedCount = 0;
+            const unrelatedJobs = [];
             drci.sections.forEach((section) => {
-                if (section.kind === 'blocking') {
-                    section.jobs.forEach((job) => {
-                        blockingJobs.push({ ...job, section: section.name });
-                    });
-                } else {
-                    unrelatedCount += section.jobs.length;
-                }
+                const jobs = section.kind === 'blocking' ? blockingJobs : unrelatedJobs;
+                section.jobs.forEach((job) => {
+                    jobs.push({ ...job, section: section.name });
+                });
             });
             const state = blockingJobs.length
                 ? 'failing'
@@ -221,7 +218,8 @@ ${PR_FRAGMENT}`;
                 state,
                 headline: drci.headline,
                 blockingJobs,
-                unrelatedCount,
+                unrelatedJobs,
+                unrelatedCount: unrelatedJobs.length,
                 pendingCount: drci.pendingCount,
                 stale: !shaMatches(drci.headSha, headSha),
                 sevs: drci.sevs,
@@ -240,6 +238,7 @@ ${PR_FRAGMENT}`;
             blockingJobs: state === 'failing'
                 ? [{ name: 'CI checks (no Dr. CI classification)', url: url ? `${url}/checks` : '', failures: [], section: 'FAILING CHECKS' }]
                 : [],
+            unrelatedJobs: [],
             unrelatedCount: 0,
             pendingCount: 0,
             stale: false,
@@ -277,10 +276,15 @@ ${PR_FRAGMENT}`;
     function parseMergeFailureReason(body) {
         const reason = normalizeText(body).match(/\*\*Reason\*\*:\s*(.+)/);
         if (!reason) {
-            return 'Merge failed';
+            return { reason: 'Merge failed', failedJobs: [] };
         }
+        const failedJobs = Array.from(reason[1].matchAll(/\[([^\]]+)\]\([^)]+\)/g))
+            .map((match) => match[1]);
         // Drop markdown links down to their text so the reason stays short.
-        return reason[1].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+        return {
+            reason: reason[1].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim(),
+            failedJobs,
+        };
     }
 
     const MERGE_REQUEST_RE = /^@pytorch(?:merge)?bot\s+merge\b/im;
@@ -304,7 +308,7 @@ ${PR_FRAGMENT}`;
                 } else if (/^#+ Merge started/.test(body)) {
                     event = { state: 'merging', at };
                 } else if (/^#+ Merge failed/.test(body)) {
-                    event = { state: 'failed', reason: parseMergeFailureReason(body), at };
+                    event = { state: 'failed', ...parseMergeFailureReason(body), at };
                 } else if (/successfully reverted|started a revert job/.test(body)) {
                     event = null;
                 }
@@ -333,19 +337,51 @@ ${PR_FRAGMENT}`;
 
     // Mergebot reports a stack merge's outcome only on the PR it was asked
     // to merge, so a member merging "under #N" is merging only while #N is.
+    function isLanding(pr) {
+        return pr.mergebot?.state === 'merging' || pr.mergebot?.state === 'requested';
+    }
+
+    // Merging a ghstack PR lands every open PR below it, so those are
+    // landing too, even before mergebot says so on each of them.
     function resolveStackMerges(prs) {
         const byKey = new Map(prs.map((pr) => [pr.key, pr]));
-        return prs.map((pr) => {
+        const settled = prs.map((pr) => {
             const under = pr.mergebot?.underNumber;
             if (pr.mergebot?.state !== 'merging' || !under) {
                 return pr;
             }
             const top = byKey.get(`${pr.repo}#${under}`);
-            const topState = top?.mergebot?.state;
-            if (!top || top.merged || topState === 'merging' || topState === 'requested') {
+            if (!top || top.merged || isLanding(top)) {
                 return pr;
             }
             return { ...pr, mergebot: null };
+        });
+        const carried = new Map();
+        settled.forEach((top) => {
+            if (!isLanding(top) || top.mergebot.underNumber || !top.stack) {
+                return;
+            }
+            const index = top.stack.numbers.indexOf(top.number);
+            top.stack.numbers.slice(index + 1).forEach((number) => {
+                const key = `${top.repo}#${number}`;
+                if (!carried.has(key)) {
+                    carried.set(key, top);
+                }
+            });
+        });
+        return settled.map((pr) => {
+            const top = carried.get(pr.key);
+            if (!top || pr.state !== 'OPEN' || isLanding(pr)) {
+                return pr;
+            }
+            const ownAt = pr.mergebot?.at ? Date.parse(pr.mergebot.at) : 0;
+            if (ownAt > Date.parse(top.mergebot.at || 0)) {
+                return pr;
+            }
+            return {
+                ...pr,
+                mergebot: { state: top.mergebot.state, at: top.mergebot.at, underNumber: top.number },
+            };
         });
     }
 
@@ -459,12 +495,30 @@ ${PR_FRAGMENT}`;
         );
     }
 
+    // A merge that failed only on jobs Dr. CI now calls unrelated (flaky,
+    // broken trunk) is worth retrying, not alarming.
+    function describeMergeFailure(pr) {
+        const failedJobs = pr.mergebot.failedJobs || [];
+        const suppressed = failedJobs.map((name) =>
+            pr.ci.unrelatedJobs.find((job) => job.name === name)
+        );
+        if (failedJobs.length && suppressed.every(Boolean)) {
+            const sections = Array.from(new Set(suppressed.map((job) => job.section)));
+            return {
+                code: 'merge-failed',
+                severity: 'warning',
+                label: `Merge failed on ${failedJobs.length === 1 ? 'a job' : 'jobs'} Dr. CI now marks ${sections.join(', ')}`,
+            };
+        }
+        return { code: 'merge-failed', label: `Merge failed: ${pr.mergebot.reason}` };
+    }
+
     // Per-PR facts, ignoring the stack. `blockers` are things only the
     // author can fix; `ready` means this PR alone could be merged now.
     function assessPullRequest(pr) {
         const open = pr.state === 'OPEN';
         const approved = isApproved(pr);
-        const merging = pr.mergebot?.state === 'merging' || pr.mergebot?.state === 'requested';
+        const merging = isLanding(pr);
         const blockers = [];
         if (!open) {
             return {
@@ -492,7 +546,7 @@ ${PR_FRAGMENT}`;
             blockers.push({ code: 'reverted', label: 'Reverted' });
         }
         if (pr.mergebot?.state === 'failed') {
-            blockers.push({ code: 'merge-failed', label: `Merge failed: ${pr.mergebot.reason}` });
+            blockers.push(describeMergeFailure(pr));
         }
         const reviewless =
             !approved && !pr.isDraft &&
@@ -526,7 +580,7 @@ ${PR_FRAGMENT}`;
             return 'closed without merging';
         }
         if (assessment.merging) {
-            return 'already merging';
+            return 'landing';
         }
         const blocker = assessment.blockers.find((item) =>
             ['draft', 'conflict', 'changes-requested', 'needs-label', 'closed'].includes(item.code)
@@ -564,7 +618,11 @@ ${PR_FRAGMENT}`;
                 }
                 const lowerAssessment = assessPullRequest(lower);
                 if (!lowerAssessment.ready) {
-                    blockedBy.push({ number, why: describeLowerBlocker(lower, lowerAssessment) });
+                    blockedBy.push({
+                        number,
+                        why: describeLowerBlocker(lower, lowerAssessment),
+                        landingWith: lower.mergebot?.underNumber || null,
+                    });
                     return;
                 }
                 chain.push(lower);
@@ -594,7 +652,16 @@ ${PR_FRAGMENT}`;
         };
     }
 
+    // Approved but stuck behind the stack below: Ship It would land those
+    // too, so the (disabled) button says so.
+    function isBlockedBelow(plan) {
+        return plan.reason === 'blocked-below' || plan.reason === 'unknown-below';
+    }
+
     function getShipButtonLabel(plan) {
+        if (!plan.canShip) {
+            return isBlockedBelow(plan) ? 'Ship Stacked' : '';
+        }
         const parts = [];
         if (plan.prNumbers.length > 1) {
             parts.push(`${plan.prNumbers.length} PRs`);
@@ -602,7 +669,8 @@ ${PR_FRAGMENT}`;
         if (plan.failures.length) {
             parts.push(`${plan.failures.length} ${plan.failures.length === 1 ? 'error' : 'errors'}`);
         }
-        return parts.length ? `Ship It (${parts.join(', ')})` : 'Ship It';
+        const verb = plan.prNumbers.length > 1 ? 'Ship Stacked' : 'Ship It';
+        return parts.length ? `${verb} (${parts.join(', ')})` : verb;
     }
 
     // Union PRs that list each other in a ghstack stack; order each group
@@ -658,14 +726,15 @@ ${PR_FRAGMENT}`;
     }
 
     function describeWaiting(pr, assessment, plan) {
-        if (pr.mergebot?.state === 'merging') {
-            return 'Merging';
-        }
-        if (pr.mergebot?.state === 'requested') {
-            return 'Merge requested';
+        if (isLanding(pr)) {
+            const verb = pr.mergebot.state === 'merging' ? 'Merging' : 'Merge requested';
+            return pr.mergebot.underNumber ? `${verb} with #${pr.mergebot.underNumber}` : verb;
         }
         if (plan.reason === 'blocked-below') {
+            // PRs landing with a stack top already listed add nothing.
+            const listed = new Set(plan.blockedBy.map((item) => item.number));
             return `Approved; waiting on ${plan.blockedBy
+                .filter((item) => !listed.has(item.landingWith))
                 .map((item) => `#${item.number} (${item.why})`)
                 .join(', ')}`;
         }
@@ -681,13 +750,18 @@ ${PR_FRAGMENT}`;
     function buildRow(pr, prsByKey) {
         const assessment = assessPullRequest(pr);
         const plan = planShip(pr, prsByKey);
-        const reasons = assessment.blockers.map((blocker) => blocker.label);
+        const reasons = assessment.blockers.map((blocker) => ({
+            label: blocker.label,
+            severity: blocker.severity || 'error',
+        }));
         // Approved without a mergebot is still on the author: land it by hand.
         const landByHand = assessment.ready && !pr.usesMergebot;
         if (landByHand) {
-            reasons.unshift('Approved; merge on GitHub');
+            reasons.unshift({ label: 'Approved; merge on GitHub', severity: 'info' });
         }
-        const needsAction = plan.canShip || landByHand || assessment.blockers.length > 0;
+        const landing = assessment.merging;
+        const needsAction = !landing &&
+            (plan.canShip || landByHand || assessment.blockers.length > 0);
         return {
             pr,
             assessment,
@@ -695,6 +769,7 @@ ${PR_FRAGMENT}`;
             reasons,
             waiting: needsAction ? null : describeWaiting(pr, assessment, plan),
             needsAction,
+            landing,
         };
     }
 
@@ -703,35 +778,46 @@ ${PR_FRAGMENT}`;
         const prsByKey = new Map(prs.map((pr) => [pr.key, pr]));
         const action = [];
         const review = [];
+        const landing = [];
         groupIntoStacks(prs).forEach((group) => {
-            // Merged stack members are done; they only mattered for planning.
-            const visible = group.filter((pr) => !pr.merged);
-            if (!visible.length || !visible.some((pr) => pr.state === 'OPEN')) {
+            // Merged and closed stack members only matter for planning.
+            const visible = group.filter((pr) => pr.state === 'OPEN');
+            if (!visible.length) {
                 return;
             }
+            const isStack = group.length > 1 ||
+                Boolean(visible[0].stack && visible[0].stack.numbers.length > 1);
             const rows = visible.map((pr) => buildRow(pr, prsByKey));
-            const updatedAt = visible
-                .map((pr) => pr.updatedAt || '')
-                .sort()
-                .pop();
-            const entry = {
-                key: visible[0].key,
-                isStack: group.length > 1 || Boolean(visible[0].stack && visible[0].stack.numbers.length > 1),
-                rows,
-                updatedAt,
-            };
-            (rows.some((row) => row.needsAction) ? action : review).push(entry);
+            const makeEntry = (entryRows) => ({
+                key: entryRows[0].pr.key,
+                isStack,
+                rows: entryRows,
+                updatedAt: entryRows.map((row) => row.pr.updatedAt || '').sort().pop(),
+            });
+            // A stack splits: what is landing leaves the rest behind.
+            const landingRows = rows.filter((row) => row.landing);
+            const restRows = rows.filter((row) => !row.landing);
+            if (landingRows.length) {
+                landing.push(makeEntry(landingRows));
+            }
+            if (restRows.length) {
+                (restRows.some((row) => row.needsAction) ? action : review)
+                    .push(makeEntry(restRows));
+            }
         });
         const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
         action.sort(byRecent);
         review.sort(byRecent);
+        landing.sort(byRecent);
         const countRows = (groups, predicate) =>
             groups.reduce((total, group) => total + group.rows.filter(predicate).length, 0);
         return {
             action,
             review,
+            landing,
             actionCount: countRows(action, (row) => row.needsAction),
             reviewCount: countRows(review, () => true) + countRows(action, (row) => !row.needsAction),
+            landingCount: countRows(landing, () => true),
         };
     }
 
@@ -744,14 +830,22 @@ ${PR_FRAGMENT}`;
             return ci.pendingCount ? `CI pending (${ci.pendingCount})` : 'CI pending';
         }
         if (ci.state === 'green') {
-            return ci.unrelatedCount
-                ? `CI green (${ci.unrelatedCount} unrelated)`
-                : 'CI green';
+            return 'CI green';
         }
         if (ci.state === 'unknown') {
             return ci.headline || 'CI unknown';
         }
         return 'No CI';
+    }
+
+    // Failures Dr. CI tolerates for a normal merge: informational only.
+    function describeUnrelated(ci) {
+        const count = ci.unrelatedCount;
+        if (!count) {
+            return '';
+        }
+        const sections = Array.from(new Set(ci.unrelatedJobs.map((job) => job.section)));
+        return `${count} unrelated ${count === 1 ? 'failure' : 'failures'} (${sections.join(', ')})`;
     }
 
     return {
@@ -766,10 +860,12 @@ ${PR_FRAGMENT}`;
         buildShipSections,
         buildStackLookupGraphql,
         describeCi,
+        describeUnrelated,
         getDrCiSectionKind,
         getMergebotState,
         getMissingStackNumbers,
         getShipButtonLabel,
+        isBlockedBelow,
         groupIntoStacks,
         needsReleaseNotesLabel,
         normalizePullRequest,

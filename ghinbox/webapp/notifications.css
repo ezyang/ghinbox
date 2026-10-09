@@ -553,7 +553,7 @@
         }
 
         .ship-ci[data-ci-state="failing"],
-        .ship-reason {
+        .ship-reason[data-severity="error"] {
             color: var(--color-danger-fg);
         }
 
@@ -571,6 +571,65 @@
 
         .ship-it-btn:hover {
             background-color: var(--color-btn-primary-hover-bg);
+        }
+
+        .ship-it-btn[data-blocked="true"],
+        .ship-it-btn[data-blocked="true"]:hover {
+            background-color: var(--color-bg-subtle, #f6f8fa);
+            border-color: var(--color-border-default);
+            color: var(--color-fg-muted);
+            font-weight: normal;
+            cursor: not-allowed;
+        }
+
+        .ship-ci-unrelated,
+        .ship-reason[data-severity="warning"] {
+            color: var(--color-warning-fg, #9a6700);
+        }
+
+        .ship-reason[data-severity="info"] {
+            color: var(--color-fg-muted);
+        }
+
+        .ship-more {
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .ship-more-btn {
+            padding: 2px 8px;
+        }
+
+        .ship-menu {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 4px);
+            z-index: 20;
+            min-width: 140px;
+            padding: 4px 0;
+            border: 1px solid var(--color-border-default);
+            border-radius: 6px;
+            background-color: var(--color-bg-default);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        }
+
+        .ship-menu-item {
+            display: block;
+            width: 100%;
+            padding: 6px 12px;
+            border: 0;
+            background: none;
+            text-align: left;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .ship-abandon-btn {
+            color: var(--color-danger-fg);
+        }
+
+        .ship-menu-item:hover:not(:disabled) {
+            background-color: var(--color-bg-subtle, #f6f8fa);
         }
 
         .ship-ack-dialog {

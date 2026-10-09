@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
   captureIssueCommentPosts,
+  capturePullRequestPatches,
   mockShipGraphql,
   openNotificationsWithCachedData,
   viewTab,
@@ -32,6 +33,7 @@ function prNode({
   merged = false,
   body = '',
   drciComment = null,
+  tail = [],
 }: {
   number: number;
   title: string;
@@ -40,6 +42,7 @@ function prNode({
   merged?: boolean;
   body?: string;
   drciComment?: string | null;
+  tail?: Array<{ author: { login: string }; body: string; createdAt: string }>;
 }) {
   return {
     number,
@@ -66,7 +69,7 @@ function prNode({
         ? [{ author: { login: 'pytorch-bot' }, body: drciComment, createdAt: '2026-10-08T00:10:00Z' }]
         : [],
     },
-    tailComments: { nodes: [] },
+    tailComments: { nodes: tail },
   };
 }
 
@@ -118,6 +121,15 @@ const SEARCH_NODES = [
     reviewDecision: 'CHANGES_REQUESTED',
     drciComment: drci('drci-no-failures'),
   }),
+  prNode({
+    number: 900,
+    title: 'Merge tripped on a flaky job',
+    updatedAt: '2026-10-08T05:00:00Z',
+    reviewDecision: 'APPROVED',
+    // Dr. CI later called the job mergebot failed on FLAKY.
+    drciComment: drci('drci-merge-normally-flaky').replace('test (default, 7, 8,', 'test (default, 2, 8,'),
+    tail: [{ author: { login: 'pytorchmergebot' }, body: drci('mergebot-failed-job'), createdAt: '2026-10-08T05:00:00Z' }],
+  }),
 ];
 
 const STACK_NODES = {
@@ -145,9 +157,11 @@ test.describe('Ship pane @mutation', () => {
 
     const action = page.locator('.ship-section[data-section="action"]');
     const review = page.locator('.ship-section[data-section="review"]');
-    await expect(action.locator('.ship-group')).toHaveCount(3);
+    const landing = page.locator('.ship-section[data-section="landing"]');
+    await expect(action.locator('.ship-group')).toHaveCount(4);
     expect(searches[0]).toMatch(/^is:pr is:open author:@me archived:false draft:false updated:>=/);
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    await expect(landing.locator('.ship-empty')).toHaveText('Nothing is landing.');
     await expect(page.locator('#notifications-list .notification-item')).toHaveCount(0);
     await expect(page.locator('#empty-state')).toBeHidden();
     await expect(page.locator('#select-all-row')).toBeHidden();
@@ -157,7 +171,11 @@ test.describe('Ship pane @mutation', () => {
     const stack = action.locator('.ship-group').first();
     await expect(stack).toHaveAttribute('data-stack', 'true');
     await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#502', 'pytorch#501']);
-    await expect(shipRow(page, 503).locator('.ship-it-btn')).toHaveCount(0);
+    // Approved but blocked lower in the stack: a greyed-out Ship Stacked.
+    const blockedShip = shipRow(page, 503).locator('.ship-it-btn');
+    await expect(blockedShip).toHaveText('Ship Stacked');
+    await expect(blockedShip).toBeDisabled();
+    await expect(blockedShip).toHaveAttribute('data-blocked', 'true');
     await expect(shipRow(page, 503)).toContainText('Approved; waiting on #502 (awaiting review)');
     await expect(shipRow(page, 502).locator('.ship-it-btn')).toHaveCount(0);
     await expect(shipRow(page, 501).locator('.ship-ci')).toHaveText('1 blocking failure');
@@ -168,10 +186,21 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 700).locator('.ship-ci')).toHaveText('CI pending (1)');
 
     // Clean ship: Dr. CI's flaky failure is unrelated, so no prompt.
-    await expect(shipRow(page, 600).locator('.ship-ci')).toHaveText('CI green (1 unrelated)');
+    await expect(shipRow(page, 600).locator('.ship-ci')).toHaveText('CI green');
+    const unrelated = shipRow(page, 600).locator('.ship-ci-unrelated');
+    await expect(unrelated).toHaveText('1 unrelated failure (FLAKY)');
+    await expect(unrelated).toHaveCSS('color', 'rgb(154, 103, 0)');
+
+    // A merge that failed on a now-FLAKY job is a yellow warning, not red.
+    const flakyReason = shipRow(page, 900).locator('.ship-reason');
+    await expect(flakyReason).toHaveText('Merge failed on a job Dr. CI now marks FLAKY');
+    await expect(flakyReason).toHaveAttribute('data-severity', 'warning');
+    await expect(flakyReason).toHaveCSS('color', 'rgb(154, 103, 0)');
+
     await shipRow(page, 600).locator('.ship-it-btn').click();
     await expect.poll(() => posts).toEqual([{ target: 'pytorch/pytorch#600', body: '@pytorchbot merge' }]);
-    await expect(review.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"]`)).toContainText('Merge requested');
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"]`)).toContainText('Merge requested');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
 
     // Shipping over a blocking failure needs every failure acknowledged.
     await shipRow(page, 501).locator('.ship-it-btn').click();
@@ -190,7 +219,44 @@ test.describe('Ship pane @mutation', () => {
       target: 'pytorch/pytorch#501',
       body: '@pytorchbot merge -i',
     });
-    await expect(shipRow(page, 501)).toContainText('Merge requested');
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"]`)).toContainText('Merge requested');
+    await expect(shipRow(page, 503)).toContainText('Approved; waiting on #502 (awaiting review), #501 (landing)');
+  });
+
+  test('Abandon in the … menu closes the PR after confirmation', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
+    const patches = await capturePullRequestPatches(page);
+    const dialogs: string[] = [];
+    page.on('dialog', (dialog) => {
+      dialogs.push(dialog.message());
+      // Decline the first confirm, accept the second.
+      void (dialogs.length === 1 ? dialog.dismiss() : dialog.accept());
+    });
+
+    await viewTab(page, 'ship').click();
+    const row = shipRow(page, 800);
+    const more = row.locator('.ship-more-btn');
+    await more.click();
+    await expect(more).toHaveAttribute('aria-expanded', 'true');
+    await expect(row.locator('.ship-menu [role="menuitem"]')).toHaveText(['Abandon']);
+
+    // Clicking elsewhere closes the menu.
+    await page.locator('.ship-header').click();
+    await expect(row.locator('.ship-menu')).toHaveCount(0);
+
+    await more.click();
+    await row.locator('.ship-abandon-btn').click();
+    await expect.poll(() => dialogs.length).toBe(1);
+    expect(dialogs[0]).toContain('Abandon #800?');
+    expect(patches).toEqual([]);
+    await expect(row).toBeVisible();
+
+    await more.click();
+    await row.locator('.ship-abandon-btn').click();
+    await expect.poll(() => patches).toEqual([{ target: 'pytorch/pytorch#800', body: { state: 'closed' } }]);
+    await expect(row).toHaveCount(0);
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
   });
 
   test('cancelling the acknowledgement posts nothing', async ({ page }) => {

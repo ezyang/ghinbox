@@ -864,3 +864,18 @@ export async function captureIssueCommentPosts(page: Page) {
   });
   return posts;
 }
+
+/** Record PATCHes to pull requests (e.g. closing one) as `owner/repo#n`. */
+export async function capturePullRequestPatches(page: Page) {
+  const patches: Array<{ target: string; body: Record<string, unknown> }> = [];
+  await page.route('**/github/rest/repos/*/*/pulls/*', (route) => {
+    if (route.request().method() !== 'PATCH') {
+      return route.fallback();
+    }
+    const match = new URL(route.request().url()).pathname.match(/\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)$/);
+    const body = route.request().postDataJSON() || {};
+    patches.push({ target: match ? `${match[1]}/${match[2]}#${match[3]}` : route.request().url(), body });
+    return fulfillJson(route, { number: match ? Number(match[3]) : 0, ...body });
+  });
+  return patches;
+}
