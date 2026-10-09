@@ -2,7 +2,8 @@
 // needed", "Landing" and "Review requested", grouped by ghstack stack. Ship It
 // posts the mergebot command as a PR comment (GitHub is the database);
 // blocking Dr. CI failures must each be acknowledged before a `merge -i` goes
-// out. The per-row "…" menu holds destructive actions (Abandon closes the PR).
+// out. The per-row "…" menu holds destructive actions (Abandon closes the PR);
+// being tucked away, they run without a confirm and offer Undo instead.
 (function () {
     const panel = document.getElementById('ship-panel');
     const dialog = document.getElementById('ship-ack-dialog');
@@ -22,6 +23,8 @@
     let cachedVersion = -1;
     let ackRowKey = null;
     let openMenuKey = null;
+    // The last abandoned PR, offered for Undo (reopen) until the next one.
+    let abandoned = null;
 
     function bumpVersion() {
         state.ship.version += 1;
@@ -263,6 +266,7 @@
             (state.ship.fetchedAt ? ` · loaded ${formatRelativeTime(new Date(state.ship.fetchedAt).toISOString())}` : '') +
             (state.ship.loading ? ' · refreshing…' : '');
         sectionsContainer.innerHTML =
+            renderUndo() +
             renderSection('action', 'Action needed', sections.action, sections.actionCount, 'Nothing needs you.') +
             renderSection('landing', 'Landing', sections.landing, sections.landingCount, 'Nothing is landing.') +
             renderSection('review', 'Review requested', sections.review, sections.reviewCount, 'Nothing is waiting on reviewers.');
@@ -306,34 +310,68 @@
         }
     }
 
+    function findPr(prKey) {
+        return state.ship.prs?.find((item) => item.key === prKey) || null;
+    }
+
+    async function setPullRequestState(pr, githubState) {
+        await fetchJson(`/github/rest/repos/${pr.repo}/pulls/${pr.number}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: githubState }),
+        });
+        pr.state = githubState === 'closed' ? 'CLOSED' : 'OPEN';
+        writeShipCache();
+        bumpVersion();
+    }
+
     async function abandon(prKey) {
-        const pr = state.ship.prs?.find((item) => item.key === prKey);
+        const pr = findPr(prKey);
         if (!pr || state.ship.abandoning.has(prKey)) {
             return;
         }
         openMenuKey = null;
-        renderShipPanel();
-        if (!confirm(`Abandon #${pr.number}?\n\n${pr.title}\n\nThis closes the PR on GitHub.`)) {
-            return;
-        }
         state.ship.abandoning.add(prKey);
         render();
         try {
-            await fetchJson(`/github/rest/repos/${pr.repo}/pulls/${pr.number}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ state: 'closed' }),
-            });
-            pr.state = 'CLOSED';
-            writeShipCache();
-            bumpVersion();
-            showStatus(`Closed #${pr.number}`, 'success', { autoDismiss: true });
+            await setPullRequestState(pr, 'closed');
+            abandoned = { key: pr.key, number: pr.number, title: pr.title, undoing: false };
         } catch (error) {
             showStatus(`Abandon failed for #${pr.number}: ${error.message || error}`, 'error');
         } finally {
             state.ship.abandoning.delete(prKey);
             render();
         }
+    }
+
+    async function undoAbandon() {
+        const pr = abandoned && findPr(abandoned.key);
+        if (!pr || abandoned.undoing) {
+            return;
+        }
+        abandoned.undoing = true;
+        renderShipPanel();
+        try {
+            await setPullRequestState(pr, 'open');
+            abandoned = null;
+            showStatus(`Reopened #${pr.number}`, 'success', { autoDismiss: true });
+        } catch (error) {
+            abandoned.undoing = false;
+            showStatus(`Reopen failed for #${pr.number}: ${error.message || error}`, 'error');
+        } finally {
+            render();
+        }
+    }
+
+    function renderUndo() {
+        if (!abandoned) {
+            return '';
+        }
+        return `<div class="ship-undo" role="status">
+            <span>Abandoned #${abandoned.number} <span class="ship-title">${renderInlineCode(abandoned.title)}</span></span>
+            <button class="btn ship-undo-btn" type="button"${abandoned.undoing ? ' disabled' : ''}>${abandoned.undoing ? 'Reopening…' : 'Undo'}</button>
+            <button class="ship-undo-dismiss" type="button" aria-label="Dismiss">×</button>
+        </div>`;
     }
 
     // One checkbox per (PR, Dr. CI section): ignoring failures is a claim
@@ -409,6 +447,15 @@
         const abandonButton = event.target.closest('.ship-abandon-btn');
         if (abandonButton) {
             withActionContext('Abandon PR', () => abandon(abandonButton.dataset.prKey));
+            return;
+        }
+        if (event.target.closest('.ship-undo-btn')) {
+            withActionContext('Undo abandon', undoAbandon);
+            return;
+        }
+        if (event.target.closest('.ship-undo-dismiss')) {
+            abandoned = null;
+            renderShipPanel();
         }
     });
     document.addEventListener('click', (event) => {

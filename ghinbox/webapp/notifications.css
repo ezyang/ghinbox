@@ -591,6 +591,30 @@
             color: var(--color-fg-muted);
         }
 
+        .ship-undo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            padding: 8px 12px;
+            border: 1px solid var(--color-border-default);
+            border-radius: 6px;
+            background-color: var(--color-bg-subtle, #f6f8fa);
+        }
+
+        .ship-undo > span:first-child {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ship-undo-dismiss {
+            border: 0;
+            background: none;
+            color: var(--color-fg-muted);
+            font-size: 16px;
+            cursor: pointer;
+        }
+
         .ship-more {
             position: relative;
             flex-shrink: 0;

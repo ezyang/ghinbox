@@ -223,15 +223,14 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 503)).toContainText('Approved; waiting on #502 (awaiting review), #501 (landing)');
   });
 
-  test('Abandon in the … menu closes the PR after confirmation', async ({ page }) => {
+  test('Abandon in the … menu closes the PR at once, with Undo to reopen it', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
     const patches = await capturePullRequestPatches(page);
     const dialogs: string[] = [];
     page.on('dialog', (dialog) => {
       dialogs.push(dialog.message());
-      // Decline the first confirm, accept the second.
-      void (dialogs.length === 1 ? dialog.dismiss() : dialog.accept());
+      void dialog.dismiss();
     });
 
     await viewTab(page, 'ship').click();
@@ -245,18 +244,21 @@ test.describe('Ship pane @mutation', () => {
     await page.locator('.ship-header').click();
     await expect(row.locator('.ship-menu')).toHaveCount(0);
 
-    await more.click();
-    await row.locator('.ship-abandon-btn').click();
-    await expect.poll(() => dialogs.length).toBe(1);
-    expect(dialogs[0]).toContain('Abandon #800?');
-    expect(patches).toEqual([]);
-    await expect(row).toBeVisible();
-
+    // Tucked behind the menu, Abandon needs no confirm.
     await more.click();
     await row.locator('.ship-abandon-btn').click();
     await expect.poll(() => patches).toEqual([{ target: 'pytorch/pytorch#800', body: { state: 'closed' } }]);
     await expect(row).toHaveCount(0);
     await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
+    const undo = page.locator('.ship-undo');
+    await expect(undo).toContainText('Abandoned #800 Changes requested');
+
+    await undo.locator('.ship-undo-btn').click();
+    await expect.poll(() => patches.at(-1)).toEqual({ target: 'pytorch/pytorch#800', body: { state: 'open' } });
+    await expect(row).toBeVisible();
+    await expect(undo).toHaveCount(0);
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    expect(dialogs).toEqual([]);
   });
 
   test('a stack too deep for CI reads as CI not run, not red failures', async ({ page }) => {
