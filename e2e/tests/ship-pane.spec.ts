@@ -140,6 +140,7 @@ test.describe('Ship pane @mutation', () => {
     const searches = await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
     const posts = await captureIssueCommentPosts(page);
 
+    await expect(viewTab(page, 'ship')).toContainText('PRs');
     await viewTab(page, 'ship').click();
 
     const action = page.locator('.ship-section[data-section="action"]');

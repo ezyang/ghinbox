@@ -212,7 +212,7 @@
         },
         // Live from GitHub (not the notification snapshot): your open PRs.
         'ship': {
-            label: 'Ship',
+            label: 'PRs',
             showTab: true,
             countKey: 'ship',
             mobilePrimaryGroup: 'state',

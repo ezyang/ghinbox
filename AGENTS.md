@@ -126,7 +126,7 @@
     becomes visible again (no GitHub calls), skipping it while the user is
     mid-action or when the sync started before the last local mark-done.
     Reviews reloads live from GitHub when you enter the view.
-- Ship tab (`notifications-ship.js` pure model, `notifications-ship-view.js`
+- PRs tab (view key `ship`; `notifications-ship.js` pure model, `notifications-ship-view.js`
   wiring): the viewer's open non-draft PRs updated in the last 90 days,
   fetched live via GraphQL search on entering the tab (not part of the
   notification snapshot), grouped by ghstack stack into "Action needed" /
