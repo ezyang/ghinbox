@@ -132,7 +132,7 @@ const state = {
         fetchedAt: null,
         error: null,
         pendingMerges: {}, // PR key -> ms a merge comment was posted from here
-        shipping: new Set(), abandoning: new Set(),
+        fromCache: false, shipping: new Set(), abandoning: new Set(),
         version: 0,
     },
     lastLocalMutationAt: null, // ms timestamp of the last mark-done/unsubscribe/undo

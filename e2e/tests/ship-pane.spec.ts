@@ -282,6 +282,35 @@ test.describe('Ship pane @mutation', () => {
     await expect(row.locator('.ship-it-btn')).toHaveCount(0);
   });
 
+  test('a page reload shows the last load at once while GitHub revalidates', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    const searches = await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
+    await viewTab(page, 'ship').click();
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeEnabled();
+    expect(searches).toHaveLength(1);
+
+    // Hold the next GitHub load so the cached render is observable.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/github/graphql', async (route) => {
+      await held;
+      await route.fallback();
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator('#ship-panel')).toBeVisible();
+    await expect(shipRow(page, 600)).toBeVisible();
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    await expect(page.locator('.ship-status')).toContainText('refreshing…');
+    // Cached rows can be stale, so Ship It waits for GitHub.
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeDisabled();
+
+    release();
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeEnabled();
+    await expect(page.locator('.ship-status')).not.toContainText('refreshing…');
+    expect(searches).toHaveLength(2);
+  });
+
   test('cancelling the acknowledgement posts nothing', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });

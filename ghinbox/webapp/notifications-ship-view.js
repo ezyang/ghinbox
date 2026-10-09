@@ -11,6 +11,9 @@
     }
 
     const AUTO_RELOAD_AFTER_MS = 2 * 60 * 1000;
+    // The last load, so a page reload renders at once while GitHub (several
+    // seconds of GraphQL) revalidates in the background.
+    const CACHE_KEY = 'ghnotif_ship_cache_v1';
     const sectionsContainer = panel.querySelector('.ship-sections');
     const statusLine = panel.querySelector('.ship-status');
     const errorLine = panel.querySelector('.ship-error');
@@ -22,6 +25,31 @@
 
     function bumpVersion() {
         state.ship.version += 1;
+    }
+
+    function readShipCache() {
+        try {
+            const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+            if (cached && Array.isArray(cached.prs) && cached.fetchedAt) {
+                state.ship.prs = cached.prs;
+                state.ship.fetchedAt = cached.fetchedAt;
+                state.ship.fromCache = true;
+                bumpVersion();
+            }
+        } catch (error) {
+            console.warn('Ignoring unreadable ship cache:', error);
+        }
+    }
+
+    function writeShipCache() {
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+                prs: state.ship.prs,
+                fetchedAt: state.ship.fetchedAt,
+            }));
+        } catch (error) {
+            console.warn('Could not cache ship PRs:', error);
+        }
     }
 
     function getShipSections() {
@@ -61,7 +89,7 @@
     // lookup leaves them unknown, which only hides Ship It above them.
     async function fetchMissingStackMembers(prs, nowMs) {
         const found = [];
-        for (const batch of GhinboxShip.getMissingStackNumbers(prs)) {
+        await Promise.all(GhinboxShip.getMissingStackNumbers(prs).map(async (batch) => {
             try {
                 const data = await fetchGraphql(
                     GhinboxShip.buildStackLookupGraphql(batch.repo, batch.numbers),
@@ -76,7 +104,7 @@
             } catch (error) {
                 console.error(`Ship stack lookup failed for ${batch.repo}:`, error);
             }
-        }
+        }));
         return found;
     }
 
@@ -96,6 +124,8 @@
             prs.push(...(await fetchMissingStackMembers(prs, nowMs)));
             state.ship.prs = prs;
             state.ship.fetchedAt = nowMs;
+            state.ship.fromCache = false;
+            writeShipCache();
         } catch (error) {
             console.error('Ship load failed:', error);
             state.ship.error = error.message || String(error);
@@ -111,7 +141,7 @@
             return;
         }
         const fetchedAt = state.ship.fetchedAt;
-        if (fetchedAt && Date.now() - fetchedAt < AUTO_RELOAD_AFTER_MS) {
+        if (!state.ship.fromCache && fetchedAt && Date.now() - fetchedAt < AUTO_RELOAD_AFTER_MS) {
             return;
         }
         withActionContext('Load ship', loadShip);
@@ -147,13 +177,17 @@
             return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-blocked="true" title="${escapeHtml(row.waiting || 'Blocked by the stack below')}" disabled>${escapeHtml(GhinboxShip.getShipButtonLabel(row.plan))}</button>`;
         }
         const shipping = state.ship.shipping.has(row.pr.key);
+        // Cached data may be stale; only ship what GitHub just confirmed.
+        const stale = state.ship.fromCache;
         const hasErrors = row.plan.failures.length > 0;
         const label = shipping ? 'Shipping…' : GhinboxShip.getShipButtonLabel(row.plan);
-        const title = `Comment "${row.plan.command}" on #${row.pr.number}` +
-            (row.plan.prNumbers.length > 1
-                ? `, landing ${row.plan.prNumbers.map((n) => `#${n}`).join(', ')}`
-                : '');
-        return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-has-errors="${hasErrors}" title="${escapeHtml(title)}"${shipping ? ' disabled' : ''}>${escapeHtml(label)}</button>`;
+        const title = stale
+            ? 'Checking GitHub for changes…'
+            : `Comment "${row.plan.command}" on #${row.pr.number}` +
+                (row.plan.prNumbers.length > 1
+                    ? `, landing ${row.plan.prNumbers.map((n) => `#${n}`).join(', ')}`
+                    : '');
+        return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-has-errors="${hasErrors}" title="${escapeHtml(title)}"${shipping || stale ? ' disabled' : ''}>${escapeHtml(label)}</button>`;
     }
 
     function renderMoreMenu(pr) {
@@ -226,7 +260,8 @@
             return;
         }
         statusLine.textContent = `Open PRs you authored, updated in the last ${GhinboxShip.RECENT_DAYS} days` +
-            (state.ship.fetchedAt ? ` · loaded ${formatRelativeTime(new Date(state.ship.fetchedAt).toISOString())}` : '');
+            (state.ship.fetchedAt ? ` · loaded ${formatRelativeTime(new Date(state.ship.fetchedAt).toISOString())}` : '') +
+            (state.ship.loading ? ' · refreshing…' : '');
         sectionsContainer.innerHTML =
             renderSection('action', 'Action needed', sections.action, sections.actionCount, 'Nothing needs you.') +
             renderSection('landing', 'Landing', sections.landing, sections.landingCount, 'Nothing is landing.') +
@@ -290,6 +325,7 @@
                 body: JSON.stringify({ state: 'closed' }),
             });
             pr.state = 'CLOSED';
+            writeShipCache();
             bumpVersion();
             showStatus(`Closed #${pr.number}`, 'success', { autoDismiss: true });
         } catch (error) {
@@ -348,7 +384,7 @@
 
     function handleShipClick(prKey) {
         const row = findRow(prKey);
-        if (!row?.plan.canShip || state.ship.shipping.has(prKey)) {
+        if (!row?.plan.canShip || state.ship.fromCache || state.ship.shipping.has(prKey)) {
             return;
         }
         if (row.plan.failures.length) {
@@ -409,6 +445,7 @@
     globalThis.maybeAutoLoadShip = maybeAutoLoadShip;
     globalThis.loadShip = loadShip;
 
+    readShipCache();
     registerRenderHook(renderShipPanel);
     renderShipPanel();
 })();

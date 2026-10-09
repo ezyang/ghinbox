@@ -129,13 +129,19 @@
 - PRs tab (view key `ship`; `notifications-ship.js` pure model, `notifications-ship-view.js`
   wiring): the viewer's open non-draft PRs updated in the last 90 days,
   fetched live via GraphQL search on entering the tab (not part of the
-  notification snapshot), grouped by ghstack stack into "Action needed" /
-  "Review requested". CI status comes from the Dr. CI comment (blocking:
-  NEW/UNCLASSIFIED/CANCELLED; unrelated: FLAKY/BROKEN TRUNK/UNSTABLE/
-  non-blocking), falling back to the check rollup. Ship It (mergebot repos
+  notification snapshot; the last load is cached in localStorage and shown
+  at once while it revalidates, with Ship It disabled until then), grouped by
+  ghstack stack into "Action needed" / "Landing" / "Review requested" (PRs
+  below a requested/merging stack top are Landing too). CI status comes from
+  the Dr. CI comment (blocking: NEW/UNCLASSIFIED/CANCELLED; unrelated:
+  FLAKY/BROKEN TRUNK/UNSTABLE/non-blocking, shown in yellow, never red),
+  falling back to the check rollup; jobs that all say "refusing to run CI"
+  (ghstack too deep) are "CI not run", a hard blocker. Ship It (mergebot repos
   only) comments `@pytorchbot merge` on a PR when it and every open PR below
-  it in the stack is approved and unblocked; blocking failures need a
-  per-(PR, section) acknowledgement and post `@pytorchbot merge -i`. Parser
+  it in the stack is approved and unblocked (otherwise approved PRs get a
+  disabled "Ship Stacked"); blocking failures need a per-(PR, section)
+  acknowledgement and post `@pytorchbot merge -i`. The row "…" menu holds
+  destructive actions (Abandon = close the PR). Parser
   fixtures in `e2e/fixtures/ship/` are harvested with
   `scripts/harvest_ship_fixtures.py`.
 - Feed summaries:
