@@ -825,22 +825,24 @@ ${PR_FRAGMENT}`;
             const isStack = group.length > 1 ||
                 Boolean(visible[0].stack && visible[0].stack.numbers.length > 1);
             const rows = visible.map((pr) => buildRow(pr, prsByKey));
-            const makeEntry = (entryRows) => ({
-                key: entryRows[0].pr.key,
-                isStack,
-                rows: entryRows,
-                updatedAt: entryRows.map((row) => row.pr.updatedAt || '').sort().pop(),
+            // A stack splits by row: a draft at the top must not drag the
+            // members waiting on reviewers into "Action needed".
+            [
+                [action, rows.filter((row) => row.needsAction)],
+                [landing, rows.filter((row) => row.landing)],
+                [review, rows.filter((row) => !row.needsAction && !row.landing)],
+            ].forEach(([section, entryRows]) => {
+                if (!entryRows.length) {
+                    return;
+                }
+                section.push({
+                    key: entryRows[0].pr.key,
+                    isStack,
+                    stackSize: rows.length,
+                    rows: entryRows,
+                    updatedAt: entryRows.map((row) => row.pr.updatedAt || '').sort().pop(),
+                });
             });
-            // A stack splits: what is landing leaves the rest behind.
-            const landingRows = rows.filter((row) => row.landing);
-            const restRows = rows.filter((row) => !row.landing);
-            if (landingRows.length) {
-                landing.push(makeEntry(landingRows));
-            }
-            if (restRows.length) {
-                (restRows.some((row) => row.needsAction) ? action : review)
-                    .push(makeEntry(restRows));
-            }
         });
         const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
         action.sort(byRecent);
@@ -853,7 +855,7 @@ ${PR_FRAGMENT}`;
             review,
             landing,
             actionCount: countRows(action, (row) => row.needsAction),
-            reviewCount: countRows(review, () => true) + countRows(action, (row) => !row.needsAction),
+            reviewCount: countRows(review, () => true),
             landingCount: countRows(landing, () => true),
         };
     }

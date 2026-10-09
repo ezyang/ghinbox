@@ -540,20 +540,25 @@ test('buildShipSections splits stacks into action needed and review requested', 
     pr({ number: 800, reviewDecision: 'CHANGES_REQUESTED', updatedAt: '2026-10-08T06:00:00Z' }),
   ];
   const sections = buildShipSections(prs);
+  // Each PR goes where it belongs; a stack splits across sections.
   assert.deepEqual(
     sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.needsAction])),
     [
-      [[503, false], [502, false], [501, true]],
+      [[501, true]],
       [[800, true]],
     ]
   );
   assert.equal(sections.action[0].isStack, true);
-  assert.equal(sections.action[0].rows[0].waiting, 'Approved; waiting on #502 (awaiting review)');
-  assert.equal(sections.action[0].rows[2].plan.canShip, true);
+  assert.equal(sections.action[0].stackSize, 3);
+  assert.equal(sections.action[0].rows[0].plan.canShip, true);
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[600, 'Awaiting review']]]
+    [
+      [[600, 'Awaiting review']],
+      [[503, 'Approved; waiting on #502 (awaiting review)'], [502, 'Awaiting review']],
+    ]
   );
+  assert.equal(sections.review[1].stackSize, 3);
   assert.deepEqual(
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[700, 'Merging']]]

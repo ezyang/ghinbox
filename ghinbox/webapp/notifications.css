@@ -520,10 +520,6 @@
             border-top: 1px solid var(--color-border-muted);
         }
 
-        .ship-group[data-stack="true"] .ship-row[data-needs-action="false"] .ship-title {
-            color: var(--color-fg-muted);
-        }
-
         .ship-row-body {
             flex: 1;
             min-width: 0;

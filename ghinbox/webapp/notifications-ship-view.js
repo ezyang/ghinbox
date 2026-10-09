@@ -228,7 +228,9 @@
 
     function renderGroup(group) {
         const label = group.isStack
-            ? `<div class="ship-stack-label">Stack · ${group.rows.length} ${group.rows.length === 1 ? 'PR' : 'PRs'}</div>`
+            ? `<div class="ship-stack-label">Stack · ${group.rows.length === group.stackSize
+                ? `${group.stackSize} PRs`
+                : `${group.rows.length} of ${group.stackSize} open PRs`}</div>`
             : '';
         return `<li class="ship-group" data-stack="${group.isStack}">
             ${label}

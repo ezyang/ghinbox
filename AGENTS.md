@@ -131,8 +131,9 @@
   fetched live via GraphQL search on entering the tab (not part of the
   notification snapshot; the last load is cached in localStorage and shown
   at once while it revalidates, with Ship It disabled until then), grouped by
-  ghstack stack into "Action needed" / "Landing" / "Review requested" (PRs
-  below a requested/merging stack top are Landing too). CI status comes from
+  ghstack stack into "Action needed" / "Landing" / "Review requested" (each
+  PR goes to its own section, so a stack can split; PRs below a
+  requested/merging stack top are Landing too). CI status comes from
   the Dr. CI comment (blocking: NEW/UNCLASSIFIED/CANCELLED; unrelated:
   FLAKY/BROKEN TRUNK/UNSTABLE/non-blocking, shown in yellow, never red),
   falling back to the check rollup; jobs that all say "refusing to run CI"

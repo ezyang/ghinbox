@@ -167,10 +167,13 @@ test.describe('Ship pane @mutation', () => {
     await expect(page.locator('#select-all-row')).toBeHidden();
     await expect(page.locator('#bottom-actions-row')).toBeHidden();
 
-    // The stack is one group, newest first; the merged base is hidden.
+    // The stack splits by row, newest first; the merged base is hidden.
     const stack = action.locator('.ship-group').first();
     await expect(stack).toHaveAttribute('data-stack', 'true');
-    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#502', 'pytorch#501']);
+    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#501']);
+    await expect(stack.locator('.ship-stack-label')).toHaveText('Stack · 1 of 3 open PRs');
+    const waitingStack = review.locator('.ship-group[data-stack="true"]');
+    await expect(waitingStack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#502']);
     // Approved but blocked lower in the stack: a greyed-out Ship Stacked.
     const blockedShip = shipRow(page, 503).locator('.ship-it-btn');
     await expect(blockedShip).toHaveText('Ship Stacked');
@@ -181,7 +184,7 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 501).locator('.ship-ci')).toHaveText('1 blocking failure');
     await expect(shipRow(page, 501).locator('.ship-it-btn')).toHaveText('Ship It (1 error)');
     await expect(shipRow(page, 800)).toContainText('Changes requested');
-    await expect(review.locator('.ship-row')).toHaveCount(1);
+    await expect(review.locator('.ship-row')).toHaveCount(3);
     await expect(shipRow(page, 700)).toContainText('Awaiting review');
     await expect(shipRow(page, 700).locator('.ship-ci')).toHaveText('CI pending (1)');
 
