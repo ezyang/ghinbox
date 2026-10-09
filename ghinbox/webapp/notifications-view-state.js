@@ -21,7 +21,7 @@
         cacheBust: 'ghnotif_cache_bust',
     };
 
-    const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'cleaned'];
+    const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship', 'cleaned'];
     const VALID_VIEWS = new Set(VIEW_NAMES);
     const VALID_ORDERS = new Set(['recent', 'size']);
     const ORDER_OPTIONS = [
@@ -33,6 +33,7 @@
         'my-prs': new Set(['all']),
         'pr-notifications': new Set(['all', 'open', 'closed']),
         'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
+        'ship': new Set(['all']),
         'cleaned': new Set(['all']),
     };
     const VALID_AUTHOR = new Set(['all', 'committer', 'ai', 'external']);
@@ -57,6 +58,7 @@
             verdict: 'all',
             interest: 'all',
         },
+        'ship': { state: 'all' },
         'cleaned': { state: 'all' },
     };
 
@@ -65,6 +67,7 @@
         'my-prs': 'recent',
         'pr-notifications': 'recent',
         'others-prs': 'recent',
+        'ship': 'recent',
         'cleaned': 'recent',
     };
 
@@ -94,6 +97,7 @@
             interest: 'others_prs_interest',
             order: 'others_prs_order',
         },
+        'ship': { state: 'ship_state', order: 'ship_order' },
         'cleaned': { state: 'cleaned_state', order: 'cleaned_order' },
     };
 
@@ -205,6 +209,14 @@
                     ],
                 },
             ],
+        },
+        // Live from GitHub (not the notification snapshot): your open PRs.
+        'ship': {
+            label: 'Ship',
+            showTab: true,
+            countKey: 'ship',
+            mobilePrimaryGroup: 'state',
+            filterGroups: [],
         },
         'cleaned': {
             label: 'Cleaned',

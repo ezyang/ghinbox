@@ -167,10 +167,10 @@ test.describe('Mobile layout @layout', () => {
 
   test('keeps mobile queue tabs on one row and wraps subfilter borders to options', async ({ page }) => {
     const viewTabs = page.locator('.view-tab');
-    await expect(viewTabs).toHaveCount(4);
+    await expect(viewTabs).toHaveCount(5);
 
     const tabBoxes = await Promise.all(
-      ['#view-issues', '#view-pr-notifications', '#view-others-prs', '#view-cleaned'].map((selector) =>
+      ['#view-issues', '#view-pr-notifications', '#view-others-prs', '#view-ship', '#view-cleaned'].map((selector) =>
         page.locator(selector).boundingBox()
       )
     );

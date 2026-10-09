@@ -1124,11 +1124,14 @@ function render() {
 
     // The loading placeholder only stands in for an empty list; showing it
     // above rendered notifications would push the whole list down and back.
-    const showLoading = state.loading && filteredNotifications.length === 0;
+    // The Ship pane renders its own panel instead of the notification list.
+    const isShipView = state.view === 'ship';
+    const showLoading = !isShipView && state.loading && filteredNotifications.length === 0;
     elements.loading.className = showLoading ? 'loading visible' : 'loading';
 
     // Show/hide empty state with dynamic message
     const showEmpty =
+        !isShipView &&
         !state.loading &&
         filteredNotifications.length === 0;
     const viewCounts = getViewCounts();
@@ -1232,8 +1235,10 @@ function render() {
     // Show/hide select all row
     const doneQueue = state.doneQueue;
     const showSelectAll =
-        filteredNotifications.length > 0 ||
-        GhinboxDoneQueue.isBatchActive(doneQueue);
+        !isShipView && (
+            filteredNotifications.length > 0 ||
+            GhinboxDoneQueue.isBatchActive(doneQueue)
+        );
     elements.selectAllRow.style.display = showSelectAll ? 'flex' : 'none';
 
     // Update select all checkbox state

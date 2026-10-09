@@ -52,6 +52,7 @@ test('normalizeViewOrders keeps valid per-view orders and defaults invalid value
       'my-prs': 'recent',
       'pr-notifications': 'recent',
       'others-prs': 'recent',
+      ship: 'recent',
       cleaned: 'recent',
     }
   );

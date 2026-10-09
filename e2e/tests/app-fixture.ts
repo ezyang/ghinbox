@@ -443,7 +443,7 @@ export async function disableAutoClean(page: Page) {
   }
 }
 
-export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned') {
+export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'ship' | 'cleaned') {
   return page.locator(`#view-${view}`);
 }
 
@@ -810,4 +810,57 @@ export async function captureOpenedWindows(page: Page) {
     page.evaluate(
       () => (window as typeof window & { openedUrls?: string[] }).openedUrls ?? []
     );
+}
+
+// Ship pane GraphQL: the viewer's PR search, then aliased stack lookups.
+// Other GraphQL queries fall through to earlier routes.
+export async function mockShipGraphql(page: Page, options: {
+  searchNodes: unknown[];
+  stackNodes?: Record<string, unknown>;
+}) {
+  const queries: string[] = [];
+  await page.route('**/github/graphql', (route) => {
+    const query = String(route.request().postDataJSON()?.query || '');
+    const rateLimit = { limit: 5000, remaining: 4999, resetAt: '2026-10-09T00:00:00Z' };
+    if (query.includes('query ShipPullRequests')) {
+      queries.push(route.request().postDataJSON()?.variables?.query);
+      return fulfillJson(route, {
+        data: {
+          rateLimit,
+          search: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: options.searchNodes,
+          },
+        },
+      });
+    }
+    if (query.includes('query ShipStackLookup')) {
+      const stackNodes = options.stackNodes ?? {};
+      const repository = Object.fromEntries(
+        Object.entries(stackNodes).filter(([alias]) => query.includes(`${alias}:`))
+      );
+      return fulfillJson(route, { data: { rateLimit, repository } });
+    }
+    return route.fallback();
+  });
+  return queries;
+}
+
+// Records comment bodies POSTed to issues/PRs, keyed "owner/repo#number".
+export async function captureIssueCommentPosts(page: Page) {
+  const posts: Array<{ target: string; body: string }> = [];
+  await page.route('**/github/rest/repos/*/*/issues/*/comments', (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback();
+    }
+    const match = new URL(route.request().url()).pathname.match(
+      /\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/comments$/
+    );
+    posts.push({
+      target: match ? `${match[1]}/${match[2]}#${match[3]}` : route.request().url(),
+      body: route.request().postDataJSON()?.body,
+    });
+    return fulfillJson(route, { id: posts.length, body: route.request().postDataJSON()?.body }, 201);
+  });
+  return posts;
 }

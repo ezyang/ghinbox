@@ -433,6 +433,195 @@
             color: var(--color-fg-muted);
         }
 
+        /* Ship pane: the viewer's open PRs */
+        .ship-panel[hidden],
+        .ship-panel [hidden] {
+            display: none !important;
+        }
+
+        .notifications-container[data-view="ship"] .order-control,
+        .notifications-container[data-view="ship"] .mobile-filter-row,
+        .notifications-container[data-view="ship"] #bottom-actions-row {
+            display: none !important;
+        }
+
+        .ship-panel {
+            margin: 8px 16px;
+        }
+
+        .ship-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ship-status {
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .ship-refresh {
+            margin-left: auto;
+        }
+
+        .ship-error {
+            color: var(--color-danger-fg);
+        }
+
+        .ship-section {
+            margin-top: 12px;
+        }
+
+        .ship-section h3 {
+            margin: 0 0 6px 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .ship-section h3 .count {
+            color: var(--color-fg-muted);
+            font-weight: 400;
+        }
+
+        .ship-empty {
+            margin: 0;
+            color: var(--color-fg-muted);
+        }
+
+        .ship-groups,
+        .ship-rows {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .ship-group {
+            margin-bottom: 8px;
+            border: 1px solid var(--color-border-default);
+            border-radius: 6px;
+            background-color: var(--color-bg-default);
+        }
+
+        .ship-stack-label {
+            padding: 4px 12px;
+            border-bottom: 1px solid var(--color-border-muted);
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .ship-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 12px;
+        }
+
+        .ship-row + .ship-row {
+            border-top: 1px solid var(--color-border-muted);
+        }
+
+        .ship-group[data-stack="true"] .ship-row[data-needs-action="false"] .ship-title {
+            color: var(--color-fg-muted);
+        }
+
+        .ship-row-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ship-pr-link {
+            color: var(--color-accent-fg);
+            font-weight: 600;
+            margin-right: 6px;
+        }
+
+        .ship-row-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 10px;
+            margin-top: 2px;
+            font-size: 12px;
+            color: var(--color-fg-muted);
+        }
+
+        .ship-ci {
+            color: var(--color-fg-muted);
+        }
+
+        .ship-ci[data-ci-state="green"] {
+            color: var(--color-success-fg);
+        }
+
+        .ship-ci[data-ci-state="failing"],
+        .ship-reason {
+            color: var(--color-danger-fg);
+        }
+
+        .ship-ci[data-ci-state="pending"] {
+            color: var(--color-warning-fg, #9a6700);
+        }
+
+        .ship-it-btn {
+            flex-shrink: 0;
+            background-color: var(--color-btn-primary-bg);
+            border-color: var(--color-btn-primary-bg);
+            color: white;
+            font-weight: 600;
+        }
+
+        .ship-it-btn:hover {
+            background-color: var(--color-btn-primary-hover-bg);
+        }
+
+        .ship-ack-dialog {
+            max-width: 640px;
+            width: calc(100% - 32px);
+            border: 1px solid var(--color-border-default);
+            border-radius: 8px;
+            background-color: var(--color-bg-default);
+            color: var(--color-fg-default);
+        }
+
+        .ship-ack-title {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+        }
+
+        .ship-ack-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 50vh;
+            overflow: auto;
+        }
+
+        .ship-ack-item {
+            margin-bottom: 8px;
+        }
+
+        .ship-ack-item label {
+            font-weight: 600;
+        }
+
+        .ship-ack-jobs {
+            margin: 2px 0 0 0;
+            padding-left: 28px;
+            font-size: 12px;
+        }
+
+        .ship-ack-failures {
+            margin: 0;
+            padding-left: 16px;
+            color: var(--color-fg-muted);
+        }
+
+        .ship-ack-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
         /* Empty state */
         .empty-state {
             padding: 48px 16px;

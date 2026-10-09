@@ -125,6 +125,16 @@ const state = {
     unsubscribeInProgress: false, // Whether Unsubscribe All is in progress
     reviewsReloading: false,
     reviewsLastReloadedAt: null, // ms timestamp of the last successful Reviews reload
+    // Ship pane: viewer's open PRs fetched live on entering the tab.
+    ship: {
+        loading: false,
+        prs: null,
+        fetchedAt: null,
+        error: null,
+        pendingMerges: {}, // PR key -> ms a merge comment was posted from here
+        shipping: new Set(),
+        version: 0,
+    },
     lastLocalMutationAt: null, // ms timestamp of the last mark-done/unsubscribe/undo
     autoMarkTrashDone: true,
     commentQueue: [],
@@ -584,7 +594,7 @@ async function init() {
     const savedView = localStorage.getItem(VIEW_KEY);
     if (
         savedView &&
-        ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'trash', 'cleaned'].includes(savedView)
+        ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship', 'trash', 'cleaned'].includes(savedView)
     ) {
         state.view = savedView === 'trash' ? 'cleaned' : savedView;
     }
@@ -605,6 +615,7 @@ async function init() {
                 'my-prs': savedOrder,
                 'pr-notifications': savedOrder,
                 'others-prs': savedOrder,
+                'ship': savedOrder,
                 'cleaned': savedOrder,
             };
         }
@@ -784,6 +795,9 @@ async function init() {
     if (typeof maybeAutoReloadReviews === 'function') {
         maybeAutoReloadReviews();
     }
+    if (typeof maybeAutoLoadShip === 'function') {
+        maybeAutoLoadShip();
+    }
     if (typeof startBackgroundRefresh === 'function') {
         startBackgroundRefresh();
     }
@@ -826,6 +840,9 @@ function setView(view) {
     render();
     if (previousView !== view && typeof maybeAutoReloadReviews === 'function') {
         maybeAutoReloadReviews();
+    }
+    if (previousView !== view && typeof maybeAutoLoadShip === 'function') {
+        maybeAutoLoadShip();
     }
 }
 
@@ -1255,7 +1272,11 @@ function getFilteredNotifications() {
 
 // Count notifications for each view
 function getViewCounts() {
-    return GhinboxFiltering.getViewCounts(getFilteringInput());
+    const counts = GhinboxFiltering.getViewCounts(getFilteringInput());
+    // Blank until the Ship pane first loads from GitHub.
+    const shipCount = typeof getShipActionCount === 'function' ? getShipActionCount() : null;
+    counts.ship = shipCount ?? '';
+    return counts;
 }
 
 // Count notifications by subfilter for the current view

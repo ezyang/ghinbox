@@ -1,0 +1,337 @@
+// Ship pane: the viewer's open PRs, live from GitHub, split into "Action
+// needed" and "Review requested", grouped by ghstack stack. Ship It posts the
+// mergebot command as a PR comment (GitHub is the database); blocking Dr. CI
+// failures must each be acknowledged before a `merge -i` goes out.
+(function () {
+    const panel = document.getElementById('ship-panel');
+    const dialog = document.getElementById('ship-ack-dialog');
+    if (!panel) {
+        return;
+    }
+
+    const AUTO_RELOAD_AFTER_MS = 2 * 60 * 1000;
+    const sectionsContainer = panel.querySelector('.ship-sections');
+    const statusLine = panel.querySelector('.ship-status');
+    const errorLine = panel.querySelector('.ship-error');
+    const refreshButton = panel.querySelector('.ship-refresh');
+    let cachedSections = null;
+    let cachedVersion = -1;
+    let ackRowKey = null;
+
+    function bumpVersion() {
+        state.ship.version += 1;
+    }
+
+    function getShipSections() {
+        if (!state.ship.prs) {
+            return null;
+        }
+        if (cachedVersion !== state.ship.version) {
+            cachedSections = GhinboxShip.buildShipSections(
+                GhinboxShip.applyPendingMerges(state.ship.prs, state.ship.pendingMerges)
+            );
+            cachedVersion = state.ship.version;
+        }
+        return cachedSections;
+    }
+
+    function getShipActionCount() {
+        const sections = getShipSections();
+        return sections ? sections.actionCount : null;
+    }
+
+    async function fetchViewerPullRequests(nowMs) {
+        const query = GhinboxShip.buildShipSearchQuery(nowMs);
+        const nodes = [];
+        let after = null;
+        for (let page = 0; page < GhinboxShip.MAX_SEARCH_PAGES; page += 1) {
+            const data = await fetchGraphql(GhinboxShip.buildShipSearchGraphql(), { query, after });
+            nodes.push(...(data?.search?.nodes || []));
+            if (!data?.search?.pageInfo?.hasNextPage) {
+                break;
+            }
+            after = data.search.pageInfo.endCursor;
+        }
+        return nodes;
+    }
+
+    // Stack members the search skipped (merged, draft, stale). A failed
+    // lookup leaves them unknown, which only hides Ship It above them.
+    async function fetchMissingStackMembers(prs, nowMs) {
+        const found = [];
+        for (const batch of GhinboxShip.getMissingStackNumbers(prs)) {
+            try {
+                const data = await fetchGraphql(
+                    GhinboxShip.buildStackLookupGraphql(batch.repo, batch.numbers),
+                    {}
+                );
+                Object.values(data?.repository || {}).forEach((node) => {
+                    const pr = GhinboxShip.normalizePullRequest(node, { nowMs });
+                    if (pr) {
+                        found.push(pr);
+                    }
+                });
+            } catch (error) {
+                console.error(`Ship stack lookup failed for ${batch.repo}:`, error);
+            }
+        }
+        return found;
+    }
+
+    async function loadShip() {
+        if (state.ship.loading) {
+            return;
+        }
+        state.ship.loading = true;
+        state.ship.error = null;
+        render();
+        try {
+            const nowMs = Date.now();
+            const nodes = await fetchViewerPullRequests(nowMs);
+            const prs = nodes
+                .map((node) => GhinboxShip.normalizePullRequest(node, { nowMs }))
+                .filter(Boolean);
+            prs.push(...(await fetchMissingStackMembers(prs, nowMs)));
+            state.ship.prs = prs;
+            state.ship.fetchedAt = nowMs;
+        } catch (error) {
+            console.error('Ship load failed:', error);
+            state.ship.error = error.message || String(error);
+        } finally {
+            state.ship.loading = false;
+            bumpVersion();
+            render();
+        }
+    }
+
+    function maybeAutoLoadShip() {
+        if (state.view !== 'ship' || state.ship.loading) {
+            return;
+        }
+        const fetchedAt = state.ship.fetchedAt;
+        if (fetchedAt && Date.now() - fetchedAt < AUTO_RELOAD_AFTER_MS) {
+            return;
+        }
+        withActionContext('Load ship', loadShip);
+    }
+
+    function shortRepo(repo) {
+        return repo.replace(/^pytorch\//, '');
+    }
+
+    function ciLink(pr) {
+        if (pr.ci.source === 'drci') {
+            return `https://hud.pytorch.org/pr/${pr.repo}/${pr.number}`;
+        }
+        return `${pr.url}/checks`;
+    }
+
+    function renderCi(pr) {
+        const stale = pr.ci.stale
+            ? ' <span class="ship-ci-stale" title="Dr. CI has not caught up with the latest push">(older commit)</span>'
+            : '';
+        return `<a class="ship-ci" data-ci-state="${pr.ci.state}" href="${escapeHtml(ciLink(pr))}" target="_blank" rel="noopener noreferrer">${escapeHtml(GhinboxShip.describeCi(pr.ci))}</a>${stale}`;
+    }
+
+    function renderShipButton(row) {
+        if (!row.plan.canShip) {
+            return '';
+        }
+        const shipping = state.ship.shipping.has(row.pr.key);
+        const hasErrors = row.plan.failures.length > 0;
+        const label = shipping ? 'Shipping…' : GhinboxShip.getShipButtonLabel(row.plan);
+        const title = `Comment "${row.plan.command}" on #${row.pr.number}` +
+            (row.plan.prNumbers.length > 1
+                ? `, landing ${row.plan.prNumbers.map((n) => `#${n}`).join(', ')}`
+                : '');
+        return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-has-errors="${hasErrors}" title="${escapeHtml(title)}"${shipping ? ' disabled' : ''}>${escapeHtml(label)}</button>`;
+    }
+
+    function renderRow(row) {
+        const { pr } = row;
+        const notes = [
+            ...row.reasons.map((reason) => `<span class="ship-reason">${escapeHtml(reason)}</span>`),
+            row.waiting ? `<span class="ship-waiting">${escapeHtml(row.waiting)}</span>` : '',
+        ].join('');
+        return `<li class="ship-row" data-pr-key="${escapeHtml(pr.key)}" data-needs-action="${row.needsAction}">
+            <div class="ship-row-body">
+                <div class="ship-row-title">
+                    <a class="ship-pr-link" href="${escapeHtml(pr.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(shortRepo(pr.repo))}#${pr.number}</a>
+                    <span class="ship-title">${renderInlineCode(pr.title)}</span>
+                </div>
+                <div class="ship-row-meta">${renderCi(pr)}${notes}</div>
+            </div>
+            ${renderShipButton(row)}
+        </li>`;
+    }
+
+    function renderGroup(group) {
+        const label = group.isStack
+            ? `<div class="ship-stack-label">Stack · ${group.rows.length} open</div>`
+            : '';
+        return `<li class="ship-group" data-stack="${group.isStack}">
+            ${label}
+            <ul class="ship-rows">${group.rows.map(renderRow).join('')}</ul>
+        </li>`;
+    }
+
+    function renderSection(name, title, groups, count, emptyText) {
+        const body = groups.length
+            ? `<ul class="ship-groups">${groups.map(renderGroup).join('')}</ul>`
+            : `<p class="ship-empty">${escapeHtml(emptyText)}</p>`;
+        return `<section class="ship-section" data-section="${name}">
+            <h3>${escapeHtml(title)} <span class="count">${count}</span></h3>
+            ${body}
+        </section>`;
+    }
+
+    function renderShipPanel() {
+        const show = state.view === 'ship';
+        panel.hidden = !show;
+        if (!show) {
+            return;
+        }
+        refreshButton.disabled = state.ship.loading;
+        refreshButton.textContent = state.ship.loading ? 'Loading…' : 'Refresh';
+        errorLine.hidden = !state.ship.error;
+        errorLine.textContent = state.ship.error ? `Could not load PRs: ${state.ship.error}` : '';
+        const sections = getShipSections();
+        if (!sections) {
+            statusLine.textContent = state.ship.loading ? 'Loading your PRs from GitHub…' : '';
+            sectionsContainer.innerHTML = '';
+            return;
+        }
+        statusLine.textContent = `Open PRs you authored, updated in the last ${GhinboxShip.RECENT_DAYS} days` +
+            (state.ship.fetchedAt ? ` · loaded ${formatRelativeTime(new Date(state.ship.fetchedAt).toISOString())}` : '');
+        sectionsContainer.innerHTML =
+            renderSection('action', 'Action needed', sections.action, sections.actionCount, 'Nothing needs you.') +
+            renderSection('review', 'Review requested', sections.review, sections.reviewCount, 'Nothing is waiting on reviewers.');
+    }
+
+    function findRow(prKey) {
+        const sections = getShipSections();
+        if (!sections) {
+            return null;
+        }
+        for (const group of [...sections.action, ...sections.review]) {
+            const row = group.rows.find((item) => item.pr.key === prKey);
+            if (row) {
+                return row;
+            }
+        }
+        return null;
+    }
+
+    async function ship(row) {
+        const { pr, plan } = row;
+        state.ship.shipping.add(pr.key);
+        render();
+        try {
+            await fetchJson(`/github/rest/repos/${pr.repo}/issues/${pr.number}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ body: plan.command }),
+            });
+            const now = Date.now();
+            plan.prKeys.forEach((key) => {
+                state.ship.pendingMerges[key] = now;
+            });
+            bumpVersion();
+            showStatus(`Commented "${plan.command}" on #${pr.number}`, 'success', { autoDismiss: true });
+        } catch (error) {
+            showStatus(`Ship It failed for #${pr.number}: ${error.message || error}`, 'error');
+        } finally {
+            state.ship.shipping.delete(pr.key);
+            render();
+        }
+    }
+
+    // One checkbox per (PR, Dr. CI section): ignoring failures is a claim
+    // about each kind of breakage, not a single blanket "yes".
+    function groupFailures(failures) {
+        const groups = new Map();
+        failures.forEach((failure) => {
+            const key = `${failure.prKey}|${failure.section}`;
+            if (!groups.has(key)) {
+                groups.set(key, { prNumber: failure.prNumber, section: failure.section, jobs: [] });
+            }
+            groups.get(key).jobs.push(failure);
+        });
+        return Array.from(groups.values());
+    }
+
+    function renderAckJob(job) {
+        const name = job.url
+            ? `<a href="${escapeHtml(job.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(job.name)}</a>`
+            : escapeHtml(job.name);
+        const failures = job.failures.length
+            ? `<ul class="ship-ack-failures">${job.failures.map((failure) => `<li><code>${escapeHtml(failure)}</code></li>`).join('')}</ul>`
+            : '';
+        return `<li>${name}${failures}</li>`;
+    }
+
+    function updateAckConfirm() {
+        const checks = Array.from(dialog.querySelectorAll('.ship-ack-check'));
+        dialog.querySelector('.ship-ack-confirm').disabled =
+            !checks.length || checks.some((check) => !check.checked);
+    }
+
+    function openAckDialog(row) {
+        ackRowKey = row.pr.key;
+        const chain = row.plan.prNumbers.map((number) => `#${number}`).join(', ');
+        dialog.querySelector('.ship-ack-title').textContent =
+            `Ship ${chain} with ${row.plan.failures.length} blocking ${row.plan.failures.length === 1 ? 'failure' : 'failures'}?`;
+        dialog.querySelector('.ship-ack-command').textContent = row.plan.command;
+        dialog.querySelector('.ship-ack-list').innerHTML = groupFailures(row.plan.failures)
+            .map((group) => `<li class="ship-ack-item">
+                <label><input type="checkbox" class="ship-ack-check"> #${group.prNumber}: ${escapeHtml(group.section)} (${group.jobs.length} ${group.jobs.length === 1 ? 'job' : 'jobs'})</label>
+                <ul class="ship-ack-jobs">${group.jobs.map(renderAckJob).join('')}</ul>
+            </li>`)
+            .join('');
+        updateAckConfirm();
+        dialog.showModal();
+    }
+
+    function handleShipClick(prKey) {
+        const row = findRow(prKey);
+        if (!row?.plan.canShip || state.ship.shipping.has(prKey)) {
+            return;
+        }
+        if (row.plan.failures.length) {
+            openAckDialog(row);
+            return;
+        }
+        withActionContext('Ship It', () => ship(row));
+    }
+
+    panel.addEventListener('click', (event) => {
+        const button = event.target.closest('.ship-it-btn');
+        if (button) {
+            handleShipClick(button.dataset.prKey);
+        }
+    });
+    refreshButton.addEventListener('click', () => {
+        withActionContext('Refresh ship', loadShip);
+    });
+    if (dialog) {
+        dialog.addEventListener('change', updateAckConfirm);
+        dialog.querySelector('.ship-ack-confirm').addEventListener('click', () => {
+            // Re-plan from current data: a refresh may have changed the stack.
+            const row = findRow(ackRowKey);
+            dialog.close();
+            if (row?.plan.canShip) {
+                withActionContext('Ship It (ignore failures)', () => ship(row));
+            }
+        });
+        dialog.addEventListener('close', () => {
+            ackRowKey = null;
+        });
+    }
+
+    globalThis.getShipActionCount = getShipActionCount;
+    globalThis.maybeAutoLoadShip = maybeAutoLoadShip;
+    globalThis.loadShip = loadShip;
+
+    registerRenderHook(renderShipPanel);
+    renderShipPanel();
+})();

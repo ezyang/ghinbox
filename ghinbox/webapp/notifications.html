@@ -1006,6 +1006,15 @@
                 <p class="digest-usage" hidden></p>
             </section>
 
+            <section id="ship-panel" class="ship-panel" aria-label="Ship your PRs" hidden>
+                <header class="ship-header">
+                    <span class="ship-status"></span>
+                    <button class="btn btn-small ship-refresh" type="button">Refresh</button>
+                </header>
+                <p class="ship-error" hidden></p>
+                <div class="ship-sections"></div>
+            </section>
+
             <!-- Mobile filter row: filter dropdowns on first row, sort/select on second row -->
             <div class="mobile-filter-row">
                 <div class="mobile-filter-dropdowns">
@@ -1069,6 +1078,21 @@
             </div>
 </section>
 </main>
+
+    <dialog id="ship-ack-dialog" class="ship-ack-dialog" aria-labelledby="ship-ack-title">
+        <form method="dialog">
+            <h3 id="ship-ack-title" class="ship-ack-title"></h3>
+            <p class="ship-ack-explainer">
+                Mergebot will land with <code class="ship-ack-command"></code>, ignoring
+                these failures. Check each one to confirm it is not caused by your change.
+            </p>
+            <ul class="ship-ack-list"></ul>
+            <div class="ship-ack-actions">
+                <button class="btn" type="submit" value="cancel">Cancel</button>
+                <button class="btn btn-primary ship-ack-confirm" type="button" disabled>Ship anyway</button>
+            </div>
+        </form>
+    </dialog>
 
     <!-- Keyboard Shortcuts Help Overlay -->
     <div id="keyboard-shortcuts-overlay" class="keyboard-shortcuts-overlay" role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title">
@@ -1198,6 +1222,7 @@
                 'notifications-comment-status.js',
                 'notifications-comment-cache-policy.js',
                 'notifications-digest.js',
+                'notifications-ship.js',
                 'notifications-comments.js',
                 'notifications-filtering.js',
                 'notifications-core.js',
@@ -1207,6 +1232,7 @@
                 'notifications-auth-cache.js',
                 'notifications-bookmarks.js',
                 'notifications-review-reload.js',
+                'notifications-ship-view.js',
                 'notifications-background.js',
                 'notifications.js',
             ].forEach((scriptName) => {

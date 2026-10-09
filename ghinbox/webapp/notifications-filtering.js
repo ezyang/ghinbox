@@ -465,7 +465,7 @@
             if (view === 'others-prs') {
                 return isNotificationReviewQueue(notification);
             }
-            if (view === 'cleaned') {
+            if (view === 'cleaned' || view === 'ship') {
                 return false;
             }
             return true;
