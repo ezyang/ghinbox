@@ -46,6 +46,7 @@ SAMPLES: dict[str, tuple[int, str]] = {
     "drci-crcr": (189413, "drci"),
     "drci-sev": (166813, "drci"),
     "drci-new-and-broken-trunk": (192082, "drci"),
+    "drci-stack-too-deep": (200218, "drci"),
     "mergebot-failed-label": (
         195800,
         "mergebot:## Merge failed\n**Reason**: This PR needs a `release notes:` label",

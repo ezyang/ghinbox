@@ -588,6 +588,26 @@ test('buildShipSections moves the landing part of a stack to Landing', () => {
   assert.equal(sections.actionCount, 0);
 });
 
+test('a stack too deep for CI is CI not run, not 23 failures, and blocks the stack above', () => {
+  const numbers = [932, 931];
+  const deep = pr({ number: 931, body: stackBody(numbers, 931), reviewDecision: 'APPROVED', drci: fixture('drci-stack-too-deep') });
+  assert.equal(deep.ci.state, 'not-run');
+  assert.equal(deep.ci.stackTooDeep, 10);
+  assert.equal(describeCi(deep.ci), 'CI not run (stack too deep)');
+  const assessment = assessPullRequest(deep);
+  assert.deepEqual(assessment.blockers.map((blocker) => [blocker.code, blocker.severity]), [['stack-too-deep', 'warning']]);
+  assert.equal(assessment.blockers[0].label, "CI won't run with 10+ PRs below; land some, then re-push");
+  assert.equal(assessment.ready, false);
+  const top = pr({ number: 932, body: stackBody(numbers, 932), reviewDecision: 'APPROVED', drci: DRCI.green });
+  assert.deepEqual(planShip(top, byKey([top, deep])).blockedBy, [
+    { number: 931, why: 'CI not run, stack too deep', landingWith: null },
+  ]);
+  // Real failures mixed in keep it failing.
+  const mixed = pr({ number: 933, drci: fixture('drci-stack-too-deep').replace(
+    '`sits on top of >=10 ghstack entries; refusing to run CI`', '`test/test_foo.py::test_bar`') });
+  assert.equal(mixed.ci.state, 'failing');
+});
+
 test('buildShipSections hides merged stack members but keeps them for planning', () => {
   const numbers = [902, 901];
   const sections = buildShipSections([

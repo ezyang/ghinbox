@@ -198,6 +198,28 @@ ${PR_FRAGMENT}`;
 
     // CI state as a merge would see it: "failing" means a standard merge
     // would refuse (Dr. CI blocking jobs, or a red rollup without Dr. CI).
+    // PyTorch CI refuses to run on a PR with too many ghstack PRs below it;
+    // every job then "fails" with this line. That is not a code problem.
+    const STACK_TOO_DEEP_RE = /sits on top of >=(\d+) ghstack entries; refusing to run CI/;
+
+    function getStackTooDeepLimit(blockingJobs) {
+        let limit = null;
+        const all = blockingJobs.length > 0 && blockingJobs.every((job) =>
+            job.failures.some((failure) => {
+                const match = failure.match(STACK_TOO_DEEP_RE);
+                if (match) {
+                    limit = Number(match[1]);
+                }
+                return Boolean(match);
+            })
+        );
+        return all ? limit : null;
+    }
+
+    // What keeps an approved PR from landing. A stack too deep for CI would
+    // land untested under `merge -i`, so it is not something to ack away.
+    const HARD_BLOCKERS = ['draft', 'conflict', 'changes-requested', 'needs-label', 'closed', 'stack-too-deep'];
+
     function summarizeCi({ drci, rollup, headSha, url }) {
         if (drci) {
             const blockingJobs = [];
@@ -208,7 +230,10 @@ ${PR_FRAGMENT}`;
                     jobs.push({ ...job, section: section.name });
                 });
             });
-            const state = blockingJobs.length
+            const stackTooDeep = getStackTooDeepLimit(blockingJobs);
+            const state = stackTooDeep
+                ? 'not-run'
+                : blockingJobs.length
                 ? 'failing'
                 : drci.pendingCount > 0
                     ? 'pending'
@@ -221,6 +246,7 @@ ${PR_FRAGMENT}`;
                 unrelatedJobs,
                 unrelatedCount: unrelatedJobs.length,
                 pendingCount: drci.pendingCount,
+                stackTooDeep,
                 stale: !shaMatches(drci.headSha, headSha),
                 sevs: drci.sevs,
             };
@@ -241,6 +267,7 @@ ${PR_FRAGMENT}`;
             unrelatedJobs: [],
             unrelatedCount: 0,
             pendingCount: 0,
+            stackTooDeep: null,
             stale: false,
             sevs: [],
         };
@@ -554,6 +581,13 @@ ${PR_FRAGMENT}`;
         if (reviewless) {
             blockers.push({ code: 'no-reviewers', label: 'No reviewers' });
         }
+        if (pr.ci.stackTooDeep && !merging) {
+            blockers.push({
+                code: 'stack-too-deep',
+                severity: 'warning',
+                label: `CI won't run with ${pr.ci.stackTooDeep}+ PRs below; land some, then re-push`,
+            });
+        }
         if (!approved && !merging && pr.ci.state === 'failing') {
             const count = pr.ci.blockingJobs.length;
             blockers.push({
@@ -563,7 +597,7 @@ ${PR_FRAGMENT}`;
         }
         // A reverted PR may relaunch, but only once the author decides to.
         const hardBlocked = blockers.some((blocker) =>
-            ['draft', 'conflict', 'changes-requested', 'needs-label', 'closed'].includes(blocker.code)
+            HARD_BLOCKERS.includes(blocker.code)
         );
         return {
             open,
@@ -582,9 +616,10 @@ ${PR_FRAGMENT}`;
         if (assessment.merging) {
             return 'landing';
         }
-        const blocker = assessment.blockers.find((item) =>
-            ['draft', 'conflict', 'changes-requested', 'needs-label', 'closed'].includes(item.code)
-        );
+        const blocker = assessment.blockers.find((item) => HARD_BLOCKERS.includes(item.code));
+        if (blocker?.code === 'stack-too-deep') {
+            return 'CI not run, stack too deep';
+        }
         if (blocker) {
             return blocker.label.toLowerCase();
         }
@@ -825,6 +860,9 @@ ${PR_FRAGMENT}`;
         if (ci.state === 'failing') {
             const count = ci.blockingJobs.length;
             return `${count} blocking ${count === 1 ? 'failure' : 'failures'}`;
+        }
+        if (ci.state === 'not-run') {
+            return 'CI not run (stack too deep)';
         }
         if (ci.state === 'pending') {
             return ci.pendingCount ? `CI pending (${ci.pendingCount})` : 'CI pending';

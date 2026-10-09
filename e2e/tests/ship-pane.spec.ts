@@ -259,6 +259,29 @@ test.describe('Ship pane @mutation', () => {
     await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
   });
 
+  test('a stack too deep for CI reads as CI not run, not red failures', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    await mockShipGraphql(page, {
+      searchNodes: [prNode({
+        number: 1000,
+        title: 'Deep in the stack',
+        updatedAt: '2026-10-08T10:00:00Z',
+        reviewDecision: 'APPROVED',
+        drciComment: drci('drci-stack-too-deep'),
+      })],
+      stackNodes: {},
+    });
+
+    await viewTab(page, 'ship').click();
+    const row = shipRow(page, 1000);
+    await expect(row.locator('.ship-ci')).toHaveText('CI not run (stack too deep)');
+    await expect(row.locator('.ship-ci')).toHaveAttribute('data-ci-state', 'not-run');
+    const reason = row.locator('.ship-reason');
+    await expect(reason).toHaveText("CI won't run with 10+ PRs below; land some, then re-push");
+    await expect(reason).toHaveAttribute('data-severity', 'warning');
+    await expect(row.locator('.ship-it-btn')).toHaveCount(0);
+  });
+
   test('cancelling the acknowledgement posts nothing', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
