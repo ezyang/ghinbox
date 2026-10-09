@@ -142,7 +142,9 @@
   it in the stack is approved and unblocked (otherwise approved PRs get a
   disabled "Ship Stacked"); blocking failures need a per-(PR, section)
   acknowledgement and post `@pytorchbot merge -i`. The row "…" menu holds
-  destructive actions (Abandon = close the PR). Parser
+  destructive actions (Abandon = close the PR). A human comment or
+  commented review newer than both the head commit and the author's own last
+  comment/review is an "Unaddressed comment" (Action needed, advisory). Parser
   fixtures in `e2e/fixtures/ship/` are harvested with
   `scripts/harvest_ship_fixtures.py`.
 - Feed summaries:

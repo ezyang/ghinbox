@@ -210,7 +210,9 @@
     function renderRow(row) {
         const { pr } = row;
         const notes = [
-            ...row.reasons.map((reason) => `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),
+            ...row.reasons.map((reason) => reason.url
+                ? `<a class="ship-reason" data-severity="${reason.severity}" href="${escapeHtml(reason.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reason.label)}</a>`
+                : `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),
             row.waiting ? `<span class="ship-waiting">${escapeHtml(row.waiting)}</span>` : '',
         ].join('');
         return `<li class="ship-row" data-pr-key="${escapeHtml(pr.key)}" data-needs-action="${row.needsAction}">

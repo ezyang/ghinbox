@@ -6,6 +6,7 @@ const {
   applyPendingMerges,
   assessPullRequest,
   buildShipSearchQuery,
+  findUnaddressedComments,
   buildShipSections,
   describeCi,
   describeUnrelated,
@@ -269,6 +270,8 @@ function prNode({
   rollup = 'SUCCESS',
   drci = null,
   tail = [],
+  author = null,
+  recentReviews = [],
 }) {
   return {
     number,
@@ -281,6 +284,7 @@ function prNode({
     mergeable,
     reviewDecision,
     body,
+    author: author ? { login: author } : null,
     repository: { nameWithOwner: repo },
     labels: { nodes: labels.map((name) => ({ name })) },
     reviewRequests: { totalCount: reviewRequestCount },
@@ -290,6 +294,7 @@ function prNode({
     commits: { nodes: [{ commit: { oid: null, committedDate: '2026-10-08T00:00:00Z', statusCheckRollup: { state: rollup } } }] },
     headComments: { nodes: drci ? [comment('pytorch-bot', drci, '2026-10-08T00:10:00Z')] : [] },
     tailComments: { nodes: tail },
+    recentReviews: { nodes: recentReviews },
   };
 }
 
@@ -657,4 +662,63 @@ test('buildShipSections hides merged stack members but keeps them for planning',
     blocked.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[922, 'Waiting on #921 (closed without merging)']]]
   );
+});
+
+test('findUnaddressedComments reports other people talking after the author last spoke', () => {
+  const pushed = '2026-10-08T17:01:31Z';
+  const human = (login, at, body = 'Suppose x and y are COW siblings?') =>
+    ({ author: { __typename: 'User', login }, body, createdAt: at, url: `https://c/${login}/${at}` });
+  const review = (login, state, at, { body = '', comments = 0 } = {}) =>
+    ({ author: { __typename: 'User', login }, state, body, submittedAt: at, url: `https://r/${login}`, comments: { totalCount: comments } });
+  const run = ({ comments = [], reviews = [] }) =>
+    findUnaddressedComments({ authorLogin: 'ezyang', comments, reviews, headCommittedAt: pushed })
+      .map((entry) => `${entry.login}@${entry.at}`);
+  // pytorch#200106: ngimel asked a question after the last push.
+  assert.deepEqual(run({ comments: [
+    human('ezyang', '2026-10-08T16:56:06Z'),
+    human('ngimel', '2026-10-09T00:08:32Z'),
+  ] }), ['ngimel@2026-10-09T00:08:32Z']);
+  // Before the last push: the push answers it.
+  assert.deepEqual(run({ comments: [human('ngimel', '2026-10-08T12:00:00Z')] }), []);
+  // The author replied after it.
+  assert.deepEqual(run({ comments: [
+    human('ngimel', '2026-10-09T00:08:32Z'),
+    human('ezyang', '2026-10-09T01:00:00Z'),
+  ] }), []);
+  // A review by the author counts as replying too.
+  assert.deepEqual(run({
+    comments: [human('ngimel', '2026-10-09T00:08:32Z')],
+    reviews: [review('ezyang', 'COMMENTED', '2026-10-09T01:00:00Z', { comments: 1 })],
+  }), []);
+  // Bots and bot commands are not questions.
+  assert.deepEqual(run({ comments: [
+    { ...human('pytorch-bot', '2026-10-09T00:00:00Z'), author: { __typename: 'Bot', login: 'pytorch-bot' } },
+    human('pytorchmergebot', '2026-10-09T00:01:00Z'),
+    human('dependabot[bot]', '2026-10-09T00:02:00Z'),
+    human('malfet', '2026-10-09T00:03:00Z', '@pytorchbot merge -f "landing"'),
+  ] }), []);
+  // Approvals answer nothing; commented reviews with inline comments or a body do ask.
+  assert.deepEqual(run({ reviews: [
+    review('Skylion007', 'APPROVED', '2026-10-09T00:00:00Z', { body: 'lgtm' }),
+    review('albanD', 'COMMENTED', '2026-10-09T00:01:00Z'),
+    review('eellison', 'COMMENTED', '2026-10-09T00:02:00Z', { comments: 2 }),
+    review('jansel', 'CHANGES_REQUESTED', '2026-10-09T00:03:00Z', { body: 'needs a test' }),
+  ] }), ['eellison@2026-10-09T00:02:00Z', 'jansel@2026-10-09T00:03:00Z']);
+});
+
+test('an unaddressed comment puts the PR in Action needed with a link', () => {
+  const tail = [{ author: { __typename: 'User', login: 'ngimel' }, body: 'What about COW siblings?',
+    createdAt: '2026-10-09T00:08:32Z', url: 'https://github.com/pytorch/pytorch/pull/940#issuecomment-1' }];
+  const sections = buildShipSections([
+    pr({ number: 940, author: 'ezyang', reviewDecision: 'APPROVED', drci: DRCI.green, tail }),
+  ]);
+  assert.equal(sections.action.length, 1);
+  const row = sections.action[0].rows[0];
+  assert.deepEqual(row.reasons, [{
+    label: 'Unaddressed comment from @ngimel',
+    severity: 'error',
+    url: 'https://github.com/pytorch/pytorch/pull/940#issuecomment-1',
+  }]);
+  // Advisory: you may read it and ship anyway.
+  assert.equal(row.plan.canShip, true);
 });

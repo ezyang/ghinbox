@@ -30,13 +30,15 @@ fragment ShipPullRequest on PullRequest {
   mergeable
   reviewDecision
   body
+  author { login }
   repository { nameWithOwner }
   labels(first: 30) { nodes { name } }
   reviewRequests(first: 1) { totalCount }
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state } } } }
   headComments: comments(first: 10) { nodes { author { login } body createdAt } }
-  tailComments: comments(last: 8) { nodes { author { login } body createdAt } }
+  tailComments: comments(last: 8) { nodes { author { __typename login } body createdAt url } }
+  recentReviews: reviews(last: 10) { nodes { author { __typename login } state body submittedAt url comments { totalCount } } }
 }`;
 
     function formatSearchDate(ms) {
@@ -414,6 +416,56 @@ ${PR_FRAGMENT}`;
         });
     }
 
+    // Accounts that comment like people but are automation.
+    const BOT_LOGINS = new Set([MERGEBOT_LOGIN, 'pytorch-bot', 'facebook-github-bot']);
+    const BOT_COMMAND_RE = /^\s*@pytorch(?:merge)?bot\b/i;
+
+    function isBotAuthor(author) {
+        const login = author?.login || '';
+        return !login || author.__typename === 'Bot' || BOT_LOGINS.has(login) || login.endsWith('[bot]');
+    }
+
+    // Someone else's comment or review after the author's last word: the
+    // newer of the head commit and the author's own last comment/review.
+    function findUnaddressedComments({ authorLogin, comments, reviews, headCommittedAt }) {
+        const entries = [
+            ...comments.map((comment) => ({
+                author: comment.author,
+                at: comment.createdAt,
+                url: comment.url || null,
+                substantive: !BOT_COMMAND_RE.test(normalizeText(comment.body)),
+            })),
+            ...reviews
+                .filter((review) => review.submittedAt)
+                .map((review) => ({
+                    author: review.author,
+                    at: review.submittedAt,
+                    url: review.url || null,
+                    // An approval is an answer, not a question.
+                    substantive: ['COMMENTED', 'CHANGES_REQUESTED'].includes(review.state) &&
+                        (normalizeText(review.body).trim() !== '' || (review.comments?.totalCount || 0) > 0),
+                })),
+        ];
+        let lastWord = Date.parse(headCommittedAt || '') || 0;
+        entries.forEach((entry) => {
+            if (authorLogin && entry.author?.login === authorLogin) {
+                lastWord = Math.max(lastWord, Date.parse(entry.at) || 0);
+            }
+        });
+        if (!authorLogin) {
+            return [];
+        }
+        return entries
+            .filter((entry) =>
+                entry.substantive &&
+                entry.author?.login !== authorLogin &&
+                !isBotAuthor(entry.author) &&
+                (Date.parse(entry.at) || 0) > lastWord
+            )
+            .sort((a, b) => String(a.at).localeCompare(String(b.at)))
+            .map((entry) => ({ login: entry.author.login, at: entry.at, url: entry.url }));
+    }
+
     function normalizePullRequest(node, { nowMs = Date.now() } = {}) {
         if (!node || !node.number || !node.repository?.nameWithOwner) {
             return null;
@@ -446,6 +498,12 @@ ${PR_FRAGMENT}`;
                 .map((review) => ({ state: review.state, login: review.author?.login || '' })),
             headSha,
             headCommittedAt: commit?.committedDate || null,
+            unaddressed: findUnaddressedComments({
+                authorLogin: node.author?.login || null,
+                comments: tailComments,
+                reviews: (node.recentReviews?.nodes || []).filter(Boolean),
+                headCommittedAt: commit?.committedDate || null,
+            }),
             ci: summarizeCi({
                 drci,
                 rollup: commit?.statusCheckRollup?.state,
@@ -576,6 +634,17 @@ ${PR_FRAGMENT}`;
         }
         if (pr.mergebot?.state === 'failed') {
             blockers.push(describeMergeFailure(pr));
+        }
+        const unaddressed = pr.unaddressed || [];
+        if (unaddressed.length && !merging) {
+            const logins = Array.from(new Set(unaddressed.map((entry) => `@${entry.login}`)));
+            blockers.push({
+                code: 'unaddressed',
+                label: unaddressed.length === 1
+                    ? `Unaddressed comment from ${logins[0]}`
+                    : `${unaddressed.length} unaddressed comments from ${logins.join(', ')}`,
+                url: unaddressed[unaddressed.length - 1].url,
+            });
         }
         const reviewless =
             !approved && !pr.isDraft &&
@@ -815,6 +884,7 @@ ${PR_FRAGMENT}`;
             .map((blocker) => ({
                 label: blocker.label,
                 severity: blocker.severity || 'error',
+                url: blocker.url || null,
             }));
         // Approved without a mergebot is still on the author: land it by hand.
         const landByHand = assessment.ready && !pr.usesMergebot;
@@ -934,6 +1004,7 @@ ${PR_FRAGMENT}`;
         getMissingStackNumbers,
         getShipButtonLabel,
         isBlockedBelow,
+        findUnaddressedComments,
         groupIntoStacks,
         needsReleaseNotesLabel,
         normalizePullRequest,

@@ -34,6 +34,7 @@ function prNode({
   body = '',
   drciComment = null,
   tail = [],
+  author = 'ezyang',
 }: {
   number: number;
   title: string;
@@ -42,7 +43,8 @@ function prNode({
   merged?: boolean;
   body?: string;
   drciComment?: string | null;
-  tail?: Array<{ author: { login: string }; body: string; createdAt: string }>;
+  tail?: Array<{ author: { login: string }; body: string; createdAt: string; url?: string }>;
+  author?: string;
 }) {
   return {
     number,
@@ -55,6 +57,7 @@ function prNode({
     mergeable: 'MERGEABLE',
     reviewDecision,
     body,
+    author: { login: author },
     repository: { nameWithOwner: 'pytorch/pytorch' },
     labels: { nodes: [{ name: 'topic: not user facing' }] },
     reviewRequests: { totalCount: 1 },
@@ -70,6 +73,7 @@ function prNode({
         : [],
     },
     tailComments: { nodes: tail },
+    recentReviews: { nodes: [] },
   };
 }
 
@@ -289,6 +293,30 @@ test.describe('Ship pane @mutation', () => {
     await expect(reason).toHaveText("CI won't run with 10+ PRs below; land some, then re-push");
     await expect(reason).toHaveAttribute('data-severity', 'warning');
     await expect(row.locator('.ship-it-btn')).toHaveCount(0);
+  });
+
+  test('a comment after the last push is reported as unaddressed', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    const url = 'https://github.com/pytorch/pytorch/pull/1100#issuecomment-1';
+    await mockShipGraphql(page, {
+      searchNodes: [prNode({
+        number: 1100,
+        title: 'Approved, then questioned',
+        updatedAt: '2026-10-09T00:08:32Z',
+        reviewDecision: 'APPROVED',
+        drciComment: drci('drci-no-failures'),
+        tail: [{ author: { login: 'ngimel' }, body: 'Suppose x and y are COW siblings?', createdAt: '2026-10-09T00:08:32Z', url }],
+      })],
+      stackNodes: {},
+    });
+
+    await viewTab(page, 'ship').click();
+    const row = page.locator('.ship-section[data-section="action"]').locator(shipRow(page, 1100));
+    const reason = row.locator('.ship-reason');
+    await expect(reason).toHaveText('Unaddressed comment from @ngimel');
+    await expect(reason).toHaveAttribute('href', url);
+    await expect(reason).toHaveAttribute('data-severity', 'error');
+    await expect(row.locator('.ship-it-btn')).toHaveText('Ship It');
   });
 
   test('a page reload shows the last load at once while GitHub revalidates', async ({ page }) => {
