@@ -602,6 +602,13 @@ test('a stack too deep for CI is CI not run, not 23 failures, and blocks the sta
   assert.deepEqual(planShip(top, byKey([top, deep])).blockedBy, [
     { number: 931, why: 'CI not run, stack too deep', landingWith: null },
   ]);
+  // A cancelled job dying some other way still reads as the refusal.
+  const sigint = pr({ number: 934, drci: fixture('drci-stack-too-deep').replace(
+    /(CANCELLED JOBS[\s\S]*?)`sits on top of >=10 ghstack entries; refusing to run CI`/,
+    '$1`[runner-container-hooks] FATAL: received SIGINT`') });
+  assert.equal(sigint.ci.state, 'not-run');
+  // Only cancelled jobs, no refusal: still failing.
+  assert.equal(pr({ number: 935, drci: fixture('drci-cancelled-pending') }).ci.stackTooDeep, null);
   // Real failures mixed in keep it failing.
   const mixed = pr({ number: 933, drci: fixture('drci-stack-too-deep').replace(
     '`sits on top of >=10 ghstack entries; refusing to run CI`', '`test/test_foo.py::test_bar`') });

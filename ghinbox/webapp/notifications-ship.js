@@ -202,17 +202,19 @@ ${PR_FRAGMENT}`;
     // every job then "fails" with this line. That is not a code problem.
     const STACK_TOO_DEEP_RE = /sits on top of >=(\d+) ghstack entries; refusing to run CI/;
 
+    // Cancelled jobs ride along (a runner SIGINT once the refusal hit), so
+    // only the other blocking jobs must all carry the refusal.
     function getStackTooDeepLimit(blockingJobs) {
         let limit = null;
-        const all = blockingJobs.length > 0 && blockingJobs.every((job) =>
-            job.failures.some((failure) => {
-                const match = failure.match(STACK_TOO_DEEP_RE);
-                if (match) {
-                    limit = Number(match[1]);
-                }
-                return Boolean(match);
-            })
-        );
+        const all = blockingJobs.every((job) => {
+            const match = job.failures
+                .map((failure) => failure.match(STACK_TOO_DEEP_RE))
+                .find(Boolean);
+            if (match) {
+                limit = Number(match[1]);
+            }
+            return Boolean(match) || /CANCELLED/.test(job.section);
+        });
         return all ? limit : null;
     }
 
