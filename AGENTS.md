@@ -126,6 +126,18 @@
     becomes visible again (no GitHub calls), skipping it while the user is
     mid-action or when the sync started before the last local mark-done.
     Reviews reloads live from GitHub when you enter the view.
+- Ship tab (`notifications-ship.js` pure model, `notifications-ship-view.js`
+  wiring): the viewer's open non-draft PRs updated in the last 90 days,
+  fetched live via GraphQL search on entering the tab (not part of the
+  notification snapshot), grouped by ghstack stack into "Action needed" /
+  "Review requested". CI status comes from the Dr. CI comment (blocking:
+  NEW/UNCLASSIFIED/CANCELLED; unrelated: FLAKY/BROKEN TRUNK/UNSTABLE/
+  non-blocking), falling back to the check rollup. Ship It (mergebot repos
+  only) comments `@pytorchbot merge` on a PR when it and every open PR below
+  it in the stack is approved and unblocked; blocking failures need a
+  per-(PR, section) acknowledgement and post `@pytorchbot merge -i`. Parser
+  fixtures in `e2e/fixtures/ship/` are harvested with
+  `scripts/harvest_ship_fixtures.py`.
 - Feed summaries:
   - When asked to generate a feed summary/digest, extract the server-owned
     snapshot over the debug socket with `uv run python scripts/feed_digest.py
