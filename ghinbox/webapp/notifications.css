@@ -373,6 +373,58 @@
             font-size: 12px;
         }
 
+        .reply-context-note {
+            margin-top: 4px;
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .reply-context {
+            list-style: none;
+            margin: 4px 0 0 0;
+            padding: 0;
+            font-size: 12px;
+        }
+
+        .reply-context > li {
+            padding: 2px 0 2px 8px;
+            border-left: 2px solid var(--color-border-muted);
+        }
+
+        .reply-context > li.directed {
+            border-left-color: var(--color-accent-fg);
+        }
+
+        .reply-context-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            color: var(--color-fg-muted);
+        }
+
+        .reply-context-author {
+            color: var(--color-fg-default);
+            font-weight: 600;
+        }
+
+        .reply-context-time {
+            color: var(--color-fg-muted);
+        }
+
+        .reply-context-body {
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 8;
+            overflow: hidden;
+        }
+
+        .reply-context-bots,
+        .reply-context-event {
+            color: var(--color-fg-muted);
+        }
+
         .notification-review-verdict {
             display: flex;
             flex-wrap: wrap;

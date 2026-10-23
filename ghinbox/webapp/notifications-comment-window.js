@@ -1,12 +1,17 @@
-// Pure comment windowing helpers: which cached comments are in the unread window.
+// Pure comment windowing helpers: which cached comments are in the unread
+// window, and which ones the Replies view shows inline.
 // Browser code passes state-derived values in; Node tests import this file.
 (function (root, factory) {
-    const api = factory();
+    let commentInterest = root.GhinboxCommentInterest;
+    if (!commentInterest && typeof require === 'function') {
+        commentInterest = require('./notifications-comment-interest.js');
+    }
+    const api = factory(commentInterest);
     if (typeof module === 'object' && module.exports) {
         module.exports = api;
     }
     root.GhinboxCommentWindow = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (commentInterest) {
     function extractCommentIdFromAnchor(anchor) {
         if (!anchor) {
             return null;
@@ -84,8 +89,103 @@
         return anchor ? anchoredComments : filterCommentsByLastReadAt(anchoredComments, lastReadAt);
     }
 
+    function isUninterestingReplyContextComment(comment, currentUserLogin) {
+        return !commentInterest.isDelegatedTaskCompletion(comment, currentUserLogin) &&
+            commentInterest.isUninterestingComment(comment);
+    }
+
+    // The latest close/merge per event name, newer than sinceMs. The cache
+    // can hold both a synthetic closed-at event and GitHub's own for one close.
+    function getCloseEventsAfter(stateEvents, sinceMs) {
+        const latestByName = new Map();
+        (Array.isArray(stateEvents) ? stateEvents : []).forEach((event) => {
+            if (!commentInterest.isClosingStateEvent(event)) {
+                return;
+            }
+            const timestampMs = commentInterest.getCommentTimestampMs(event);
+            if (!timestampMs || timestampMs <= sinceMs) {
+                return;
+            }
+            const name = String(event.event || event.type || 'closed').toLowerCase();
+            const previous = latestByName.get(name);
+            if (!previous || timestampMs > previous.timestampMs) {
+                latestByName.set(name, { name, timestampMs, event });
+            }
+        });
+        return Array.from(latestByName.values()).map(({ name, event }) => ({
+            kind: 'event',
+            event: name === 'state_change' || name === 'state-change' ? 'closed' : name,
+            actor: event.actor?.login || null,
+            created_at: event.created_at || event.updated_at,
+        }));
+    }
+
+    // What the Replies view shows under a row: the comment that made the
+    // notification a reply (findDirectedComment) and all activity after it,
+    // so the user can see whether the thread still needs them. Runs of bot
+    // comments after the reply collapse into one item. Without a directed
+    // comment (forced outside-org replies) it shows the unread comments.
+    //   kind: 'reply' | 'unread'
+    //   items: [{ kind: 'comment', comment, directed }
+    //          | { kind: 'bots', comments, authors }
+    //          | { kind: 'event', event: 'closed' | 'merged', actor, created_at }]
+    function getReplyContext(notification, options = {}) {
+        const comments = commentInterest.sortComments(options.comments || []);
+        const interestOptions = { ...options, comments };
+        const directed = commentInterest.findDirectedComment(notification, interestOptions);
+        const kind = directed ? 'reply' : 'unread';
+        const shown = directed
+            ? comments.slice(comments.indexOf(directed))
+            : commentInterest.getUnreadComments(notification, interestOptions);
+
+        const items = [];
+        shown.forEach((comment) => {
+            if (
+                comment !== directed &&
+                isUninterestingReplyContextComment(comment, options.currentUserLogin)
+            ) {
+                const previous = items[items.length - 1];
+                if (previous?.kind === 'bots') {
+                    previous.comments.push(comment);
+                } else {
+                    items.push({ kind: 'bots', comments: [comment] });
+                }
+                return;
+            }
+            items.push({ kind: 'comment', comment, directed: comment === directed });
+        });
+        items.forEach((item) => {
+            if (item.kind === 'bots') {
+                item.authors = Array.from(
+                    new Set(item.comments.map((comment) => comment.user?.login || 'unknown'))
+                );
+            }
+        });
+
+        if (shown.length > 0) {
+            const sinceMs = commentInterest.getCommentTimestampMs(shown[0]);
+            getCloseEventsAfter(options.stateEvents, sinceMs).forEach((eventItem) => {
+                const eventMs = commentInterest.getCommentTimestampMs(eventItem);
+                const index = items.findIndex((item) => {
+                    const first = item.kind === 'bots' ? item.comments[0] : item.comment;
+                    return commentInterest.getCommentTimestampMs(first) > eventMs;
+                });
+                items.splice(index === -1 ? items.length : index, 0, eventItem);
+            });
+        }
+        return { kind, items };
+    }
+
+    // Plain-text comment body for inline display: bot templates hide markup
+    // in HTML comments, which GitHub never renders.
+    function getCommentDisplayText(body) {
+        return String(body || '').replace(/<!--[\s\S]*?-->/g, '').trim();
+    }
+
     return {
         extractCommentIdFromAnchor,
+        getCommentDisplayText,
+        getReplyContext,
         filterCommentsByAnchor,
         filterCommentsByLastReadAt,
         getCommentWindowComments,

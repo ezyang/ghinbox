@@ -378,7 +378,9 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await expect(page.locator('[data-id="pr-body-cc"]')).not.toBeAttached();
   });
 
-  test('does not render inline comment threads even with cached comments', async ({ page }) => {
+  // The old inline threads (and their toggles) stay gone; Replies rows show
+  // only the reply that put them there plus later activity (reply-context.spec.ts).
+  test('renders only the reply context, not full comment threads', async ({ page }) => {
     for (const selector of [
       '#comment-expand-issues-toggle',
       '#comment-expand-prs-toggle',
@@ -392,7 +394,9 @@ test.describe('Feed, Replies, and Reviews queues @classification', () => {
     await page.locator('#view-pr-notifications').click();
     const mention = page.locator('[data-id="mid-thread-mention"]');
     await expect(mention).toBeVisible();
-    await expect(mention).not.toContainText('@testuser can you take a look at this?');
+    await expect(mention.locator('.reply-context .directed')).toContainText(
+      '@testuser can you take a look at this?'
+    );
     await expect(page.locator('.comment-list, .comment-item')).toHaveCount(0);
     await expect(page.locator('.notification-actions-bottom')).toHaveCount(0);
   });

@@ -925,6 +925,64 @@ function getNotificationLinkUrl(notif) {
     return GhinboxFormat.getReplyLinkUrl(notif.subject, getNotificationReplyComment(notif));
 }
 
+function renderReplyContextTime(timestamp, url) {
+    if (!timestamp) {
+        return '';
+    }
+    const label = escapeHtml(formatRelativeTime(timestamp));
+    const title = escapeHtml(new Date(timestamp).toLocaleString());
+    return url
+        ? `<a class="reply-context-time" href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${title}">${label}</a>`
+        : `<span class="reply-context-time" title="${title}">${label}</span>`;
+}
+
+function renderReplyContextItem(item) {
+    if (item.kind === 'bots') {
+        const count = item.comments.length;
+        return `<li class="reply-context-bots">${count} bot comment${count === 1 ? '' : 's'}: ${escapeHtml(item.authors.join(', '))}</li>`;
+    }
+    if (item.kind === 'event') {
+        const verb = item.event === 'merged' ? 'Merged' : 'Closed';
+        const actor = item.actor ? ` by ${escapeHtml(item.actor)}` : '';
+        return `<li class="reply-context-event">${verb}${actor} ${renderReplyContextTime(item.created_at)}</li>`;
+    }
+    const comment = item.comment;
+    const line = comment.line || comment.original_line;
+    const path = comment.isReviewComment && comment.path
+        ? `<span class="reply-context-path">${escapeHtml(comment.path)}${line ? `:${line}` : ''}</span>`
+        : '';
+    return `
+        <li class="reply-context-comment${item.directed ? ' directed' : ''}">
+            <div class="reply-context-meta">
+                <span class="reply-context-author">${escapeHtml(comment.user?.login || 'unknown')}</span>
+                ${path}
+                ${renderReplyContextTime(comment.created_at || comment.updated_at, comment.html_url)}
+            </div>
+            <div class="reply-context-body">${escapeHtml(GhinboxCommentWindow.getCommentDisplayText(comment.body))}</div>
+        </li>
+    `;
+}
+
+// Replies rows show the comment that made them a reply and everything after
+// it, so it is visible whether the thread still needs the user.
+function renderReplyContext(notif) {
+    if (state.view !== 'pr-notifications') {
+        return '';
+    }
+    const context = getNotificationReplyContext(notif);
+    let note = '';
+    if (context.kind === 'unread') {
+        note = context.items.length
+            ? 'Nothing here is addressed to you. New activity:'
+            : 'Nothing here is addressed to you, and nothing is new.';
+    }
+    const noteHtml = note ? `<div class="reply-context-note">${note}</div>` : '';
+    if (!context.items.length) {
+        return noteHtml;
+    }
+    return `${noteHtml}<ol class="reply-context">${context.items.map(renderReplyContextItem).join('')}</ol>`;
+}
+
 function renderNotificationItem(notif, diffstatContext, classifier) {
     const li = document.createElement('li');
     const isSelected = state.selected.has(notif.id);
@@ -1012,6 +1070,7 @@ function renderNotificationItem(notif, diffstatContext, classifier) {
             ${digestWhy ? `<div class="notification-digest-why">${escapeHtml(digestWhy)}</div>` : ''}
             ${demotedWhy ? `<div class="notification-reply-demoted">Not a reply: ${escapeHtml(demotedWhy)}</div>` : ''}
             ${reviewVerdictHtml}
+            ${renderReplyContext(notif)}
         </div>
         ${renderNotificationActors(notif)}
         <div class="notification-actions-inline">

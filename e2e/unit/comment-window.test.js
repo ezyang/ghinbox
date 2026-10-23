@@ -115,3 +115,128 @@ test('uses last-read slicing when all-comments cache has no anchor', () => {
     [2]
   );
 });
+
+// getReplyContext: what the Replies view shows under a row.
+const { getReplyContext, getCommentDisplayText } =
+  require('../../ghinbox/webapp/notifications-comment-window.js');
+
+function at(minute) {
+  return `2025-02-01T00:${String(minute).padStart(2, '0')}:00Z`;
+}
+
+function timed(id, login, body, minute, extra = {}) {
+  return comment(id, login, body, { created_at: at(minute), updated_at: at(minute), ...extra });
+}
+
+function describeContext(context) {
+  return {
+    kind: context.kind,
+    items: context.items.map((item) => {
+      if (item.kind === 'comment') {
+        return `${item.directed ? '>>' : ''}${item.comment.user.login}#${item.comment.id}`;
+      }
+      if (item.kind === 'bots') {
+        return `bots(${item.authors.join(',')})x${item.comments.length}`;
+      }
+      return `${item.event}@${item.created_at}`;
+    }),
+  };
+}
+
+const replyContextCases = [
+  {
+    name: 'starts at the mention and keeps everything after it',
+    notification: notification('Issue', { reason: 'mention', last_read_at: at(2) }),
+    comments: [
+      timed(1, 'alice', 'background', 1),
+      timed(2, 'bob', 'more background', 3),
+      timed(3, 'carol', '@me can you route this?', 4),
+      timed(4, 'dave', 'I can take it', 5),
+      timed(5, 'carol', 'thanks dave!', 6),
+    ],
+    expected: { kind: 'reply', items: ['>>carol#3', 'dave#4', 'carol#5'] },
+  },
+  {
+    name: 'shows my own comment elsewhere in the PR after a review-thread reply',
+    notification: notification('PullRequest', { reason: 'comment', last_read_at: at(0) }),
+    comments: [
+      timed(1, 'me', 'why this?', 1, { isReviewComment: true }),
+      timed(2, 'alice', 'because of X', 2, { isReviewComment: true, in_reply_to_id: 1 }),
+      timed(3, 'me', 'pushed a fix for the other thing', 3),
+      timed(4, 'alice', 'looks good', 4),
+    ],
+    expected: { kind: 'reply', items: ['>>alice#2', 'me#3', 'alice#4'] },
+  },
+  {
+    name: 'collapses a run of bot comments after the reply into one item',
+    notification: notification('PullRequest', { reason: 'mention', last_read_at: at(0) }),
+    comments: [
+      timed(1, 'alice', '@me PTAL', 1),
+      timed(2, 'github-actions[bot]', 'lint failed', 2),
+      timed(3, 'pytorch-bot[bot]', 'needs a label', 3),
+      timed(4, 'github-actions[bot]', 'still failing', 4),
+      timed(5, 'alice', 'fixed lint', 5),
+    ],
+    expected: {
+      kind: 'reply',
+      items: ['>>alice#1', 'bots(github-actions[bot],pytorch-bot[bot])x3', 'alice#5'],
+    },
+  },
+  {
+    name: 'keeps a finished delegated @claude task as a full comment',
+    notification: notification('PullRequest', { reason: 'mention', last_read_at: at(0) }),
+    comments: [
+      timed(1, 'alice', '@me PTAL', 1),
+      timed(2, 'claude[bot]', 'Claude finished @me\'s task', 2),
+    ],
+    expected: { kind: 'reply', items: ['>>alice#1', 'claude[bot]#2'] },
+  },
+  {
+    name: 'without a directed comment shows the unread comments and a later close',
+    notification: notification('Issue', {
+      reason: 'subscribed',
+      last_read_at: at(2),
+      subject: { type: 'Issue', state: 'closed' },
+    }),
+    comments: [
+      timed(1, 'alice', 'old discussion', 1),
+      timed(2, 'maintainer', 'private API, will not fix', 4),
+    ],
+    stateEvents: [
+      { id: 'issue-1-closed-at', event: 'closed', created_at: at(5) },
+      { id: 99, event: 'closed', created_at: at(5), actor: { login: 'maintainer' } },
+    ],
+    expected: { kind: 'unread', items: ['maintainer#2', `closed@${at(5)}`] },
+  },
+  {
+    name: 'a close before the shown activity is not repeated',
+    notification: notification('Issue', { reason: 'mention', last_read_at: at(0) }),
+    comments: [timed(1, 'alice', '@me reopen?', 3)],
+    stateEvents: [{ id: 'x', event: 'closed', created_at: at(2) }],
+    expected: { kind: 'reply', items: ['>>alice#1'] },
+  },
+  {
+    name: 'nothing unread and nothing directed is empty',
+    notification: notification('Issue', { reason: 'subscribed', last_read_at: at(9) }),
+    comments: [timed(1, 'alice', 'old', 1)],
+    expected: { kind: 'unread', items: [] },
+  },
+];
+
+for (const testCase of replyContextCases) {
+  test(`getReplyContext ${testCase.name}`, () => {
+    const context = getReplyContext(testCase.notification, {
+      comments: testCase.comments,
+      currentUserLogin: 'me',
+      stateEvents: testCase.stateEvents,
+    });
+    assert.deepEqual(describeContext(context), testCase.expected);
+  });
+}
+
+test('getCommentDisplayText drops HTML comments bot templates hide markup in', () => {
+  assert.equal(
+    getCommentDisplayText('<!-- drci-comment-start -->\n## CI status\n<!-- end -->'),
+    '## CI status'
+  );
+});

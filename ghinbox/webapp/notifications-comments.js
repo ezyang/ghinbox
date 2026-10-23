@@ -23,6 +23,7 @@ const REVIEW_DECISION_BATCH_SIZE = 40;
 const PREFETCH_STATUS_REFRESH_MS = 750;
 const PREFETCH_STATUS_IDLE_CLEAR_MS = 1200;
 const COMMENT_INTEREST = globalThis.GhinboxCommentInterest;
+const COMMENT_WINDOW = globalThis.GhinboxCommentWindow;
 const COMMENT_STATUS = globalThis.GhinboxCommentStatus;
 const COMMENT_CACHE_POLICY = globalThis.GhinboxCommentCachePolicy;
 
@@ -968,6 +969,14 @@ function isNotificationDirectedAtCurrentUser(notification) {
 // The comment that made this notification a reply, for linking to it.
 function getNotificationReplyComment(notification) {
     return COMMENT_INTEREST.findDirectedComment(
+        notification,
+        getDirectedCommentOptions(notification)
+    );
+}
+
+// The reply and the activity after it, shown inline under Replies rows.
+function getNotificationReplyContext(notification) {
+    return COMMENT_WINDOW.getReplyContext(
         notification,
         getDirectedCommentOptions(notification)
     );
