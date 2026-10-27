@@ -4,9 +4,12 @@
 // blocking Dr. CI failures must each be acknowledged before a `merge -i` goes
 // out. The per-row "…" menu holds destructive actions (Abandon closes the PR);
 // being tucked away, they run without a confirm and offer Undo instead.
+// A bell on rows whose reviewers have been silent a week opens a dialog that
+// DMs them on Slack through the server's `meta` CLI.
 (function () {
     const panel = document.getElementById('ship-panel');
     const dialog = document.getElementById('ship-ack-dialog');
+    const pingDialog = document.getElementById('ship-ping-dialog');
     if (!panel) {
         return;
     }
@@ -15,6 +18,11 @@
     // The last load, so a page reload renders at once while GitHub (several
     // seconds of GraphQL) revalidates in the background.
     const CACHE_KEY = 'ghnotif_ship_cache_v1';
+    // Local-only, losable: when each (PR, reviewer) was last pinged, and the
+    // Slack unixname last used for each GitHub login.
+    const PINGS_KEY = 'ghnotif_ship_pings_v1';
+    const SLACK_HANDLES_KEY = 'ghnotif_slack_handles_v1';
+    const BELL_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0v2.947c0 .05.015.098.042.139l1.703 2.555A1.519 1.519 0 0 1 13.482 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947Zm5-3.5A3.5 3.5 0 0 0 4.5 5v2.947c0 .346-.102.683-.294.97l-1.703 2.556a.017.017 0 0 0-.003.01l.001.006c0 .002.002.004.004.006l.006.004.007.001h10.964l.007-.001.006-.004.004-.006.001-.007a.017.017 0 0 0-.003-.01l-1.703-2.554a1.745 1.745 0 0 1-.294-.97V5A3.5 3.5 0 0 0 8 1.5Z"></path></svg>';
     const sectionsContainer = panel.querySelector('.ship-sections');
     const statusLine = panel.querySelector('.ship-status');
     const errorLine = panel.querySelector('.ship-error');
@@ -25,9 +33,32 @@
     let openMenuKey = null;
     // The last abandoned PR, offered for Undo (reopen) until the next one.
     let abandoned = null;
+    let pings = readJson(PINGS_KEY);
+    let pingRowKey = null;
+    let pingSending = false;
+    // Slack unixname -> { state: 'loading' | 'ok' | 'missing', text, detail }.
+    const slackLookups = new Map();
 
     function bumpVersion() {
         state.ship.version += 1;
+    }
+
+    function readJson(key) {
+        try {
+            const value = JSON.parse(localStorage.getItem(key) || '{}');
+            return value && typeof value === 'object' ? value : {};
+        } catch (error) {
+            console.warn(`Ignoring unreadable ${key}:`, error);
+            return {};
+        }
+    }
+
+    function writeJson(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+        } catch (error) {
+            console.warn(`Could not save ${key}:`, error);
+        }
     }
 
     function readShipCache() {
@@ -61,7 +92,8 @@
         }
         if (cachedVersion !== state.ship.version) {
             cachedSections = GhinboxShip.buildShipSections(
-                GhinboxShip.applyPendingMerges(state.ship.prs, state.ship.pendingMerges)
+                GhinboxShip.applyPendingMerges(state.ship.prs, state.ship.pendingMerges),
+                { nowMs: Date.now(), pings }
             );
             cachedVersion = state.ship.version;
         }
@@ -193,6 +225,22 @@
         return `<button class="btn ship-it-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-has-errors="${hasErrors}" title="${escapeHtml(title)}"${shipping || stale ? ' disabled' : ''}>${escapeHtml(label)}</button>`;
     }
 
+    function describeDays(days) {
+        return `${days} ${days === 1 ? 'day' : 'days'}`;
+    }
+
+    function renderPingButton(row) {
+        if (!row.ping) {
+            return '';
+        }
+        const overdue = row.ping.reviewers.filter((reviewer) => reviewer.overdue);
+        const title = row.ping.due
+            ? `Ping ${overdue.map((reviewer) => `@${reviewer.login}`).join(', ')} on Slack ` +
+                `(waiting ${describeDays(Math.max(...overdue.map((reviewer) => reviewer.waitingDays)))})`
+            : 'Reviewers pinged recently; ping again on Slack';
+        return `<button class="btn ship-ping-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}" data-due="${row.ping.due}" aria-label="Ping reviewers of #${row.pr.number} on Slack" title="${escapeHtml(title)}">${BELL_ICON}</button>`;
+    }
+
     function renderMoreMenu(pr) {
         const open = openMenuKey === pr.key;
         const busy = state.ship.abandoning.has(pr.key);
@@ -223,6 +271,7 @@
                 </div>
                 <div class="ship-row-meta">${renderCi(pr)}${notes}</div>
             </div>
+            ${renderPingButton(row)}
             <span class="ship-status-pill" data-status="${row.status.key}">${escapeHtml(row.status.label)}</span>
             ${renderShipButton(row)}
             ${renderMoreMenu(pr)}
@@ -437,7 +486,160 @@
         withActionContext('Ship It', () => ship(row));
     }
 
+    function renderSlackLookup(handle) {
+        const lookup = slackLookups.get(handle);
+        if (!handle || !lookup) {
+            return '';
+        }
+        return `<span class="ship-ping-resolved" data-state="${lookup.state}" title="${escapeHtml(lookup.detail || '')}">${escapeHtml(lookup.text)}</span>`;
+    }
+
+    // Shows whose DM a unixname opens, since GitHub logins often differ.
+    async function lookUpSlackUser(handle) {
+        // A failed lookup is retried; it may have been a CLI hiccup.
+        if (!handle || ['loading', 'ok'].includes(slackLookups.get(handle)?.state)) {
+            return;
+        }
+        slackLookups.set(handle, { state: 'loading', text: 'Looking up…' });
+        renderPingResolved();
+        try {
+            const user = await fetchJson(`/api/slack/user?user=${encodeURIComponent(handle)}`);
+            slackLookups.set(handle, { state: 'ok', text: `→ ${user.real_name || user.display_name || handle}` });
+        } catch (error) {
+            slackLookups.set(handle, {
+                state: 'missing',
+                text: 'No Slack user by that unixname',
+                detail: String(error.message || error),
+            });
+        }
+        renderPingResolved();
+    }
+
+    function renderPingResolved() {
+        pingDialog.querySelectorAll('.ship-ping-reviewer').forEach((item) => {
+            const handle = item.querySelector('.ship-ping-handle').value.trim();
+            item.querySelector('.ship-ping-lookup').innerHTML = renderSlackLookup(handle);
+        });
+    }
+
+    function getCheckedPings() {
+        return Array.from(pingDialog.querySelectorAll('.ship-ping-reviewer'))
+            .filter((item) => item.querySelector('.ship-ping-check').checked)
+            .map((item) => ({
+                login: item.dataset.login,
+                handle: item.querySelector('.ship-ping-handle').value.trim(),
+            }));
+    }
+
+    function updatePingSend() {
+        const checked = getCheckedPings();
+        const send = pingDialog.querySelector('.ship-ping-send');
+        send.disabled = pingSending || !checked.length ||
+            checked.some((item) => !item.handle) ||
+            !pingDialog.querySelector('.ship-ping-message').value.trim();
+        send.textContent = pingSending
+            ? 'Sending…'
+            : checked.length > 1 ? `Send ${checked.length} DMs` : 'Send';
+    }
+
+    function renderPingReviewer(reviewer, handles) {
+        const handle = handles[reviewer.login] || reviewer.login.toLowerCase();
+        const meta = [
+            reviewer.name ? escapeHtml(reviewer.name) : '',
+            reviewer.waitingDays !== null ? `waiting ${describeDays(reviewer.waitingDays)}` : '',
+            reviewer.pingedAt ? `pinged ${escapeHtml(formatRelativeTime(new Date(reviewer.pingedAt).toISOString()))}` : '',
+        ].filter(Boolean).join(' · ');
+        return `<li class="ship-ping-reviewer" data-login="${escapeHtml(reviewer.login)}">
+            <label><input type="checkbox" class="ship-ping-check"${reviewer.due ? ' checked' : ''}> @${escapeHtml(reviewer.login)} <span class="ship-ping-meta">${meta}</span></label>
+            <div class="ship-ping-handle-row">
+                <span>Slack</span>
+                <input class="ship-ping-handle" type="text" value="${escapeHtml(handle)}" spellcheck="false" autocomplete="off" aria-label="Slack unixname for @${escapeHtml(reviewer.login)}">
+                <span class="ship-ping-lookup"></span>
+            </div>
+        </li>`;
+    }
+
+    function openPingDialog(row) {
+        pingRowKey = row.pr.key;
+        const handles = readJson(SLACK_HANDLES_KEY);
+        const overdue = row.ping.reviewers.filter((reviewer) => reviewer.overdue);
+        pingDialog.querySelector('.ship-ack-title').textContent =
+            `Ping reviewers of #${row.pr.number} on Slack`;
+        pingDialog.querySelector('.ship-ping-list').innerHTML = row.ping.reviewers
+            .map((reviewer) => renderPingReviewer(reviewer, handles))
+            .join('');
+        pingDialog.querySelector('.ship-ping-message').value =
+            GhinboxShip.buildPingMessage(row.pr, overdue);
+        const error = pingDialog.querySelector('.ship-ping-error');
+        error.hidden = true;
+        error.textContent = '';
+        updatePingSend();
+        pingDialog.showModal();
+        renderPingResolved();
+        pingDialog.querySelectorAll('.ship-ping-handle').forEach((input) => {
+            lookUpSlackUser(input.value.trim());
+        });
+    }
+
+    async function sendPings() {
+        const row = findRow(pingRowKey);
+        const checked = getCheckedPings();
+        const markdown = pingDialog.querySelector('.ship-ping-message').value.trim();
+        if (!row || !checked.length || pingSending) {
+            return;
+        }
+        pingSending = true;
+        updatePingSend();
+        const handles = readJson(SLACK_HANDLES_KEY);
+        const failures = [];
+        for (const item of checked) {
+            try {
+                await fetchJson('/api/slack/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to: item.handle, markdown }),
+                });
+                handles[item.login] = item.handle;
+                pings = { ...pings, [GhinboxShip.getPingKey(row.pr, item.login)]: Date.now() };
+                const check = pingDialog.querySelector(
+                    `.ship-ping-reviewer[data-login="${CSS.escape(item.login)}"] .ship-ping-check`
+                );
+                if (check) {
+                    check.checked = false;
+                }
+            } catch (error) {
+                failures.push(`@${item.login} (${item.handle}): ${error.message || error}`);
+            }
+        }
+        writeJson(SLACK_HANDLES_KEY, handles);
+        writeJson(PINGS_KEY, pings);
+        pingSending = false;
+        bumpVersion();
+        render();
+        if (failures.length) {
+            const error = pingDialog.querySelector('.ship-ping-error');
+            error.hidden = false;
+            error.textContent = `Could not ping ${failures.join('; ')}`;
+            updatePingSend();
+            return;
+        }
+        pingDialog.close();
+        showStatus(
+            `Pinged ${checked.map((item) => `@${item.login}`).join(', ')} on Slack about #${row.pr.number}`,
+            'success',
+            { autoDismiss: true }
+        );
+    }
+
     panel.addEventListener('click', (event) => {
+        const pingButton = event.target.closest('.ship-ping-btn');
+        if (pingButton) {
+            const row = findRow(pingButton.dataset.prKey);
+            if (row?.ping) {
+                openPingDialog(row);
+            }
+            return;
+        }
         const button = event.target.closest('.ship-it-btn');
         if (button) {
             handleShipClick(button.dataset.prKey);
@@ -490,6 +692,30 @@
         });
         dialog.addEventListener('close', () => {
             ackRowKey = null;
+        });
+    }
+
+    if (pingDialog) {
+        pingDialog.addEventListener('input', updatePingSend);
+        pingDialog.addEventListener('change', (event) => {
+            if (event.target.classList.contains('ship-ping-handle')) {
+                lookUpSlackUser(event.target.value.trim());
+                renderPingResolved();
+            }
+            updatePingSend();
+        });
+        // Enter in a unixname field looks it up instead of closing the form.
+        pingDialog.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && event.target.classList.contains('ship-ping-handle')) {
+                event.preventDefault();
+                event.target.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+        pingDialog.querySelector('.ship-ping-send').addEventListener('click', () => {
+            withActionContext('Ping reviewers', sendPings);
+        });
+        pingDialog.addEventListener('close', () => {
+            pingRowKey = null;
         });
     }
 

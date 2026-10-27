@@ -33,6 +33,7 @@ from ghinbox.api.snapshot_routes import (
 )
 from ghinbox.api.snapshot_store import init_snapshot_db, interrupt_orphaned_syncs
 from ghinbox.api.site_auth import router as site_auth_router, SiteAuthMiddleware
+from ghinbox.api.slack_routes import router as slack_router
 from ghinbox.api.webhook_routes import router as webhook_router
 from ghinbox.auth import DEFAULT_ACCOUNT
 from ghinbox.digest.store import init_digest_db
@@ -139,6 +140,7 @@ app.include_router(site_auth_router)
 app.include_router(observability_router)
 app.include_router(snapshot_router)
 app.include_router(digest_router)
+app.include_router(slack_router)
 app.include_router(webhook_router)
 
 

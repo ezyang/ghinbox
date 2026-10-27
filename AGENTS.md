@@ -144,7 +144,14 @@
   acknowledgement and post `@pytorchbot merge -i`. The row "…" menu holds
   destructive actions (Abandon = close the PR). A human comment or
   commented review newer than both the head commit and the author's own last
-  comment/review is an "Unaddressed comment" (Action needed, advisory). Parser
+  comment/review is an "Unaddressed comment" (Action needed, advisory). A
+  requested user reviewer silent for 7+ days (no comment/review since the
+  latest request) gets a bell on the row; its dialog DMs them on Slack as you
+  via `POST /api/slack/ping` (server runs `meta slack.message send`;
+  `GHINBOX_SLACK_COMMAND` overrides `meta`, and test mode refuses without
+  it). GitHub logins aren't unixnames, so the dialog takes a unixname,
+  checks it with `GET /api/slack/user`, and remembers it per login; pings
+  quiet the bell for 7 days (both local-only, in localStorage). Parser
   fixtures in `e2e/fixtures/ship/` are harvested with
   `scripts/harvest_ship_fixtures.py`.
 - Feed summaries:

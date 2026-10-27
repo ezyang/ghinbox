@@ -1094,6 +1094,24 @@
         </form>
     </dialog>
 
+    <dialog id="ship-ping-dialog" class="ship-ack-dialog ship-ping-dialog" aria-labelledby="ship-ping-title">
+        <form method="dialog">
+            <h3 id="ship-ping-title" class="ship-ack-title"></h3>
+            <p class="ship-ack-explainer">
+                Each checked reviewer gets this as a Slack DM from you. Slack goes by
+                unixname, which is often not the GitHub login.
+            </p>
+            <ul class="ship-ping-list"></ul>
+            <label class="ship-ping-message-label" for="ship-ping-message">Message</label>
+            <textarea id="ship-ping-message" class="ship-ping-message" rows="4"></textarea>
+            <p class="ship-ping-error" hidden></p>
+            <div class="ship-ack-actions">
+                <button class="btn" type="submit" value="cancel">Cancel</button>
+                <button class="btn btn-primary ship-ping-send" type="button" disabled>Send</button>
+            </div>
+        </form>
+    </dialog>
+
     <!-- Keyboard Shortcuts Help Overlay -->
     <div id="keyboard-shortcuts-overlay" class="keyboard-shortcuts-overlay" role="dialog" aria-modal="true" aria-labelledby="keyboard-shortcuts-title">
         <div class="keyboard-shortcuts-modal">

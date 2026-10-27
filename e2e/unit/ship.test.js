@@ -5,6 +5,7 @@ const test = require('node:test');
 const {
   applyPendingMerges,
   assessPullRequest,
+  buildPingMessage,
   buildShipSearchQuery,
   findUnaddressedComments,
   buildShipSections,
@@ -13,6 +14,7 @@ const {
   buildStackLookupGraphql,
   getMergebotState,
   getMissingStackNumbers,
+  getPingKey,
   getShipButtonLabel,
   groupIntoStacks,
   normalizePullRequest,
@@ -272,6 +274,7 @@ function prNode({
   tail = [],
   author = null,
   recentReviews = [],
+  requested = [],
 }) {
   return {
     number,
@@ -287,7 +290,13 @@ function prNode({
     author: author ? { login: author } : null,
     repository: { nameWithOwner: repo },
     labels: { nodes: labels.map((name) => ({ name })) },
-    reviewRequests: { totalCount: reviewRequestCount },
+    reviewRequests: {
+      totalCount: reviewRequestCount,
+      nodes: requested.map(([login, name]) => ({ requestedReviewer: { __typename: 'User', login, name } })),
+    },
+    reviewRequestedEvents: {
+      nodes: requested.map(([login, , createdAt]) => ({ createdAt, requestedReviewer: { __typename: 'User', login } })),
+    },
     latestOpinionatedReviews: {
       nodes: reviews.map(([reviewState, login]) => ({ state: reviewState, author: { login } })),
     },
@@ -721,4 +730,65 @@ test('an unaddressed comment puts the PR in Action needed with a link', () => {
   }]);
   // Advisory: you may read it and ship anyway.
   assert.equal(row.plan.canShip, true);
+});
+
+test('normalizePullRequest keeps pending user reviewers with when they were asked and last spoke', () => {
+  const node = prNode({
+    number: 950,
+    requested: [['malfet', 'Nikita Shulga', '2026-09-20T00:00:00Z']],
+    tail: [{ author: { login: 'malfet' }, body: 'looking', createdAt: '2026-09-25T00:00:00Z' }],
+  });
+  // A re-request is a fresh ask; a team can't be DMed.
+  node.reviewRequestedEvents.nodes.unshift({ createdAt: '2026-09-01T00:00:00Z', requestedReviewer: { __typename: 'User', login: 'malfet' } });
+  node.reviewRequests.nodes.push({ requestedReviewer: { __typename: 'Team', slug: 'core' } });
+  assert.deepEqual(normalizePullRequest(node, { nowMs: NOW }).requestedReviewers, [{
+    login: 'malfet',
+    name: 'Nikita Shulga',
+    requestedAt: '2026-09-20T00:00:00Z',
+    lastHeardAt: '2026-09-25T00:00:00Z',
+  }]);
+});
+
+test('getReviewerPings rings once a requested reviewer has been silent for a week', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const ago = (days) => new Date(NOW - days * DAY).toISOString();
+  const pings = (target, options = {}) => {
+    const sections = buildShipSections([target], { nowMs: NOW, ...options });
+    const row = [...sections.review, ...sections.action][0].rows[0];
+    return row.ping && {
+      due: row.ping.due,
+      reviewers: row.ping.reviewers.map((r) => `${r.login}:${r.waitingDays}d${r.overdue ? ' overdue' : ''}${r.due ? ' due' : ''}`),
+    };
+  };
+  const waiting = pr({ number: 960, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(9)], ['huydhn', 'Huy', ago(2)]] });
+  assert.deepEqual(pings(waiting), { due: true, reviewers: ['malfet:9d overdue due', 'huydhn:2d'] });
+  // Not a week yet.
+  assert.equal(pings(pr({ number: 961, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(6)]] })), null);
+  // Speaking up on the PR restarts the clock.
+  assert.equal(pings(pr({
+    number: 962,
+    drci: DRCI.green,
+    requested: [['malfet', 'Nikita', ago(9)]],
+    tail: [{ author: { login: 'malfet' }, body: 'will look', createdAt: ago(3) }],
+  })), null);
+  // A ping quiets the bell for a week, then it rings again.
+  const pingKey = getPingKey(waiting, 'malfet');
+  assert.deepEqual(pings(waiting, { pings: { [pingKey]: NOW - 2 * DAY } }), {
+    due: false,
+    reviewers: ['malfet:9d overdue', 'huydhn:2d'],
+  });
+  assert.equal(pings(waiting, { pings: { [pingKey]: NOW - 8 * DAY } }).due, true);
+  // Nothing to nudge once approved, sent back to the author, or landing.
+  for (const options of [{ reviewDecision: 'APPROVED' }, { reviewDecision: 'CHANGES_REQUESTED' }]) {
+    assert.equal(pings(pr({ number: 963, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(9)]], ...options })), null);
+  }
+});
+
+test('buildPingMessage links the PR and says how long it has waited', () => {
+  const target = pr({ number: 970, title: 'Fix [inductor] crash' });
+  assert.equal(
+    buildPingMessage(target, [{ waitingDays: 9 }, { waitingDays: 12 }]),
+    'Hi! Friendly ping on [pytorch/pytorch#970: Fix \\[inductor\\] crash](https://github.com/pytorch/pytorch/pull/970), ' +
+      'which has been waiting on your review for 12 days. Could you take a look when you get a chance?'
+  );
 });

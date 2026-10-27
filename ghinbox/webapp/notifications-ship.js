@@ -33,7 +33,8 @@ fragment ShipPullRequest on PullRequest {
   author { login }
   repository { nameWithOwner }
   labels(first: 30) { nodes { name } }
-  reviewRequests(first: 1) { totalCount }
+  reviewRequests(first: 10) { totalCount nodes { requestedReviewer { __typename ... on User { login name } } } }
+  reviewRequestedEvents: timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 20) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } } } }
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state } } } }
   headComments: comments(first: 10) { nodes { author { login } body createdAt } }
@@ -466,6 +467,37 @@ ${PR_FRAGMENT}`;
             .map((entry) => ({ login: entry.author.login, at: entry.at, url: entry.url }));
     }
 
+    // Pending user reviewers (teams can't be DMed), each with when they were
+    // last asked and when they last spoke on the PR, if in view.
+    function getRequestedReviewers({ reviewRequests, reviewRequestedEvents, comments, reviews }) {
+        const latestBy = (entries) => {
+            const latest = new Map();
+            entries.forEach(({ login, at }) => {
+                if (login && at && String(at) > String(latest.get(login) || '')) {
+                    latest.set(login, at);
+                }
+            });
+            return latest;
+        };
+        const requestedAt = latestBy((reviewRequestedEvents?.nodes || []).filter(Boolean).map((event) => ({
+            login: event.requestedReviewer?.login,
+            at: event.createdAt,
+        })));
+        const heardAt = latestBy([
+            ...comments.map((comment) => ({ login: comment.author?.login, at: comment.createdAt })),
+            ...reviews.map((review) => ({ login: review.author?.login, at: review.submittedAt })),
+        ]);
+        return (reviewRequests?.nodes || [])
+            .map((request) => request?.requestedReviewer)
+            .filter((reviewer) => reviewer?.__typename === 'User' && reviewer.login)
+            .map((reviewer) => ({
+                login: reviewer.login,
+                name: reviewer.name || '',
+                requestedAt: requestedAt.get(reviewer.login) || null,
+                lastHeardAt: heardAt.get(reviewer.login) || null,
+            }));
+    }
+
     function normalizePullRequest(node, { nowMs = Date.now() } = {}) {
         if (!node || !node.number || !node.repository?.nameWithOwner) {
             return null;
@@ -493,6 +525,12 @@ ${PR_FRAGMENT}`;
             reviewDecision: node.reviewDecision || null,
             labels: (node.labels?.nodes || []).map((label) => label?.name).filter(Boolean),
             reviewRequestCount: node.reviewRequests?.totalCount || 0,
+            requestedReviewers: getRequestedReviewers({
+                reviewRequests: node.reviewRequests,
+                reviewRequestedEvents: node.reviewRequestedEvents,
+                comments: tailComments,
+                reviews: (node.recentReviews?.nodes || []).filter(Boolean),
+            }),
             reviews: (node.latestOpinionatedReviews?.nodes || [])
                 .filter(Boolean)
                 .map((review) => ({ state: review.state, login: review.author?.login || '' })),
@@ -876,7 +914,58 @@ ${PR_FRAGMENT}`;
         return null;
     }
 
-    function buildRow(pr, prsByKey) {
+    // A reviewer silent this long since being asked earns a Slack ping, and
+    // a ping quiets the bell for as long again.
+    const PING_AFTER_DAYS = 7;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+
+    function getPingKey(pr, login) {
+        return `${pr.key}|${login}`;
+    }
+
+    // `pings` maps getPingKey() to when we last pinged (local-only: GitHub
+    // has no word for a Slack nudge). Null when nobody is overdue.
+    function getReviewerPings(pr, assessment, { nowMs = Date.now(), pings = {} } = {}) {
+        if (
+            !assessment.waitingOnReview || assessment.merging ||
+            pr.reviewDecision === 'CHANGES_REQUESTED'
+        ) {
+            return null;
+        }
+        const reviewers = (pr.requestedReviewers || []).map((reviewer) => {
+            const sinceMs = Math.max(
+                Date.parse(reviewer.requestedAt || '') || 0,
+                Date.parse(reviewer.lastHeardAt || '') || 0
+            );
+            const waitingDays = sinceMs ? Math.floor((nowMs - sinceMs) / DAY_MS) : null;
+            const pingedAt = pings[getPingKey(pr, reviewer.login)] || null;
+            const overdue = waitingDays !== null && waitingDays >= PING_AFTER_DAYS;
+            const recentlyPinged = Boolean(pingedAt) && pingedAt > sinceMs &&
+                nowMs - pingedAt < PING_AFTER_DAYS * DAY_MS;
+            return {
+                login: reviewer.login,
+                name: reviewer.name,
+                waitingDays,
+                pingedAt,
+                overdue,
+                due: overdue && !recentlyPinged,
+            };
+        });
+        if (!reviewers.some((reviewer) => reviewer.overdue)) {
+            return null;
+        }
+        return { reviewers, due: reviewers.some((reviewer) => reviewer.due) };
+    }
+
+    function buildPingMessage(pr, reviewers) {
+        const days = Math.max(0, ...reviewers.map((reviewer) => reviewer.waitingDays || 0));
+        const title = String(pr.title).replace(/([\[\]])/g, '\\$1');
+        return `Hi! Friendly ping on [${pr.repo}#${pr.number}: ${title}](${pr.url}), ` +
+            `which has been waiting on your review for ${days} ${days === 1 ? 'day' : 'days'}. ` +
+            'Could you take a look when you get a chance?';
+    }
+
+    function buildRow(pr, prsByKey, pingOptions) {
         const assessment = assessPullRequest(pr);
         const plan = planShip(pr, prsByKey);
         const reasons = assessment.blockers
@@ -901,12 +990,13 @@ ${PR_FRAGMENT}`;
             reasons,
             status: getReviewStatus(pr, assessment),
             waiting: needsAction ? null : describeWaiting(pr, assessment, plan),
+            ping: getReviewerPings(pr, assessment, pingOptions),
             needsAction,
             landing,
         };
     }
 
-    function buildShipSections(inputPrs) {
+    function buildShipSections(inputPrs, pingOptions = {}) {
         const prs = resolveStackMerges(inputPrs);
         const prsByKey = new Map(prs.map((pr) => [pr.key, pr]));
         const action = [];
@@ -920,7 +1010,7 @@ ${PR_FRAGMENT}`;
             }
             const isStack = group.length > 1 ||
                 Boolean(visible[0].stack && visible[0].stack.numbers.length > 1);
-            const rows = visible.map((pr) => buildRow(pr, prsByKey));
+            const rows = visible.map((pr) => buildRow(pr, prsByKey, pingOptions));
             // A stack splits by row: a draft at the top must not drag the
             // members waiting on reviewers into "Action needed".
             [
@@ -993,6 +1083,8 @@ ${PR_FRAGMENT}`;
         RECENT_DAYS,
         applyPendingMerges,
         assessPullRequest,
+        PING_AFTER_DAYS,
+        buildPingMessage,
         buildShipSearchGraphql,
         buildShipSearchQuery,
         buildShipSections,
@@ -1002,6 +1094,8 @@ ${PR_FRAGMENT}`;
         getDrCiSectionKind,
         getMergebotState,
         getMissingStackNumbers,
+        getPingKey,
+        getReviewerPings,
         getShipButtonLabel,
         isBlockedBelow,
         findUnaddressedComments,

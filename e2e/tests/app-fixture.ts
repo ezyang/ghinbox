@@ -865,6 +865,27 @@ export async function captureIssueCommentPosts(page: Page) {
   return posts;
 }
 
+/**
+ * Mock the server's Slack endpoints: `users` maps unixname -> real name for
+ * lookups (others 502 like the CLI), and sent DMs are recorded.
+ */
+export async function mockSlack(page: Page, users: Record<string, string>) {
+  const pings: Array<{ to: string; markdown: string }> = [];
+  await page.route('**/api/slack/user?*', (route) => {
+    const user = new URL(route.request().url()).searchParams.get('user') || '';
+    if (!(user in users)) {
+      return fulfillJson(route, { detail: `no Slack user for ${user}` }, 502);
+    }
+    return fulfillJson(route, { user_id: 'U1', unixname: user, real_name: users[user], display_name: users[user] });
+  });
+  await page.route('**/api/slack/ping', (route) => {
+    const body = route.request().postDataJSON();
+    pings.push({ to: body.to, markdown: body.markdown });
+    return fulfillJson(route, { to: body.to, result: { ok: true } });
+  });
+  return pings;
+}
+
 /** Record PATCHes to pull requests (e.g. closing one) as `owner/repo#n`. */
 export async function capturePullRequestPatches(page: Page) {
   const patches: Array<{ target: string; body: Record<string, unknown> }> = [];
