@@ -16,7 +16,7 @@ log = {"args": args, "stdin": sys.stdin.read() if "--markdown=file://-" in args 
 with open(LOG_PATH, "a") as handle:
     handle.write(json.dumps(log) + "\\n")
 if "--user=nobody" in args:
-    print(json.dumps({"status": "error", "message": "no Slack user for nobody"}))
+    print(json.dumps({"status": "error", "message": "no Slack user for nobody"}), file=sys.stderr)
     sys.exit(1)
 if args[:2] == ["slack.user", "describe"]:
     print(json.dumps({"user_id": "U1", "unixname": "nshulga", "real_name": "Nikita Shulga", "display_name": "Nikita"}))

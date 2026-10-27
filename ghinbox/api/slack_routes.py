@@ -44,6 +44,13 @@ def _check_handle(handle: str) -> str:
     return handle
 
 
+def _parse_json(text: str) -> Any:
+    try:
+        return json.loads(text) if text.strip() else None
+    except json.JSONDecodeError:
+        return None
+
+
 async def _run_slack(args: list[str], stdin: str | None = None) -> Any:
     command = [*_slack_command(), *args]
     try:
@@ -69,15 +76,21 @@ async def _run_slack(args: list[str], stdin: str | None = None) -> Any:
         await process.wait()
         raise HTTPException(status_code=504, detail="Slack CLI timed out") from error
     output = stdout.decode(errors="replace").strip()
-    try:
-        parsed = json.loads(output) if output else None
-    except json.JSONDecodeError:
-        parsed = None
-    failed = isinstance(parsed, dict) and parsed.get("status") == "error"
-    if process.returncode != 0 or failed:
+    parsed = _parse_json(output)
+    # The CLI reports errors as {"status": "error", "message": ...}, on
+    # stderr when it exits nonzero.
+    error = next(
+        (
+            reply
+            for reply in (parsed, _parse_json(stderr.decode(errors="replace")))
+            if isinstance(reply, dict) and reply.get("status") == "error"
+        ),
+        None,
+    )
+    if process.returncode != 0 or error:
         detail = (
-            parsed.get("message")
-            if failed and isinstance(parsed, dict)
+            error.get("message")
+            if error
             else (stderr.decode(errors="replace") or output)
         )
         raise HTTPException(
