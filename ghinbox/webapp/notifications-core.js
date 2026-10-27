@@ -104,7 +104,6 @@ const state = {
     profileId: DEFAULT_PROFILE_ID,
     profiles: [],
     notifications: [],
-    trashNotifications: [],
     loading: false,
     // In-flight server sync polls (user-started or already running on load).
     serverSyncPolls: 0,
@@ -594,9 +593,9 @@ async function init() {
     const savedView = localStorage.getItem(VIEW_KEY);
     if (
         savedView &&
-        ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship', 'trash', 'cleaned'].includes(savedView)
+        ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship'].includes(savedView)
     ) {
-        state.view = savedView === 'trash' ? 'cleaned' : savedView;
+        state.view = savedView;
     }
 
     const savedViewOrders = localStorage.getItem(ORDER_BY_VIEW_KEY);
@@ -616,7 +615,6 @@ async function init() {
                 'pr-notifications': savedOrder,
                 'others-prs': savedOrder,
                 'ship': savedOrder,
-                'cleaned': savedOrder,
             };
         }
     }
@@ -1027,7 +1025,6 @@ function makeNotificationClassifier(options = {}) {
 function getFilteringInput() {
     return {
         notifications: state.notifications,
-        trashNotifications: state.trashNotifications,
         view: state.view,
         viewFilters: state.viewFilters,
         orderBy: state.orderBy,
@@ -1081,14 +1078,6 @@ function getNeedsReviewFeedDuplicates(notifications, options = {}) {
     });
 }
 
-function addTrashNotifications(notifications) {
-    const existingIds = new Set(
-        state.trashNotifications.map(notification => notification.id)
-    );
-    const additions = notifications.filter(notification => !existingIds.has(notification.id));
-    state.trashNotifications = state.trashNotifications.concat(additions);
-}
-
 // "N failed: why" for sweep status lines, so a failing clean says why.
 function formatDoneQueueFailures() {
     const failures = doneQueue.failedResults || [];
@@ -1133,7 +1122,6 @@ async function cleanNeedsReviewFeedDuplicates(notifications, syncLabel, options 
     const archivedNotifications = duplicates.filter(notification =>
         successfulIds.has(notification.id)
     );
-    addTrashNotifications(archivedNotifications);
     pushToUndoStack('done', archivedNotifications);
     const failures = formatDoneQueueFailures();
     showStatus(
@@ -1204,7 +1192,6 @@ async function autoMarkTrashNotificationsDone(
     const archivedNotifications = trashNotifications.filter(notification =>
         successfulIds.has(notification.id)
     );
-    addTrashNotifications(archivedNotifications);
     pushToUndoStack('done', archivedNotifications);
     const failures = formatDoneQueueFailures();
     showStatus(

@@ -312,17 +312,6 @@ test.describe('Low-priority cleanup @mutation', () => {
     await expect(page.locator('#view-others-prs .count')).toHaveText('1');
     await page.locator('#view-others-prs').click();
     await expect(page.locator('[data-id="needs-review"]')).toBeVisible();
-    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
-    await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(8);
-    await expect(page.locator('[data-id="closed-issue-bot-cc"]')).toBeVisible();
-    await expect(page.locator('[data-id="commit-mention"]')).toBeVisible();
-    await expect(page.locator('[data-id="my-pr-no-new"]')).toBeVisible();
-    await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
-    await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
-    await expect(page.locator('[data-id="others-approved"]')).toBeVisible();
-    await expect(page.locator('[data-id="others-draft"]')).toBeVisible();
-    await expect(page.locator('[data-id="others-closed"]')).toBeVisible();
 
     expect(archivedIds.sort()).toEqual([
       'closed-issue-bot-cc',
@@ -352,7 +341,6 @@ test.describe('Low-priority cleanup @mutation', () => {
         return Array.isArray(nextStored) ? nextStored.length : -1;
       })
       .toBe(0);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('0');
     await expect(page.locator('.notification-item')).toHaveCount(0);
   });
 
@@ -430,7 +418,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
-    // The resolved merged PR must be swept out of the live set into Cleaned.
+    // The resolved merged PR must be swept out of the live set.
     await expect
       .poll(async () => {
         const stored = await readNotificationsCache(page);
@@ -438,13 +426,7 @@ test.describe('Low-priority cleanup @mutation', () => {
       })
       .toBe(0);
     expect(archivedIds).toEqual(['own-merged-resolved']);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
-    await page.locator('#view-cleaned').click();
-    await expect(page.locator('[data-id="own-merged-resolved"]')).toBeVisible();
-    // The badge must read "Resolved", not "Replies to you", for the old replies.
-    await expect(
-      page.locator('[data-id="own-merged-resolved"] .comment-tag')
-    ).toContainText('Resolved');
+    await expect(page.locator('[data-id="own-merged-resolved"]')).toHaveCount(0);
   });
 
   test('cleans a freshly bot-updated PR whose comments are only fetched during this sync', async ({ page }) => {
@@ -516,7 +498,7 @@ test.describe('Low-priority cleanup @mutation', () => {
       })
       .toBe(0);
     expect(archivedIds).toEqual(['bot-updated-my-pr']);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+    await expect(page.locator('[data-id="bot-updated-my-pr"]')).toHaveCount(0);
   });
 
   test('does not strand a bot-only PR when its first bulk fetch is rate-limited', async ({ page }) => {
@@ -609,7 +591,7 @@ test.describe('Low-priority cleanup @mutation', () => {
       .toBe(0);
     expect(bulkCalls).toBeGreaterThanOrEqual(2);
     expect(archivedIds).toEqual(['bot-updated-my-pr']);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('1');
+    await expect(page.locator('[data-id="bot-updated-my-pr"]')).toHaveCount(0);
   });
 
   test('keeps what the server archived when part of the sweep fails, without sending synthetic rows', async ({ page }) => {
@@ -652,8 +634,7 @@ test.describe('Low-priority cleanup @mutation', () => {
     await page.locator('#repo-input').fill('test/repo');
     await page.locator('#sync-btn').click();
 
-    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
-    expect(requests).toHaveLength(1);
+    await expect.poll(() => requests.length).toBe(1);
     expect(requests[0].filter((id) => id.startsWith('review-request:'))).toEqual([]);
     await expect(page.locator('#view-issues .count')).toHaveText('1');
     await expect(page.locator('[data-id="pr-for-others"]')).toBeVisible();
@@ -701,7 +682,6 @@ test.describe('Low-priority cleanup @mutation', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(9);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('0');
 
     await page.locator('#clean-now-btn').click();
 
@@ -711,12 +691,9 @@ test.describe('Low-priority cleanup @mutation', () => {
         return Array.isArray(stored) ? stored.length : 0;
       })
       .toBe(1);
-    await expect(page.locator('#view-cleaned .count')).toHaveText('8');
-    await page.locator('#view-cleaned').click();
-    await expect(page.locator('.notification-item')).toHaveCount(8);
-    await expect(page.locator('[data-id="closed-issue-bot-cc"]')).toBeVisible();
-    await expect(page.locator('[data-id="commit-mention"]')).toBeVisible();
-    await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toBeVisible();
+    await expect(page.locator('[data-id="closed-issue-bot-cc"]')).toHaveCount(0);
+    await expect(page.locator('[data-id="commit-mention"]')).toHaveCount(0);
+    await expect(page.locator('[data-id="my-pr-own-and-bot"]')).toHaveCount(0);
 
     expect(archivedIds.sort()).toEqual([
       'closed-issue-bot-cc',

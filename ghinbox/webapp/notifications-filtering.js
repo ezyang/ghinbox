@@ -465,7 +465,7 @@
             if (view === 'others-prs') {
                 return isNotificationReviewQueue(notification);
             }
-            if (view === 'cleaned' || view === 'ship') {
+            if (view === 'ship') {
                 return false;
             }
             return true;
@@ -478,7 +478,7 @@
 
             if (isMutedReviewRequest(notification)) {
                 // Synthetic search results have no inbox thread to archive;
-                // real muted threads get swept into Cleaned.
+                // real muted threads get swept (marked done).
                 return !isSyntheticResponsibilityNotification(notification);
             }
 
@@ -702,15 +702,9 @@
     function getFilteredNotifications(input) {
         const classifier = input.classifier || makeClassifier(input);
         const view = input.view || 'issues';
-        let filtered = view === 'cleaned'
-            ? (input.trashNotifications || []).slice()
-            : (input.notifications || []).filter((notification) =>
-                classifier.matchesView(notification, view)
-            );
-
-        if (view === 'cleaned') {
-            return filtered;
-        }
+        let filtered = (input.notifications || []).filter((notification) =>
+            classifier.matchesView(notification, view)
+        );
 
         const filters = input.viewFilters?.[view] || DEFAULT_VIEW_FILTERS[view] || {};
         filtered = applyStateFilter(filtered, filters.state || 'all', classifier);
@@ -770,7 +764,6 @@
             myPrs: 0,
             prNotifications: 0,
             othersPrs: 0,
-            trash: (input.trashNotifications || []).length,
         };
 
         (input.notifications || []).forEach((notif) => {
@@ -794,35 +787,6 @@
     function getSubfilterCounts(input) {
         const classifier = input.classifier || makeClassifier(input);
         const view = input.view || 'issues';
-        const trashNotifications = input.trashNotifications || [];
-        if (view === 'cleaned') {
-            return {
-                state: {
-                    all: trashNotifications.length,
-                    open: 0,
-                    closed: 0,
-                    draft: 0,
-                    done: 0,
-                    needsReview: 0,
-                    approved: 0,
-                },
-                author: { all: 0, committer: 0, ai: 0, external: 0 },
-                verdict: { all: 0, look: 0, skip: 0 },
-                audience: { all: 0, 'for-you': 0, 'for-others': 0 },
-                interest: {
-                    all: trashNotifications.length,
-                    hasNew: 0,
-                    noNew: 0,
-                },
-                bookmark: {
-                    all: trashNotifications.length,
-                    new: 0,
-                    bookmarked: 0,
-                },
-                type: { all: 0, prs: 0, issues: 0 },
-            };
-        }
-
         const notifications = input.notifications || [];
         const viewNotifications = notifications.filter((notification) =>
             classifier.matchesView(notification, view)

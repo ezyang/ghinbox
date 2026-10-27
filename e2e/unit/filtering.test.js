@@ -72,7 +72,6 @@ const baseDeps = {
 function input(overrides = {}) {
   return {
     notifications: fixtures,
-    trashNotifications: [],
     view: 'issues',
     viewFilters: cloneDefaultViewFilters(),
     orderBy: 'recent',
@@ -117,7 +116,6 @@ test('classifies notifications into view counts', () => {
     myPrs: 1,
     prNotifications: 1,
     othersPrs: 7,
-    trash: 0,
   });
 });
 
@@ -385,7 +383,7 @@ test('muted repositories never surface review requests in any view', () => {
       assert.equal(classifier.isNotificationNeedsReview(synthetic), false);
       assert.equal(classifier.isNotificationNeedsReview(inbox), false);
       // Synthetic search results have no inbox thread to archive; real
-      // muted threads are swept into Cleaned.
+      // muted threads are swept (marked done).
       assert.equal(classifier.isTrashNotification(synthetic), false);
       assert.equal(classifier.isTrashNotification(inbox), true);
     });

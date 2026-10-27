@@ -115,9 +115,8 @@
             applied = true;
         }
 
-        const normalizedView = view === 'trash' ? 'cleaned' : view;
-        if (normalizedView && VALID_VIEWS.has(normalizedView)) {
-            localStorage.setItem(STORAGE_KEYS.view, normalizedView);
+        if (view && VALID_VIEWS.has(view)) {
+            localStorage.setItem(STORAGE_KEYS.view, view);
             applied = true;
         }
 
@@ -131,7 +130,7 @@
         VIEW_NAMES.forEach((viewName) => {
             const config = VIEW_QUERY_KEYS[viewName];
             const stateParam = params.get(config.state) ||
-                (viewName === normalizedView ? legacyState : null);
+                (viewName === view ? legacyState : null);
             if (stateParam) {
                 filters[viewName].state = normalizeStateFilter(viewName, stateParam);
                 hasFilterParams = true;
@@ -139,7 +138,7 @@
 
             if (config.author) {
                 const authorParam = params.get(config.author) ||
-                    (viewName === normalizedView ? legacyAuthor : null);
+                    (viewName === view ? legacyAuthor : null);
                 if (authorParam && VALID_AUTHOR.has(authorParam)) {
                     filters[viewName].author = authorParam;
                     hasFilterParams = true;

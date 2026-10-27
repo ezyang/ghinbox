@@ -8,7 +8,6 @@ const FULL_VIEW_COUNTS = {
   myPrs: 2,
   prNotifications: 4,
   othersPrs: 5,
-  trash: 1,
 };
 
 function input(overrides = {}) {
@@ -17,7 +16,6 @@ function input(overrides = {}) {
     viewFilters: cloneDefaultViewFilters(),
     viewCounts: { ...FULL_VIEW_COUNTS },
     notificationCount: 10,
-    trashNotificationCount: 1,
     ...overrides,
   };
 }
@@ -34,16 +32,8 @@ function withFilter(view, filters) {
 
 [
   {
-    name: 'cleaned view with no cleaned notifications',
-    input: input({ view: 'cleaned', trashNotificationCount: 0 }),
-    expected: {
-      title: 'No cleaned notifications',
-      message: 'Cleaned low-priority notifications will appear here until the next sync.',
-    },
-  },
-  {
     name: 'empty repository before any notifications are loaded',
-    input: input({ notificationCount: 0, trashNotificationCount: 0 }),
+    input: input({ notificationCount: 0 }),
     expected: {
       title: 'No notifications',
       message: 'Enter a repository and click Sync to load notifications.',
@@ -82,14 +72,6 @@ function withFilter(view, filters) {
     expected: {
       title: 'No replies',
       message: 'No notifications look like someone is talking to you.',
-    },
-  },
-  {
-    name: 'cleaned view count is empty',
-    input: input({ view: 'cleaned', viewCounts: { ...FULL_VIEW_COUNTS, trash: 0 } }),
-    expected: {
-      title: 'No cleaned notifications',
-      message: 'Cleaned low-priority notifications will appear here until the next sync.',
     },
   },
   {

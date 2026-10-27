@@ -63,7 +63,8 @@ test.describe('Filtering @classification', () => {
       await expect(page.locator('#view-issues')).toContainText('Feed');
       await expect(page.locator('#view-pr-notifications')).toContainText('Replies');
       await expect(page.locator('#view-others-prs')).toContainText('Reviews');
-      await expect(page.locator('#view-cleaned')).toContainText('Cleaned');
+      await expect(page.locator('#view-ship')).toContainText('PRs');
+      await expect(page.locator('#view-cleaned')).toHaveCount(0);
     });
 
     test('Feed tab is active by default', async ({ page }) => {

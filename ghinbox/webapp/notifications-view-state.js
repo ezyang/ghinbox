@@ -21,7 +21,7 @@
         cacheBust: 'ghnotif_cache_bust',
     };
 
-    const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship', 'cleaned'];
+    const VIEW_NAMES = ['issues', 'my-prs', 'pr-notifications', 'others-prs', 'ship'];
     const VALID_VIEWS = new Set(VIEW_NAMES);
     const VALID_ORDERS = new Set(['recent', 'size']);
     const ORDER_OPTIONS = [
@@ -34,7 +34,6 @@
         'pr-notifications': new Set(['all', 'open', 'closed']),
         'others-prs': new Set(['all', 'needs-review', 'approved', 'done']),
         'ship': new Set(['all']),
-        'cleaned': new Set(['all']),
     };
     const VALID_AUTHOR = new Set(['all', 'committer', 'ai', 'external']);
     const VALID_VERDICT = new Set(['all', 'look', 'skip']);
@@ -59,7 +58,6 @@
             interest: 'all',
         },
         'ship': { state: 'all' },
-        'cleaned': { state: 'all' },
     };
 
     const DEFAULT_VIEW_ORDERS = {
@@ -68,7 +66,6 @@
         'pr-notifications': 'recent',
         'others-prs': 'recent',
         'ship': 'recent',
-        'cleaned': 'recent',
     };
 
     const VIEW_QUERY_KEYS = {
@@ -98,7 +95,6 @@
             order: 'others_prs_order',
         },
         'ship': { state: 'ship_state', order: 'ship_order' },
-        'cleaned': { state: 'cleaned_state', order: 'cleaned_order' },
     };
 
     const VIEW_CONFIG = {
@@ -218,13 +214,6 @@
             mobilePrimaryGroup: 'state',
             filterGroups: [],
         },
-        'cleaned': {
-            label: 'Cleaned',
-            showTab: true,
-            countKey: 'trash',
-            mobilePrimaryGroup: 'state',
-            filterGroups: [],
-        },
     };
 
     function normalizeStateFilter(view, stateFilter) {
@@ -320,9 +309,6 @@
     }
 
     function normalizeViewName(view) {
-        if (view === 'trash') {
-            return 'cleaned';
-        }
         return VALID_VIEWS.has(view) ? view : 'issues';
     }
 

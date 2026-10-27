@@ -159,7 +159,7 @@
             }
             const notificationId = item.getAttribute('data-id');
             const notification = state.notifications.find((entry) => entry.id === notificationId);
-            if (!notification || state.view === 'cleaned') {
+            if (!notification) {
                 return;
             }
             const inlineActions = item.querySelector('.notification-actions-inline');

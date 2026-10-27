@@ -99,13 +99,6 @@ test('getMarkDoneTargets falls back to all actionable notifications', () => {
   );
 });
 
-test('getMarkDoneTargets never offers actions in the cleaned view', () => {
-  assert.deepEqual(
-    getMarkDoneTargets({ view: 'cleaned', selectedIds: ['a'], notifications: [notif('a')], canArchive }),
-    { ids: [], label: 'Mark selected as done', show: false }
-  );
-});
-
 test('getUnsubscribeAllTargets requires the approved filter and no selection', () => {
   const notifications = [notif('a'), notif('b')];
   assert.deepEqual(
@@ -115,7 +108,6 @@ test('getUnsubscribeAllTargets requires the approved filter and no selection', (
     { ids: ['a', 'b'], show: true }
   );
   for (const input of [
-    { view: 'cleaned', hasSelection: false, stateFilter: 'approved', notifications },
     { view: 'others-prs', hasSelection: true, stateFilter: 'approved', notifications },
     { view: 'others-prs', hasSelection: false, stateFilter: 'all', notifications },
     { view: 'others-prs', hasSelection: false, stateFilter: 'approved', notifications: [] },

@@ -153,24 +153,24 @@ test.describe('Mobile layout @layout', () => {
   test('shows tab switchers instead of mobile dropdown filters', async ({ page }) => {
     await expect(page.locator('.mobile-filter-row')).toBeHidden();
     await expect(page.locator('.view-tabs')).toBeVisible();
-    await expect(page.locator('#view-cleaned')).toBeVisible();
+    await expect(page.locator('#view-ship')).toBeVisible();
     await expect(page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="state"]')).toBeVisible();
     await expect(page.locator('.subfilter-tabs[data-for-view="issues"][data-subfilter-group="interest"]')).toBeVisible();
     await expect(page.locator('#order-select')).toBeVisible();
     await expect(page.locator('#mobile-select-btn')).toBeVisible();
 
-    const cleanedBox = await page.locator('#view-cleaned').boundingBox();
-    expect(cleanedBox).not.toBeNull();
-    expect(cleanedBox!.x).toBeGreaterThanOrEqual(0);
-    expect(cleanedBox!.x + cleanedBox!.width).toBeLessThanOrEqual(375);
+    const lastTabBox = await page.locator('#view-ship').boundingBox();
+    expect(lastTabBox).not.toBeNull();
+    expect(lastTabBox!.x).toBeGreaterThanOrEqual(0);
+    expect(lastTabBox!.x + lastTabBox!.width).toBeLessThanOrEqual(375);
   });
 
   test('keeps mobile queue tabs on one row and wraps subfilter borders to options', async ({ page }) => {
     const viewTabs = page.locator('.view-tab');
-    await expect(viewTabs).toHaveCount(5);
+    await expect(viewTabs).toHaveCount(4);
 
     const tabBoxes = await Promise.all(
-      ['#view-issues', '#view-pr-notifications', '#view-others-prs', '#view-ship', '#view-cleaned'].map((selector) =>
+      ['#view-issues', '#view-pr-notifications', '#view-others-prs', '#view-ship'].map((selector) =>
         page.locator(selector).boundingBox()
       )
     );

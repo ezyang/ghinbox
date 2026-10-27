@@ -504,7 +504,6 @@ async function handleSync({ allowServer = true } = {}) {
     state.loading = true;
     state.error = null;
     state.notifications = [];
-    state.trashNotifications = [];
     state.selected.clear();
     state.commentQueue = [];
     state.commentQueueKeys.clear();
@@ -867,18 +866,14 @@ function renderNotificationActionButton(action) {
 
 function getNotificationActionAvailability(notif) {
     const canUseNotificationActions =
-        state.view !== 'cleaned' && (
-            typeof hasNotificationHtmlAction !== 'function' ||
-            hasNotificationHtmlAction(notif, 'archive')
-        );
+        typeof hasNotificationHtmlAction !== 'function' ||
+        hasNotificationHtmlAction(notif, 'archive');
     return {
         done: canUseNotificationActions,
         unsubscribe:
-            state.view !== 'cleaned' &&
             typeof hasNotificationHtmlAction === 'function' &&
             hasNotificationHtmlAction(notif, 'unsubscribe'),
-        'remove-reviewer':
-            state.view !== 'cleaned' && notif.subject.type === 'PullRequest',
+        'remove-reviewer': notif.subject.type === 'PullRequest',
     };
 }
 
@@ -1201,7 +1196,6 @@ function render() {
             viewFilters: state.viewFilters,
             viewCounts,
             notificationCount: state.notifications.length,
-            trashNotificationCount: state.trashNotifications.length,
         });
         elements.emptyState.innerHTML = `
             <h3>${emptyMsg.title}</h3>

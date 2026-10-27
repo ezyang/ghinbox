@@ -1231,20 +1231,6 @@ function restoreNotificationsInOrder(notifications) {
     GhinboxUndo.insertByUpdatedAt(state.notifications, notifications);
 }
 
-function removeTrashNotifications(notifications) {
-    const ids = new Set(
-        notifications
-            .map(notification => notification?.id)
-            .filter(Boolean)
-    );
-    if (ids.size === 0 || !Array.isArray(state.trashNotifications)) {
-        return;
-    }
-    state.trashNotifications = state.trashNotifications.filter(
-        notification => !ids.has(notification.id)
-    );
-}
-
 function pushToUndoStack(action, notifications) {
     return GhinboxUndo.pushEntry(state.undoStack, action, notifications, Date.now());
 }
@@ -1343,7 +1329,6 @@ async function handleUndo() {
         }
 
         if (restoredNotifications.length > 0) {
-            removeTrashNotifications(restoredNotifications);
             restoreNotificationsInOrder(restoredNotifications);
             persistNotifications();
             render();

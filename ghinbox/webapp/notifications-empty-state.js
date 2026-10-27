@@ -17,22 +17,13 @@
         'my-prs': 'PR',
         'pr-notifications': 'reply',
         'others-prs': 'review',
-        'cleaned': 'cleaned',
     };
 
     function getEmptyStateMessage(input) {
         const view = input.view;
         const notificationCount = input.notificationCount || 0;
-        const trashNotificationCount = input.trashNotificationCount || 0;
 
-        if (view === 'cleaned' && trashNotificationCount === 0) {
-            return {
-                title: 'No cleaned notifications',
-                message: 'Cleaned low-priority notifications will appear here until the next sync.',
-            };
-        }
-
-        if (notificationCount === 0 && trashNotificationCount === 0) {
+        if (notificationCount === 0) {
             return {
                 title: 'No notifications',
                 message: 'Enter a repository and click Sync to load notifications.',
@@ -71,12 +62,6 @@
                 return {
                     title: 'No replies',
                     message: 'No notifications look like someone is talking to you.',
-                };
-            }
-            if (view === 'cleaned') {
-                return {
-                    title: 'No cleaned notifications',
-                    message: 'Cleaned low-priority notifications will appear here until the next sync.',
                 };
             }
         }

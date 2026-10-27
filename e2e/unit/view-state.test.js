@@ -19,6 +19,8 @@ test('normalizeViewFilters accepts legacy strings and normalizes invalid values'
     },
   });
 
+  assert.equal(filters.cleaned, undefined);
+
   assert.deepEqual(filters.issues, {
     state: 'closed',
     bookmark: 'new',
@@ -36,7 +38,6 @@ test('normalizeViewFilters accepts legacy strings and normalizes invalid values'
     audience: 'for-you',
     interest: 'all',
   });
-  assert.deepEqual(filters.cleaned, { state: 'all' });
 });
 
 test('normalizeViewOrders keeps valid per-view orders and defaults invalid values', () => {
@@ -53,7 +54,6 @@ test('normalizeViewOrders keeps valid per-view orders and defaults invalid value
       'pr-notifications': 'recent',
       'others-prs': 'recent',
       ship: 'recent',
-      cleaned: 'recent',
     }
   );
 });
@@ -68,7 +68,10 @@ test('normalizeStateFilter maps legacy review states and falls back by view', ()
 test('count-key helpers resolve configured view and filter count keys', () => {
   assert.equal(ViewState.getViewCountKey('issues'), 'issues');
   assert.equal(ViewState.getViewCountKey('others-prs'), 'othersPrs');
-  assert.equal(ViewState.getViewCountKey('trash'), 'trash');
+  assert.equal(ViewState.getViewCountKey('ship'), 'ship');
+  // The Cleaned tab is gone; a saved/linked 'cleaned' or 'trash' view falls back to Feed.
+  assert.equal(ViewState.normalizeViewName('cleaned'), 'issues');
+  assert.equal(ViewState.normalizeViewName('trash'), 'issues');
   assert.equal(ViewState.getFilterCountKey('others-prs', 'state', 'needs-review'), 'needsReview');
   assert.equal(ViewState.getFilterCountKey('issues', 'interest', 'has-new'), 'hasNew');
   assert.equal(ViewState.getFilterCountKey('issues', 'state', 'closed'), 'closed');

@@ -443,13 +443,13 @@ export async function disableAutoClean(page: Page) {
   }
 }
 
-export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'ship' | 'cleaned') {
+export function viewTab(page: Page, view: 'issues' | 'pr-notifications' | 'others-prs' | 'ship') {
   return page.locator(`#view-${view}`);
 }
 
 export function subfilterTab(
   page: Page,
-  view: 'issues' | 'pr-notifications' | 'others-prs' | 'cleaned',
+  view: 'issues' | 'pr-notifications' | 'others-prs',
   subfilter: string,
   group?: 'state' | 'author' | 'interest' | 'bookmark' | 'type' | 'audience' | 'verdict'
 ) {

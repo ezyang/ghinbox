@@ -69,13 +69,6 @@
     }
 
     function getMarkDoneTargets({ view, selectedIds, notifications, canArchive }) {
-        if (view === 'cleaned') {
-            return {
-                ids: [],
-                label: 'Mark selected as done',
-                show: false,
-            };
-        }
         const actionableNotifications = notifications.filter(canArchive);
         if (selectedIds.length > 0) {
             const actionableSelected = selectedIds.filter((id) => {
@@ -104,7 +97,7 @@
 
     // Only offered when nothing is selected and the approved filter is active.
     function getUnsubscribeAllTargets({ view, hasSelection, stateFilter, notifications }) {
-        if (view === 'cleaned' || hasSelection) {
+        if (hasSelection) {
             return { ids: [], show: false };
         }
         if (stateFilter === 'approved' && notifications.length > 0) {

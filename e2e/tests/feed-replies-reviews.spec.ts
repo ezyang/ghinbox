@@ -654,10 +654,5 @@ test.describe('Needs review duplicate cleanup @classification @mutation', () => 
     await expect(page.locator('#view-issues .count')).toHaveText('0');
     await expect(page.locator('#view-pr-notifications .count')).toHaveText('0');
     await expect(page.locator('#view-others-prs .count')).toHaveText('2');
-    await expect(page.locator('#view-cleaned .count')).toHaveText('2');
-
-    await page.locator('#view-cleaned').click();
-    await expect(page.locator('[data-id="feed-review-duplicate"]')).toBeVisible();
-    await expect(page.locator('[data-id="reply-review-duplicate"]')).toBeVisible();
   });
 });
