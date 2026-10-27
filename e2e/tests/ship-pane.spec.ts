@@ -407,7 +407,11 @@ test.describe('Ship pane @mutation', () => {
       ],
       stackNodes: {},
     });
-    const pings = await mockSlack(page, { nshulga: 'Nikita Shulga' });
+    const pings = await mockSlack(
+      page,
+      { albandes: 'Alban Desmaison', huydo: 'Huy Do' },
+      { albanD: { unixname: 'albandes', status: 'current' }, malfet: { unixname: 'nshulga', status: 'former' } }
+    );
 
     await viewTab(page, 'ship').click();
     await expect(shipRow(page, 1201).locator('.ship-status-pill')).toHaveText('Needs review');
@@ -422,6 +426,8 @@ test.describe('Ship pane @mutation', () => {
     const reviewer = dialog.locator('.ship-ping-reviewer');
     const handle = dialog.locator('.ship-ping-handle');
     const message = dialog.locator('.ship-ping-message');
+    const resolved = dialog.locator('.ship-ping-resolved');
+    const send = dialog.locator('.ship-ping-send');
     await expect(dialog.locator('.ship-ack-title')).toHaveText('Ping a reviewer of #1200 on Slack');
     await expect(reviewer.locator('option')).toHaveText([
       '@malfet · Nikita Shulga · waiting 10 days',
@@ -429,9 +435,10 @@ test.describe('Ship pane @mutation', () => {
       '@huydhn · Huy Do · waiting 2 days',
     ]);
     await expect(reviewer).toHaveValue('malfet');
-    // The GitHub login is only a guess at the unixname; the lookup says it's wrong.
-    await expect(handle).toHaveValue('malfet');
-    await expect(dialog.locator('.ship-ping-resolved')).toHaveAttribute('data-state', 'missing');
+    // The login maps to a unixname, but that person has left.
+    await expect(handle).toHaveValue('nshulga');
+    await expect(resolved).toHaveText('Former employee; not on Slack');
+    await expect(send).toBeDisabled();
     await expect(message).toHaveValue(
       'Hi! Friendly ping on [pytorch/pytorch#1200: Waiting a while](https://github.com/pytorch/pytorch/pull/1200), ' +
         'which has been waiting on your review for 10 days. Could you take a look when you get a chance?'
@@ -439,28 +446,33 @@ test.describe('Ship pane @mutation', () => {
 
     // Switching reviewers refills the unixname and the untouched message.
     await reviewer.selectOption('albanD');
-    await expect(handle).toHaveValue('alband');
+    await expect(handle).toHaveValue('albandes');
+    await expect(resolved).toHaveText('→ Alban Desmaison');
     await expect(message).toHaveValue(/for 12 days\./);
-    await reviewer.selectOption('malfet');
-    await expect(message).toHaveValue(/for 10 days\./);
+    await expect(send).toBeEnabled();
 
-    await handle.fill('nshulga');
+    // No linked employee: the user types the unixname.
+    await reviewer.selectOption('huydhn');
+    await expect(handle).toHaveValue('');
+    await expect(resolved).toHaveText('No employee linked to @huydhn; enter their unixname');
+    await expect(message).toHaveValue(/for 2 days\./);
+    await handle.fill('huydo');
     await handle.press('Enter');
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('.ship-ping-resolved')).toHaveText('→ Nikita Shulga');
-    await dialog.locator('.ship-ping-send').click();
+    await expect(resolved).toHaveText('→ Huy Do');
+    await send.click();
     await expect(dialog).toBeHidden();
     expect(pings).toEqual([{
-      to: 'nshulga',
-      markdown: expect.stringContaining('waiting on your review for 10 days'),
+      to: 'huydo',
+      markdown: expect.stringContaining('waiting on your review for 2 days'),
     }]);
 
-    // One ping quiets the bell; the unixname is remembered.
+    // One ping quiets the bell; the typed unixname is remembered.
     await expect(bell).toHaveAttribute('data-due', 'false');
     await bell.click();
-    await expect(reviewer).toHaveValue('albanD');
-    await reviewer.selectOption('malfet');
-    await expect(handle).toHaveValue('nshulga');
-    await expect(reviewer.locator('option[value="malfet"]')).toContainText('pinged');
+    await expect(reviewer).toHaveValue('malfet');
+    await reviewer.selectOption('huydhn');
+    await expect(handle).toHaveValue('huydo');
+    await expect(reviewer.locator('option[value="huydhn"]')).toContainText('pinged');
   });
 });

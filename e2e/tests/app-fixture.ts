@@ -869,8 +869,24 @@ export async function captureIssueCommentPosts(page: Page) {
  * Mock the server's Slack endpoints: `users` maps unixname -> real name for
  * lookups (others 502 like the CLI), and sent DMs are recorded.
  */
-export async function mockSlack(page: Page, users: Record<string, string>) {
+/**
+ * Mock the Slack routes: `users` maps unixname -> real name, `employees`
+ * maps GitHub login -> linked employee (others 404).
+ */
+export async function mockSlack(
+  page: Page,
+  users: Record<string, string>,
+  employees: Record<string, { unixname: string; status: 'current' | 'former' }> = {}
+) {
   const pings: Array<{ to: string; markdown: string }> = [];
+  await page.route('**/api/slack/github-user?*', (route) => {
+    const login = new URL(route.request().url()).searchParams.get('login') || '';
+    const employee = employees[login];
+    if (!employee) {
+      return fulfillJson(route, { detail: `No Meta employee is linked to @${login}` }, 404);
+    }
+    return fulfillJson(route, { login, name: users[employee.unixname] || null, github_username: login, ...employee });
+  });
   await page.route('**/api/slack/user?*', (route) => {
     const user = new URL(route.request().url()).searchParams.get('user') || '';
     if (!(user in users)) {

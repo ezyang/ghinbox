@@ -38,6 +38,8 @@
     let pingSending = false;
     // Slack unixname -> { state: 'loading' | 'ok' | 'missing', text, detail }.
     const slackLookups = new Map();
+    // GitHub login -> { state: loading|ok|missing, unixname, status, detail }.
+    const employeeLookups = new Map();
 
     function bumpVersion() {
         state.ship.version += 1;
@@ -500,7 +502,8 @@
     // Shows whose DM a unixname opens, since GitHub logins often differ.
     async function lookUpSlackUser(handle) {
         // A failed lookup is retried; it may have been a CLI hiccup.
-        if (!handle || ['loading', 'ok'].includes(slackLookups.get(handle)?.state)) {
+        const known = slackLookups.get(handle);
+        if (!handle || known?.final || ['loading', 'ok'].includes(known?.state)) {
             return;
         }
         slackLookups.set(handle, { state: 'loading', text: 'Looking up…' });
@@ -518,12 +521,59 @@
         renderPingResolved();
     }
 
+    // Finds the unixname linked to a GitHub login, then fills it in if the
+    // user is still on that reviewer and hasn't typed one.
+    async function resolveEmployee(login) {
+        if (['loading', 'ok'].includes(employeeLookups.get(login)?.state)) {
+            return;
+        }
+        employeeLookups.set(login, { state: 'loading' });
+        renderPingResolved();
+        try {
+            const employee = await fetchJson(`/api/slack/github-user?login=${encodeURIComponent(login)}`);
+            employeeLookups.set(login, { state: 'ok', unixname: employee.unixname, status: employee.status });
+        } catch (error) {
+            employeeLookups.set(login, { state: 'missing', detail: String(error.message || error) });
+        }
+        if (pingDialog.open && getPingReviewer()?.login === login && !getPingHandle()) {
+            fillPingHandle(login, { resolve: false });
+        } else {
+            renderPingResolved();
+        }
+    }
+
+    function fillPingHandle(login, { resolve = true } = {}) {
+        const remembered = readJson(SLACK_HANDLES_KEY)[login];
+        const employee = employeeLookups.get(login);
+        const handle = remembered || (employee?.state === 'ok' ? employee.unixname : '');
+        pingDialog.querySelector('.ship-ping-handle').value = handle;
+        if (!remembered && employee?.state === 'ok' && employee.status === 'former') {
+            slackLookups.set(handle, { state: 'missing', text: 'Former employee; not on Slack', final: true });
+        }
+        renderPingResolved();
+        if (handle) {
+            lookUpSlackUser(handle);
+        } else if (resolve) {
+            resolveEmployee(login);
+        }
+        updatePingSend();
+    }
+
     function getPingHandle() {
         return pingDialog.querySelector('.ship-ping-handle').value.trim();
     }
 
     function renderPingResolved() {
-        pingDialog.querySelector('.ship-ping-lookup').innerHTML = renderSlackLookup(getPingHandle());
+        const handle = getPingHandle();
+        const login = getPingReviewer()?.login;
+        const employee = login && employeeLookups.get(login);
+        let html = renderSlackLookup(handle);
+        if (!handle && employee?.state === 'loading') {
+            html = '<span class="ship-ping-resolved" data-state="loading">Finding their unixname…</span>';
+        } else if (!handle && employee?.state === 'missing') {
+            html = `<span class="ship-ping-resolved" data-state="missing" title="${escapeHtml(employee.detail)}">No employee linked to @${escapeHtml(login)}; enter their unixname</span>`;
+        }
+        pingDialog.querySelector('.ship-ping-lookup').innerHTML = html;
     }
 
     function getPingReviewer() {
@@ -535,6 +585,7 @@
     function updatePingSend() {
         const send = pingDialog.querySelector('.ship-ping-send');
         send.disabled = pingSending || !getPingReviewer() || !getPingHandle() ||
+            Boolean(slackLookups.get(getPingHandle())?.final) ||
             !pingDialog.querySelector('.ship-ping-message').value.trim();
         send.textContent = pingSending ? 'Sending…' : 'Send';
     }
@@ -558,17 +609,12 @@
         if (!row || !reviewer) {
             return;
         }
-        const handles = readJson(SLACK_HANDLES_KEY);
-        pingDialog.querySelector('.ship-ping-handle').value =
-            handles[reviewer.login] || reviewer.login.toLowerCase();
         const message = pingDialog.querySelector('.ship-ping-message');
         if (!message.value || message.value === message.dataset.generated) {
             message.value = GhinboxShip.buildPingMessage(row.pr, reviewer);
             message.dataset.generated = message.value;
         }
-        renderPingResolved();
-        lookUpSlackUser(getPingHandle());
-        updatePingSend();
+        fillPingHandle(reviewer.login);
     }
 
     function openPingDialog(row) {
