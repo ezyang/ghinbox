@@ -276,6 +276,7 @@ function prNode({
   author = null,
   recentReviews = [],
   requested = [],
+  nativeStack = null,
 }) {
   return {
     number,
@@ -308,6 +309,11 @@ function prNode({
     headComments: { nodes: drci ? [comment('pytorch-bot', drci, '2026-10-08T00:10:00Z')] : [] },
     tailComments: { nodes: tail },
     recentReviews: { nodes: recentReviews },
+    // GitHub-native stack members, bottom first (as positions 1, 2, ...).
+    stack: nativeStack && {
+      baseRefName: 'main',
+      entries: { nodes: nativeStack.map((entry, index) => ({ position: index + 1, pullRequest: { number: entry } })) },
+    },
   };
 }
 
@@ -405,6 +411,49 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
   assert.deepEqual(planShip(make(103), byKey([make(103), draftBelow, merged])).blockedBy, [
     { number: 102, why: 'draft', landingWith: null },
   ]);
+});
+
+// pytorch#201375: stacked natively on GitHub (base branch = the head branch
+// of #201374), no ghstack body. Mergebot lands the open PRs below with it,
+// and the bottom PR it already landed is closed with a Merged label.
+test('planShip reads GitHub-native stacks, counting mergebot-landed PRs as merged', () => {
+  const nativeStack = [201373, 201374, 201375, 201380];
+  const make = (number, options = {}) => pr({
+    number,
+    nativeStack,
+    reviewDecision: 'APPROVED',
+    drci: DRCI.green,
+    ...options,
+  });
+  const landed = make(201373, { state: 'CLOSED', labels: ['Merged', 'topic: not user facing'] });
+  const awaiting = make(201374, { reviewDecision: null });
+  const top = make(201375);
+  const above = make(201380);
+  assert.deepEqual(top.stack, { numbers: [201380, 201375, 201374, 201373], current: 201375 });
+  assert.equal(landed.merged, true);
+
+  assert.deepEqual(planShip(top, byKey([landed, awaiting, top, above])), {
+    canShip: false,
+    reason: 'blocked-below',
+    blockedBy: [{ number: 201374, why: 'awaiting review', landingWith: null }],
+  });
+  const ready = planShip(top, byKey([landed, make(201374), top, above]));
+  assert.deepEqual(ready.prNumbers, [201375, 201374]);
+  assert.equal(getShipButtonLabel(ready), 'Ship Stacked (2 PRs)');
+
+  // Closed without the Merged label never landed: nothing above can land.
+  const abandoned = make(201373, { state: 'CLOSED' });
+  assert.deepEqual(planShip(make(201374), byKey([abandoned, make(201374)])).blockedBy, [
+    { number: 201373, why: 'closed without merging', landingWith: null },
+  ]);
+
+  const sections = buildShipSections([landed, awaiting, top, above]);
+  assert.equal(sections.action.length, 0);
+  assert.equal(sections.review.length, 1);
+  const group = sections.review[0];
+  assert.equal(group.isStack, true);
+  assert.deepEqual(group.rows.map((row) => row.pr.number), [201380, 201375, 201374]);
+  assert.equal(group.rows[1].waiting, 'Waiting on #201374 (awaiting review)');
 });
 
 test('planShip collects blocking failures across the sub-stack for acknowledgement', () => {

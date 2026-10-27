@@ -1,5 +1,5 @@
 // Ship pane: the viewer's open PRs, live from GitHub, split into "Action
-// needed", "Landing" and "Review requested", grouped by ghstack stack. Ship It
+// needed", "Landing" and "Review requested", grouped by stack. Ship It
 // posts the mergebot command as a PR comment (GitHub is the database);
 // blocking Dr. CI failures must each be acknowledged before a `merge -i` goes
 // out. The per-row "…" menu holds destructive actions (Abandon closes the PR);

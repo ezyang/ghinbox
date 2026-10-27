@@ -1,5 +1,5 @@
 // Pure decisions for the Ship pane: the user's open PRs split into "Action
-// needed" and "Review requested", grouped by ghstack stack, with CI status
+// needed" and "Review requested", grouped by stack, with CI status
 // read through Dr. CI and a Ship It plan that posts `@pytorchbot merge`.
 (function (root, factory) {
     const api = factory();
@@ -40,6 +40,7 @@ fragment ShipPullRequest on PullRequest {
   headComments: comments(first: 10) { nodes { author { login } body createdAt } }
   tailComments: comments(last: 8) { nodes { author { __typename login } body createdAt url } }
   recentReviews: reviews(last: 10) { nodes { author { __typename login } state body submittedAt url comments { totalCount } } }
+  stack { entries(first: 100) { nodes { position pullRequest { number } } } }
 }`;
 
     function formatSearchDate(ms) {
@@ -305,6 +306,16 @@ ${PR_FRAGMENT}`;
         return numbers.length ? { numbers, current } : null;
     }
 
+    // A GitHub-native stack (PRs based on each other's head branches), in
+    // the ghstack shape: newest first. Mergebot lands these like ghstack.
+    function parseNativeStack(stack, number) {
+        const numbers = (stack?.entries?.nodes || [])
+            .filter((entry) => entry?.pullRequest?.number)
+            .sort((a, b) => b.position - a.position)
+            .map((entry) => entry.pullRequest.number);
+        return numbers.includes(number) ? { numbers, current: number } : null;
+    }
+
     function parseMergeFailureReason(body) {
         const reason = normalizeText(body).match(/\*\*Reason\*\*:\s*(.+)/);
         if (!reason) {
@@ -513,6 +524,7 @@ ${PR_FRAGMENT}`;
         );
         const drci = parseDrCiComment(drciComment?.body);
         const headSha = commit?.oid || null;
+        const labels = (node.labels?.nodes || []).map((label) => label?.name).filter(Boolean);
         return {
             key: `${repo}#${node.number}`,
             repo,
@@ -520,12 +532,14 @@ ${PR_FRAGMENT}`;
             title: node.title || '',
             url: node.url || `https://github.com/${repo}/pull/${node.number}`,
             state: node.state || 'OPEN',
-            merged: Boolean(node.merged),
+            // Mergebot lands by pushing to main, then closes with this label.
+            merged: Boolean(node.merged) ||
+                (node.state === 'CLOSED' && labels.includes('Merged')),
             isDraft: Boolean(node.isDraft),
             updatedAt: node.updatedAt || null,
             mergeable: node.mergeable || 'UNKNOWN',
             reviewDecision: node.reviewDecision || null,
-            labels: (node.labels?.nodes || []).map((label) => label?.name).filter(Boolean),
+            labels,
             reviewRequestCount: node.reviewRequests?.totalCount || 0,
             requestedReviewers: getRequestedReviewers({
                 reviewRequests: node.reviewRequests,
@@ -554,7 +568,7 @@ ${PR_FRAGMENT}`;
                 headCommittedAt: commit?.committedDate || null,
                 nowMs,
             }),
-            stack: parseGhstackStack(node.body),
+            stack: parseGhstackStack(node.body) || parseNativeStack(node.stack, node.number),
             usesMergebot: Boolean(drci) || MERGEBOT_REPOS.has(repo),
         };
     }
@@ -1150,6 +1164,7 @@ ${PR_FRAGMENT}`;
         normalizePullRequest,
         parseDrCiComment,
         parseGhstackStack,
+        parseNativeStack,
         planShip,
         resolveStackMerges,
         summarizeCi,
