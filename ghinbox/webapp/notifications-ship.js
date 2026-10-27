@@ -1009,6 +1009,38 @@ ${PR_FRAGMENT}`;
         };
     }
 
+    // A PR that can't land holds up every open PR above it in its stack.
+    // Worth flagging when approved work is stuck behind it, or a lot of it.
+    const BLOCKING_MANY = 3;
+
+    function annotateBlocking(rows) {
+        const byNumber = new Map(rows.map((row) => [row.pr.number, row]));
+        return rows.map((row) => {
+            const stack = row.pr.stack;
+            if (!stack || row.assessment.ready || row.landing) {
+                return { ...row, blocking: null };
+            }
+            const above = stack.numbers
+                .slice(0, Math.max(0, stack.numbers.indexOf(row.pr.number)))
+                .map((number) => byNumber.get(number))
+                .filter((upper) => upper && !upper.landing);
+            const approved = above.filter((upper) => upper.assessment.approved).length;
+            const blocking = approved > 0 || above.length >= BLOCKING_MANY
+                ? { above: above.length, approved }
+                : null;
+            return { ...row, blocking };
+        });
+    }
+
+    function describeBlocking(blocking) {
+        const prs = (count, adjective = '') => `${count} ${adjective}${count === 1 ? 'PR' : 'PRs'}`;
+        if (blocking.approved === blocking.above) {
+            return `Blocking ${prs(blocking.above, 'approved ')} above`;
+        }
+        return `Blocking ${prs(blocking.above)} above` +
+            (blocking.approved ? ` (${blocking.approved} approved)` : '');
+    }
+
     function buildShipSections(inputPrs, pingOptions = {}) {
         const prs = resolveStackMerges(inputPrs);
         const prsByKey = new Map(prs.map((pr) => [pr.key, pr]));
@@ -1023,7 +1055,7 @@ ${PR_FRAGMENT}`;
             }
             const isStack = group.length > 1 ||
                 Boolean(visible[0].stack && visible[0].stack.numbers.length > 1);
-            const rows = visible.map((pr) => buildRow(pr, prsByKey, pingOptions));
+            const rows = annotateBlocking(visible.map((pr) => buildRow(pr, prsByKey, pingOptions)));
             // A stack splits by row: a draft at the top must not drag the
             // members waiting on reviewers into "Action needed".
             [
@@ -1102,6 +1134,7 @@ ${PR_FRAGMENT}`;
         buildShipSearchQuery,
         buildShipSections,
         buildStackLookupGraphql,
+        describeBlocking,
         describeCi,
         describeUnrelated,
         getDrCiSectionKind,

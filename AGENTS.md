@@ -145,6 +145,8 @@
   destructive actions (Abandon = close the PR). A human comment or
   commented review newer than both the head commit and the author's own last
   comment/review is an "Unaddressed comment" (Action needed, advisory). A
+  stack member that can't land yet is marked "Blocking N PRs above" when any
+  approved PR waits above it (orange) or 3+ PRs do. A
   requested user reviewer silent for 7+ days (no comment/review since the
   latest request) gets a bell on the row; its dialog DMs one of them
   (dropdown, preferring reviewers not auto-requested via CODEOWNERS) on

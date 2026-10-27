@@ -794,6 +794,20 @@
             margin-top: 12px;
         }
 
+        /* A stack member holding up PRs above it, loudest when they're approved. */
+        .ship-blocking {
+            padding: 0 6px;
+            border-radius: 999px;
+            box-shadow: inset 0 0 0 1px var(--color-border-default);
+            font-weight: 600;
+        }
+
+        .ship-blocking[data-approved="true"] {
+            background-color: color-mix(in srgb, #bc4c00 14%, transparent);
+            box-shadow: none;
+            color: #bc4c00;
+        }
+
         .ship-ping-btn {
             flex-shrink: 0;
             display: inline-flex;

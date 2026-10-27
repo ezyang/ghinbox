@@ -256,7 +256,11 @@
 
     function renderRow(row) {
         const { pr } = row;
+        const blocking = row.blocking
+            ? `<span class="ship-blocking" data-approved="${row.blocking.approved > 0}" title="These can't land until #${pr.number} does">${escapeHtml(GhinboxShip.describeBlocking(row.blocking))}</span>`
+            : '';
         const notes = [
+            blocking,
             ...row.reasons.map((reason) => reason.url
                 ? `<a class="ship-reason" data-severity="${reason.severity}" href="${escapeHtml(reason.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reason.label)}</a>`
                 : `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),

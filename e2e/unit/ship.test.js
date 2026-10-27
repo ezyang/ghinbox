@@ -12,6 +12,7 @@ const {
   describeCi,
   describeUnrelated,
   buildStackLookupGraphql,
+  describeBlocking,
   getMergebotState,
   getMissingStackNumbers,
   getPingKey,
@@ -807,4 +808,37 @@ test('buildPingMessage links the PR and says how long it has waited', () => {
     'Hi! Friendly ping on [pytorch/pytorch#970: Fix \\[inductor\\] crash](https://github.com/pytorch/pytorch/pull/970), ' +
       'which has been waiting on your review for 12 days. Could you take a look when you get a chance?'
   );
+});
+
+test('a stack member that cannot land is flagged when approved or many PRs wait above it', () => {
+  const blockingOf = (prs) => {
+    const sections = buildShipSections(prs, { nowMs: NOW });
+    const rows = [...sections.action, ...sections.review, ...sections.landing].flatMap((group) => group.rows);
+    return Object.fromEntries(rows.map((row) => [row.pr.number, row.blocking && describeBlocking(row.blocking)]));
+  };
+  const stack = (numbers, approved) => numbers.map((number) => pr({
+    number,
+    drci: DRCI.green,
+    body: stackBody(numbers, number),
+    reviewDecision: approved.includes(number) ? 'APPROVED' : null,
+  }));
+  // 102 awaits review under two approved PRs; the ready bottom blocks nothing.
+  assert.deepEqual(blockingOf(stack([104, 103, 102, 101], [104, 103, 101])), {
+    104: null,
+    103: null,
+    102: 'Blocking 2 approved PRs above',
+    101: null,
+  });
+  assert.deepEqual(blockingOf(stack([203, 202, 201], [203])), {
+    203: null,
+    202: 'Blocking 1 approved PR above',
+    201: 'Blocking 2 PRs above (1 approved)',
+  });
+  // Nothing approved: only a tall pile above is worth a flag.
+  assert.deepEqual(blockingOf(stack([304, 303, 302, 301], [])), {
+    304: null,
+    303: null,
+    302: null,
+    301: 'Blocking 3 PRs above',
+  });
 });

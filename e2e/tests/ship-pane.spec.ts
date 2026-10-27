@@ -198,6 +198,12 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 503).locator('.ship-status-pill')).toHaveText('Approved');
     await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review)');
     await expect(shipRow(page, 502).locator('.ship-it-btn')).toHaveCount(0);
+    // 502 awaits review under approved 503: flagged as the stack's bottleneck.
+    const blocking = shipRow(page, 502).locator('.ship-blocking');
+    await expect(blocking).toHaveText('Blocking 1 approved PR above');
+    await expect(blocking).toHaveAttribute('data-approved', 'true');
+    await expect(blocking).toHaveCSS('color', 'rgb(188, 76, 0)');
+    await expect(shipRow(page, 503).locator('.ship-blocking')).toHaveCount(0);
     await expect(shipRow(page, 501).locator('.ship-ci')).toHaveText('1 blocking failure');
     await expect(shipRow(page, 501).locator('.ship-it-btn')).toHaveText('Ship It (1 error)');
     await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveText('Changes requested');
