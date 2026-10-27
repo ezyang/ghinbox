@@ -811,32 +811,23 @@
             fill: currentColor;
         }
 
-        .ship-ping-list {
-            list-style: none;
-            margin: 0 0 12px 0;
-            padding: 0;
-        }
-
         .ship-ping-reviewer {
-            margin-bottom: 8px;
+            box-sizing: border-box;
+            width: 100%;
+            padding: 4px 6px;
+            font: inherit;
         }
 
-        .ship-ping-reviewer label {
-            font-weight: 600;
-        }
-
-        .ship-ping-meta,
         .ship-ping-resolved {
             color: var(--color-fg-muted);
             font-size: 12px;
-            font-weight: normal;
         }
 
         .ship-ping-handle-row {
             display: flex;
             align-items: center;
             gap: 6px;
-            margin: 4px 0 0 24px;
+            margin: 8px 0 12px 0;
             font-size: 12px;
         }
 
@@ -851,7 +842,7 @@
             color: var(--color-danger-fg);
         }
 
-        .ship-ping-message-label {
+        .ship-ping-label {
             display: block;
             margin-bottom: 4px;
             font-weight: 600;

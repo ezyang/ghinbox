@@ -47,7 +47,7 @@ function prNode({
   drciComment?: string | null;
   tail?: Array<{ author: { login: string }; body: string; createdAt: string; url?: string }>;
   author?: string;
-  requested?: Array<{ login: string; name: string; at: string }>;
+  requested?: Array<{ login: string; name: string; at: string; codeOwner?: boolean }>;
 }) {
   return {
     number,
@@ -65,7 +65,10 @@ function prNode({
     labels: { nodes: [{ name: 'topic: not user facing' }] },
     reviewRequests: {
       totalCount: Math.max(1, requested.length),
-      nodes: requested.map(({ login, name }) => ({ requestedReviewer: { __typename: 'User', login, name } })),
+      nodes: requested.map(({ login, name, codeOwner = false }) => ({
+        asCodeOwner: codeOwner,
+        requestedReviewer: { __typename: 'User', login, name },
+      })),
     },
     reviewRequestedEvents: {
       nodes: requested.map(({ login, at }) => ({ createdAt: at, requestedReviewer: { __typename: 'User', login } })),
@@ -372,7 +375,7 @@ test.describe('Ship pane @mutation', () => {
     expect(posts).toEqual([]);
   });
 
-  test('a bell pings reviewers silent for a week on Slack', async ({ page }) => {
+  test('a bell pings one reviewer silent for a week on Slack, preferring non-code-owners', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     await mockShipGraphql(page, {
@@ -383,6 +386,7 @@ test.describe('Ship pane @mutation', () => {
           updatedAt: '2026-10-08T10:00:00Z',
           drciComment: drci('drci-no-failures'),
           requested: [
+            { login: 'albanD', name: 'Alban Desmaison', at: daysAgo(12), codeOwner: true },
             { login: 'malfet', name: 'Nikita Shulga', at: daysAgo(10) },
             { login: 'huydhn', name: 'Huy Do', at: daysAgo(2) },
           ],
@@ -404,42 +408,53 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 1201).locator('.ship-ping-btn')).toHaveCount(0);
     const bell = shipRow(page, 1200).locator('.ship-ping-btn');
     await expect(bell).toHaveAttribute('data-due', 'true');
+    // The author's pick beats the CODEOWNERS auto-request that waited longer.
     await expect(bell).toHaveAttribute('title', 'Ping @malfet on Slack (waiting 10 days)');
     await bell.click();
 
-    // Only the overdue reviewer is preselected; the GitHub login is a guess
-    // at the unixname, and the lookup shows it is wrong.
     const dialog = page.locator('#ship-ping-dialog');
-    await expect(dialog.locator('.ship-ack-title')).toHaveText('Ping reviewers of #1200 on Slack');
-    const malfet = dialog.locator('.ship-ping-reviewer[data-login="malfet"]');
-    const huydhn = dialog.locator('.ship-ping-reviewer[data-login="huydhn"]');
-    await expect(malfet.locator('.ship-ping-check')).toBeChecked();
-    await expect(huydhn.locator('.ship-ping-check')).not.toBeChecked();
-    await expect(malfet.locator('.ship-ping-meta')).toHaveText('Nikita Shulga · waiting 10 days');
-    await expect(malfet.locator('.ship-ping-resolved')).toHaveAttribute('data-state', 'missing');
-    await expect(dialog.locator('.ship-ping-message')).toHaveValue(
+    const reviewer = dialog.locator('.ship-ping-reviewer');
+    const handle = dialog.locator('.ship-ping-handle');
+    const message = dialog.locator('.ship-ping-message');
+    await expect(dialog.locator('.ship-ack-title')).toHaveText('Ping a reviewer of #1200 on Slack');
+    await expect(reviewer.locator('option')).toHaveText([
+      '@malfet · Nikita Shulga · waiting 10 days',
+      '@albanD · Alban Desmaison · waiting 12 days · code owner',
+      '@huydhn · Huy Do · waiting 2 days',
+    ]);
+    await expect(reviewer).toHaveValue('malfet');
+    // The GitHub login is only a guess at the unixname; the lookup says it's wrong.
+    await expect(handle).toHaveValue('malfet');
+    await expect(dialog.locator('.ship-ping-resolved')).toHaveAttribute('data-state', 'missing');
+    await expect(message).toHaveValue(
       'Hi! Friendly ping on [pytorch/pytorch#1200: Waiting a while](https://github.com/pytorch/pytorch/pull/1200), ' +
         'which has been waiting on your review for 10 days. Could you take a look when you get a chance?'
     );
 
-    const handle = malfet.locator('.ship-ping-handle');
+    // Switching reviewers refills the unixname and the untouched message.
+    await reviewer.selectOption('albanD');
+    await expect(handle).toHaveValue('alband');
+    await expect(message).toHaveValue(/for 12 days\./);
+    await reviewer.selectOption('malfet');
+    await expect(message).toHaveValue(/for 10 days\./);
+
     await handle.fill('nshulga');
     await handle.press('Enter');
     await expect(dialog).toBeVisible();
-    await expect(malfet.locator('.ship-ping-resolved')).toHaveText('→ Nikita Shulga');
+    await expect(dialog.locator('.ship-ping-resolved')).toHaveText('→ Nikita Shulga');
     await dialog.locator('.ship-ping-send').click();
     await expect(dialog).toBeHidden();
     expect(pings).toEqual([{
       to: 'nshulga',
-      markdown: expect.stringContaining('[pytorch/pytorch#1200: Waiting a while]'),
+      markdown: expect.stringContaining('waiting on your review for 10 days'),
     }]);
 
-    // Pinged: the bell quiets, and the unixname is remembered.
+    // One ping quiets the bell; the unixname is remembered.
     await expect(bell).toHaveAttribute('data-due', 'false');
     await bell.click();
-    await expect(malfet.locator('.ship-ping-check')).not.toBeChecked();
-    await expect(malfet.locator('.ship-ping-handle')).toHaveValue('nshulga');
-    await expect(malfet.locator('.ship-ping-meta')).toContainText('pinged');
-    await expect(dialog.locator('.ship-ping-send')).toBeDisabled();
+    await expect(reviewer).toHaveValue('albanD');
+    await reviewer.selectOption('malfet');
+    await expect(handle).toHaveValue('nshulga');
+    await expect(reviewer.locator('option[value="malfet"]')).toContainText('pinged');
   });
 });

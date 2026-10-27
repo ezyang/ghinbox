@@ -33,7 +33,7 @@ fragment ShipPullRequest on PullRequest {
   author { login }
   repository { nameWithOwner }
   labels(first: 30) { nodes { name } }
-  reviewRequests(first: 10) { totalCount nodes { requestedReviewer { __typename ... on User { login name } } } }
+  reviewRequests(first: 10) { totalCount nodes { asCodeOwner requestedReviewer { __typename ... on User { login name } } } }
   reviewRequestedEvents: timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 20) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } } } }
   latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state } } } }
@@ -488,11 +488,13 @@ ${PR_FRAGMENT}`;
             ...reviews.map((review) => ({ login: review.author?.login, at: review.submittedAt })),
         ]);
         return (reviewRequests?.nodes || [])
-            .map((request) => request?.requestedReviewer)
-            .filter((reviewer) => reviewer?.__typename === 'User' && reviewer.login)
-            .map((reviewer) => ({
+            .filter((request) =>
+                request?.requestedReviewer?.__typename === 'User' && request.requestedReviewer.login
+            )
+            .map(({ requestedReviewer: reviewer, asCodeOwner }) => ({
                 login: reviewer.login,
                 name: reviewer.name || '',
+                codeOwner: Boolean(asCodeOwner),
                 requestedAt: requestedAt.get(reviewer.login) || null,
                 lastHeardAt: heardAt.get(reviewer.login) || null,
             }));
@@ -915,7 +917,7 @@ ${PR_FRAGMENT}`;
     }
 
     // A reviewer silent this long since being asked earns a Slack ping, and
-    // a ping quiets the bell for as long again.
+    // pinging anyone on the PR quiets the bell for as long again.
     const PING_AFTER_DAYS = 7;
     const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -924,7 +926,10 @@ ${PR_FRAGMENT}`;
     }
 
     // `pings` maps getPingKey() to when we last pinged (local-only: GitHub
-    // has no word for a Slack nudge). Null when nobody is overdue.
+    // has no word for a Slack nudge). Null when nobody is overdue. Reviewers
+    // come best pick first: due, then someone the author chose over a
+    // CODEOWNERS auto-request (who gets asked about everything), then the
+    // longest wait.
     function getReviewerPings(pr, assessment, { nowMs = Date.now(), pings = {} } = {}) {
         if (
             !assessment.waitingOnReview || assessment.merging ||
@@ -945,8 +950,10 @@ ${PR_FRAGMENT}`;
             return {
                 login: reviewer.login,
                 name: reviewer.name,
+                codeOwner: Boolean(reviewer.codeOwner),
                 waitingDays,
                 pingedAt,
+                recentlyPinged,
                 overdue,
                 due: overdue && !recentlyPinged,
             };
@@ -954,11 +961,17 @@ ${PR_FRAGMENT}`;
         if (!reviewers.some((reviewer) => reviewer.overdue)) {
             return null;
         }
-        return { reviewers, due: reviewers.some((reviewer) => reviewer.due) };
+        reviewers.sort((a, b) =>
+            Number(b.due) - Number(a.due) ||
+            Number(b.overdue) - Number(a.overdue) ||
+            Number(a.codeOwner) - Number(b.codeOwner) ||
+            (b.waitingDays ?? -1) - (a.waitingDays ?? -1)
+        );
+        return { reviewers, due: reviewers.every((reviewer) => !reviewer.recentlyPinged) };
     }
 
-    function buildPingMessage(pr, reviewers) {
-        const days = Math.max(0, ...reviewers.map((reviewer) => reviewer.waitingDays || 0));
+    function buildPingMessage(pr, reviewer) {
+        const days = reviewer.waitingDays || 0;
         const title = String(pr.title).replace(/([\[\]])/g, '\\$1');
         return `Hi! Friendly ping on [${pr.repo}#${pr.number}: ${title}](${pr.url}), ` +
             `which has been waiting on your review for ${days} ${days === 1 ? 'day' : 'days'}. ` +

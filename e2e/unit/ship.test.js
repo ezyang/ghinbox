@@ -292,7 +292,10 @@ function prNode({
     labels: { nodes: labels.map((name) => ({ name })) },
     reviewRequests: {
       totalCount: reviewRequestCount,
-      nodes: requested.map(([login, name]) => ({ requestedReviewer: { __typename: 'User', login, name } })),
+      nodes: requested.map(([login, name, , asCodeOwner = false]) => ({
+        asCodeOwner,
+        requestedReviewer: { __typename: 'User', login, name },
+      })),
     },
     reviewRequestedEvents: {
       nodes: requested.map(([login, , createdAt]) => ({ createdAt, requestedReviewer: { __typename: 'User', login } })),
@@ -744,6 +747,7 @@ test('normalizePullRequest keeps pending user reviewers with when they were aske
   assert.deepEqual(normalizePullRequest(node, { nowMs: NOW }).requestedReviewers, [{
     login: 'malfet',
     name: 'Nikita Shulga',
+    codeOwner: false,
     requestedAt: '2026-09-20T00:00:00Z',
     lastHeardAt: '2026-09-25T00:00:00Z',
   }]);
@@ -762,6 +766,12 @@ test('getReviewerPings rings once a requested reviewer has been silent for a wee
   };
   const waiting = pr({ number: 960, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(9)], ['huydhn', 'Huy', ago(2)]] });
   assert.deepEqual(pings(waiting), { due: true, reviewers: ['malfet:9d overdue due', 'huydhn:2d'] });
+  // The author's own pick beats a CODEOWNERS auto-request, even one waiting longer.
+  assert.deepEqual(pings(pr({
+    number: 964,
+    drci: DRCI.green,
+    requested: [['albanD', 'Alban', ago(12), true], ['malfet', 'Nikita', ago(9)], ['huydhn', 'Huy', ago(10)]],
+  })).reviewers, ['huydhn:10d overdue due', 'malfet:9d overdue due', 'albanD:12d overdue due']);
   // Not a week yet.
   assert.equal(pings(pr({ number: 961, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(6)]] })), null);
   // Speaking up on the PR restarts the clock.
@@ -777,6 +787,12 @@ test('getReviewerPings rings once a requested reviewer has been silent for a wee
     due: false,
     reviewers: ['malfet:9d overdue', 'huydhn:2d'],
   });
+  const two = pr({ number: 965, drci: DRCI.green, requested: [['malfet', 'Nikita', ago(9)], ['huydhn', 'Huy', ago(8)]] });
+  // Someone still due comes first, but one ping per PR is enough for the week.
+  assert.deepEqual(pings(two, { pings: { [getPingKey(two, 'malfet')]: NOW - DAY } }), {
+    due: false,
+    reviewers: ['huydhn:8d overdue due', 'malfet:9d overdue'],
+  });
   assert.equal(pings(waiting, { pings: { [pingKey]: NOW - 8 * DAY } }).due, true);
   // Nothing to nudge once approved, sent back to the author, or landing.
   for (const options of [{ reviewDecision: 'APPROVED' }, { reviewDecision: 'CHANGES_REQUESTED' }]) {
@@ -787,7 +803,7 @@ test('getReviewerPings rings once a requested reviewer has been silent for a wee
 test('buildPingMessage links the PR and says how long it has waited', () => {
   const target = pr({ number: 970, title: 'Fix [inductor] crash' });
   assert.equal(
-    buildPingMessage(target, [{ waitingDays: 9 }, { waitingDays: 12 }]),
+    buildPingMessage(target, { login: 'malfet', waitingDays: 12 }),
     'Hi! Friendly ping on [pytorch/pytorch#970: Fix \\[inductor\\] crash](https://github.com/pytorch/pytorch/pull/970), ' +
       'which has been waiting on your review for 12 days. Could you take a look when you get a chance?'
   );
