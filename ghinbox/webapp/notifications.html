@@ -1103,11 +1103,20 @@
             </p>
             <label class="ship-ping-label" for="ship-ping-reviewer">Reviewer</label>
             <select id="ship-ping-reviewer" class="ship-ping-reviewer"></select>
+            <p class="ship-ping-why" hidden></p>
+            <div class="ship-ping-suggest-row">
+                <button class="btn btn-small ship-ping-suggest" type="button">Find a better reviewer</button>
+                <span class="ship-ping-suggest-status"></span>
+            </div>
             <div class="ship-ping-handle-row">
                 <label for="ship-ping-handle">Slack unixname</label>
                 <input id="ship-ping-handle" class="ship-ping-handle" type="text" spellcheck="false" autocomplete="off">
                 <span class="ship-ping-lookup"></span>
             </div>
+            <label class="ship-ping-request" hidden>
+                <input type="checkbox" class="ship-ping-request-box" checked>
+                Also request their review on GitHub
+            </label>
             <label class="ship-ping-label" for="ship-ping-message">Message</label>
             <textarea id="ship-ping-message" class="ship-ping-message" rows="4"></textarea>
             <p class="ship-ping-error" hidden></p>

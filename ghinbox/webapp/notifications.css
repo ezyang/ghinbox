@@ -862,7 +862,38 @@
             font: inherit;
         }
 
+        .ship-ping-why {
+            margin: 4px 0 0 0;
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .ship-ping-suggest-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        .ship-ping-suggest-status {
+            color: var(--color-fg-muted);
+            font-size: 12px;
+        }
+
+        .ship-ping-request {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+
+        .ship-ping-request[hidden] {
+            display: none;
+        }
+
         .ship-ping-resolved[data-state="missing"],
+        .ship-ping-suggest-status[data-state="error"],
         .ship-ping-error {
             color: var(--color-danger-fg);
         }

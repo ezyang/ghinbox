@@ -946,3 +946,30 @@ export async function mockReleaseLabels(
   });
   return { asked, added };
 }
+
+/**
+ * Mock the server's LLM reviewer suggestions (`suggestions` maps PR number ->
+ * answer) and record the reviews the app requests on GitHub.
+ */
+export async function mockReviewerSuggestions(
+  page: Page,
+  suggestions: Record<number, Array<{ login: string; name: string; why: string }>>
+) {
+  const asked: Array<{ repo: string; number: number }> = [];
+  const requested: Array<{ target: string; reviewers: string[] }> = [];
+  await page.route('**/api/ship/reviewer-suggestions', (route) => {
+    const body = route.request().postDataJSON();
+    asked.push({ repo: body.repo, number: body.number });
+    return fulfillJson(route, { reviewers: suggestions[body.number] || [] });
+  });
+  await page.route('**/github/rest/repos/*/*/pulls/*/requested_reviewers', (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback();
+    }
+    const match = new URL(route.request().url()).pathname.match(/\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\//);
+    const reviewers: string[] = route.request().postDataJSON()?.reviewers || [];
+    requested.push({ target: match ? `${match[1]}/${match[2]}#${match[3]}` : route.request().url(), reviewers });
+    return fulfillJson(route, { number: match ? Number(match[3]) : 0 }, 201);
+  });
+  return { asked, requested };
+}

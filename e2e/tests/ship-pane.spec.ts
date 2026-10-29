@@ -6,6 +6,7 @@ import {
   capturePullRequestPatches,
   mockReleaseLabels,
   mockShipGraphql,
+  mockReviewerSuggestions,
   mockSlack,
   openNotificationsWithCachedData,
   viewTab,
@@ -529,5 +530,87 @@ test.describe('Ship pane @mutation', () => {
     await reviewer.selectOption('huydhn');
     await expect(handle).toHaveValue('huydo');
     await expect(reviewer.locator('option[value="huydhn"]')).toContainText('pinged');
+  });
+
+  test('the ping dialog asks the LLM for a better reviewer and requests their review', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    await mockShipGraphql(page, {
+      searchNodes: [
+        prNode({
+          number: 1300,
+          title: 'Fix fake tensor caching',
+          updatedAt: '2026-10-08T10:00:00Z',
+          drciComment: drci('drci-no-failures'),
+          requested: [{ login: 'zou3519', name: 'Richard Zou', at: daysAgo(9) }],
+        }),
+      ],
+      stackNodes: {},
+    });
+    const suggestions = await mockReviewerSuggestions(page, {
+      1300: [
+        { login: 'ezyang', name: 'Edward Z. Yang', why: 'Approved most recent fake tensor changes.' },
+        { login: 'zou3519', name: 'Richard Zou', why: 'Already requested.' },
+      ],
+    });
+    const pings = await mockSlack(
+      page,
+      { ezyang: 'Edward Yang' },
+      { ezyang: { unixname: 'ezyang', status: 'current' } }
+    );
+    const order: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && /requested_reviewers|\/api\/slack\/ping/.test(request.url())) {
+        order.push(request.url().includes('slack') ? 'ping' : 'request');
+      }
+    });
+
+    await viewTab(page, 'ship').click();
+    const bell = shipRow(page, 1300).locator('.ship-ping-btn');
+    await expect(bell).toHaveAttribute('data-due', 'true');
+    await bell.click();
+
+    const dialog = page.locator('#ship-ping-dialog');
+    const reviewer = dialog.locator('.ship-ping-reviewer');
+    const request = dialog.locator('.ship-ping-request');
+    const why = dialog.locator('.ship-ping-why');
+    const suggest = dialog.locator('.ship-ping-suggest');
+    await expect(reviewer).toHaveValue('zou3519');
+    await expect(request).toBeHidden();
+    await expect(why).toBeHidden();
+
+    await suggest.click();
+    // The first suggestion is picked; the already-requested one isn't repeated.
+    await expect(reviewer).toHaveValue('ezyang');
+    await expect(reviewer.locator('optgroup[label="Suggested"] option')).toHaveText(['@ezyang · Edward Z. Yang']);
+    await expect(reviewer.locator('option')).toHaveCount(2);
+    await expect(dialog.locator('.ship-ping-suggest-status')).toHaveText('Suggested 1 below');
+    await expect(suggest).toBeDisabled();
+    expect(suggestions.asked).toEqual([{ repo: 'pytorch/pytorch', number: 1300 }]);
+    await expect(why).toHaveText('Approved most recent fake tensor changes.');
+    await expect(request).toBeVisible();
+    await expect(request.locator('input')).toBeChecked();
+    await expect(dialog.locator('.ship-ping-handle')).toHaveValue('ezyang');
+    await expect(dialog.locator('.ship-ping-resolved')).toHaveText('→ Edward Yang');
+    await expect(dialog.locator('.ship-ping-message')).toHaveValue(
+      'Hi! Could you review [pytorch/pytorch#1300: Fix fake tensor caching](https://github.com/pytorch/pytorch/pull/1300)? ' +
+        "It touches code you've worked on, and it has been waiting on review for 9 days."
+    );
+
+    await dialog.locator('.ship-ping-send').click();
+    await expect(dialog).toBeHidden();
+    expect(suggestions.requested).toEqual([{ target: 'pytorch/pytorch#1300', reviewers: ['ezyang'] }]);
+    expect(pings).toEqual([{ to: 'ezyang', markdown: expect.stringContaining('Could you review') }]);
+    expect(order).toEqual(['request', 'ping']);
+    await expect(page.locator('#status-bar')).toContainText(
+      'Requested a review from @ezyang and pinged them on Slack about #1300'
+    );
+
+    // Now a requested reviewer who was just pinged: the bell goes quiet.
+    await expect(bell).toHaveAttribute('data-due', 'false');
+    await bell.click();
+    await expect(reviewer.locator('option[value="ezyang"]')).toContainText('pinged');
+    await expect(reviewer.locator('optgroup')).toHaveCount(0);
+    await expect(dialog.locator('.ship-ping-suggest-status')).toHaveText('');
   });
 });

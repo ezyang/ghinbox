@@ -999,9 +999,32 @@ ${PR_FRAGMENT}`;
         return { reviewers, due: reviewers.every((reviewer) => !reviewer.recentlyPinged) };
     }
 
+    // LLM-proposed reviewers (people who wrote or approved the changed
+    // files) as ping dialog entries, after the requested ones. Asking one
+    // brings no wait of their own, so the message cites the PR's longest.
+    function buildSuggestedReviewers(pr, ping, suggestions, { pings = {} } = {}) {
+        const requested = new Set((ping?.reviewers || []).map((reviewer) => reviewer.login.toLowerCase()));
+        const waitingDays = Math.max(0, ...(ping?.reviewers || []).map((reviewer) => reviewer.waitingDays ?? 0));
+        return (suggestions || [])
+            .filter((suggestion) => suggestion?.login && !requested.has(suggestion.login.toLowerCase()))
+            .map((suggestion) => ({
+                login: suggestion.login,
+                name: suggestion.name || '',
+                why: suggestion.why || '',
+                suggested: true,
+                codeOwner: false,
+                waitingDays,
+                pingedAt: pings[getPingKey(pr, suggestion.login)] || null,
+            }));
+    }
+
     function buildPingMessage(pr, reviewer) {
         const days = reviewer.waitingDays || 0;
         const title = String(pr.title).replace(/([\[\]])/g, '\\$1');
+        if (reviewer.suggested) {
+            return `Hi! Could you review [${pr.repo}#${pr.number}: ${title}](${pr.url})? ` +
+                `It touches code you've worked on, and it has been waiting on review for ${days} ${days === 1 ? 'day' : 'days'}.`;
+        }
         return `Hi! Friendly ping on [${pr.repo}#${pr.number}: ${title}](${pr.url}), ` +
             `which has been waiting on your review for ${days} ${days === 1 ? 'day' : 'days'}. ` +
             'Could you take a look when you get a chance?';
@@ -1192,6 +1215,7 @@ ${PR_FRAGMENT}`;
         assessPullRequest,
         PING_AFTER_DAYS,
         buildPingMessage,
+        buildSuggestedReviewers,
         buildShipSearchGraphql,
         buildShipSearchQuery,
         describeReviewWait,

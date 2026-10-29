@@ -6,6 +6,7 @@ const {
   applyPendingMerges,
   assessPullRequest,
   buildPingMessage,
+  buildSuggestedReviewers,
   buildShipSearchQuery,
   findUnaddressedComments,
   buildShipSections,
@@ -931,6 +932,34 @@ test('buildPingMessage links the PR and says how long it has waited', () => {
     buildPingMessage(target, { login: 'malfet', waitingDays: 12 }),
     'Hi! Friendly ping on [pytorch/pytorch#970: Fix \\[inductor\\] crash](https://github.com/pytorch/pytorch/pull/970), ' +
       'which has been waiting on your review for 12 days. Could you take a look when you get a chance?'
+  );
+});
+
+test('suggested reviewers skip the requested ones and are asked, not reminded', () => {
+  const target = pr({ number: 971, title: 'Fix fake tensor caching' });
+  const ping = {
+    reviewers: [
+      { login: 'zou3519', waitingDays: 9 },
+      { login: 'albanD', waitingDays: 12 },
+    ],
+  };
+  const suggested = buildSuggestedReviewers(target, ping, [
+    { login: 'ezyang', name: 'Edward Z. Yang', why: 'Approves most changes here.' },
+    { login: 'AlbanD', name: '', why: 'Already requested.' },
+  ], { pings: { [getPingKey(target, 'ezyang')]: 5 } });
+  assert.deepEqual(suggested, [{
+    login: 'ezyang',
+    name: 'Edward Z. Yang',
+    why: 'Approves most changes here.',
+    suggested: true,
+    codeOwner: false,
+    waitingDays: 12,
+    pingedAt: 5,
+  }]);
+  assert.equal(
+    buildPingMessage(target, suggested[0]),
+    'Hi! Could you review [pytorch/pytorch#971: Fix fake tensor caching](https://github.com/pytorch/pytorch/pull/971)? ' +
+      "It touches code you've worked on, and it has been waiting on review for 12 days."
   );
 });
 

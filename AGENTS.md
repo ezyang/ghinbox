@@ -176,7 +176,14 @@
   employee in `aml.stg_opensource_contributors`, then `people.profile get`;
   cached in memory, 24h hits / 1h misses; former employees block Send),
   checks it with `GET /api/slack/user`, and remembers a sent one per login; a ping to
-  anyone on the PR quiets its bell for 7 days (both local-only, in localStorage). Parser
+  anyone on the PR quiets its bell for 7 days (both local-only, in localStorage).
+  The dialog's "Find a better reviewer" asks `POST /api/ship/reviewer-suggestions`:
+  the server gathers who wrote or approved (pytorchbot's `Approved by:` lines)
+  the last year of commits to the PR's 5 biggest files, minus the author and
+  requested reviewers, and the tool-less LLM ranks up to 3 of those (never
+  anyone else; cached per head SHA). Suggestions join the dropdown with a
+  reason; pinging one first requests their review on GitHub (checkbox, on by
+  default), so they become a requested reviewer and the bell goes quiet. Parser
   fixtures in `e2e/fixtures/ship/` are harvested with
   `scripts/harvest_ship_fixtures.py`.
 - Feed summaries:

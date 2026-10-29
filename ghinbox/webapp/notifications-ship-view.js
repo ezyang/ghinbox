@@ -5,7 +5,9 @@
 // out. The per-row "…" menu holds destructive actions (Abandon closes the PR);
 // being tucked away, they run without a confirm and offer Undo instead.
 // A bell on rows whose reviewers have been silent a week opens a dialog that
-// DMs one of them on Slack through the server's `meta` CLI.
+// DMs one of them on Slack through the server's `meta` CLI. The dialog can
+// ask the server's LLM for someone better placed to review (from who wrote
+// or approved the changed files) and request their review on GitHub.
 (function () {
     const panel = document.getElementById('ship-panel');
     const dialog = document.getElementById('ship-ack-dialog');
@@ -44,6 +46,9 @@
     // the server's LLM-proposed release notes label for a push.
     const labelSuggestions = new Map();
     const addingLabel = new Set();
+    // `${pr.key}@${headSha}` -> { state: loading|ok|error, reviewers, detail }:
+    // the server's LLM-proposed reviewers for a push.
+    const reviewerSuggestions = new Map();
 
     function bumpVersion() {
         state.ship.version += 1;
@@ -665,10 +670,20 @@
         pingDialog.querySelector('.ship-ping-lookup').innerHTML = html;
     }
 
+    function getPingReviewers(row) {
+        if (!row?.ping) {
+            return [];
+        }
+        const suggestions = reviewerSuggestions.get(suggestionKey(row.pr))?.reviewers;
+        return [
+            ...row.ping.reviewers,
+            ...GhinboxShip.buildSuggestedReviewers(row.pr, row.ping, suggestions, { pings }),
+        ];
+    }
+
     function getPingReviewer() {
-        const row = findRow(pingRowKey);
         const login = pingDialog.querySelector('.ship-ping-reviewer').value;
-        return row?.ping?.reviewers.find((reviewer) => reviewer.login === login) || null;
+        return getPingReviewers(findRow(pingRowKey)).find((reviewer) => reviewer.login === login) || null;
     }
 
     function updatePingSend() {
@@ -683,11 +698,77 @@
         const label = [
             `@${reviewer.login}`,
             reviewer.name,
-            reviewer.waitingDays !== null ? `waiting ${describeDays(reviewer.waitingDays)}` : '',
+            // A suggestion's wait is the PR's, not theirs.
+            !reviewer.suggested && reviewer.waitingDays !== null ? `waiting ${describeDays(reviewer.waitingDays)}` : '',
             reviewer.pingedAt ? `pinged ${formatRelativeTime(new Date(reviewer.pingedAt).toISOString())}` : '',
             reviewer.codeOwner ? 'code owner' : '',
         ].filter(Boolean).join(' · ');
         return `<option value="${escapeHtml(reviewer.login)}">${escapeHtml(label)}</option>`;
+    }
+
+    // Requested reviewers (best pick first), then any the LLM suggested.
+    function renderPingReviewers(row) {
+        const reviewers = getPingReviewers(row);
+        const suggested = reviewers.filter((reviewer) => reviewer.suggested);
+        pingDialog.querySelector('.ship-ping-reviewer').innerHTML =
+            reviewers.filter((reviewer) => !reviewer.suggested).map(renderPingOption).join('') +
+            (suggested.length
+                ? `<optgroup label="Suggested">${suggested.map(renderPingOption).join('')}</optgroup>`
+                : '');
+    }
+
+    function renderPingSuggest(row) {
+        const suggestion = row && reviewerSuggestions.get(suggestionKey(row.pr));
+        const button = pingDialog.querySelector('.ship-ping-suggest');
+        const status = pingDialog.querySelector('.ship-ping-suggest-status');
+        button.disabled = ['loading', 'ok'].includes(suggestion?.state);
+        status.dataset.state = suggestion?.state || '';
+        status.title = suggestion?.detail || '';
+        // Suggestions since requested on GitHub are listed as requested.
+        const listed = getPingReviewers(row).filter((reviewer) => reviewer.suggested).length;
+        status.textContent = {
+            loading: 'Looking through who wrote and approved these files…',
+            ok: listed
+                ? `Suggested ${listed} below`
+                : (suggestion?.reviewers?.length ? '' : 'No one else stands out'),
+            error: 'Could not suggest anyone',
+        }[suggestion?.state] || '';
+    }
+
+    async function requestReviewerSuggestions() {
+        const row = findRow(pingRowKey);
+        if (!row) {
+            return;
+        }
+        const { pr } = row;
+        const key = suggestionKey(pr);
+        if (['loading', 'ok'].includes(reviewerSuggestions.get(key)?.state)) {
+            return;
+        }
+        reviewerSuggestions.set(key, { state: 'loading' });
+        renderPingSuggest(row);
+        try {
+            const result = await fetchJson('/api/ship/reviewer-suggestions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo: pr.repo, number: pr.number, head_sha: pr.headSha }),
+            });
+            reviewerSuggestions.set(key, { state: 'ok', reviewers: result.reviewers || [] });
+        } catch (error) {
+            console.warn(`No reviewer suggestions for #${pr.number}:`, error);
+            reviewerSuggestions.set(key, { state: 'error', detail: error.detail || error.message || String(error) });
+        }
+        const current = findRow(pingRowKey);
+        if (!pingDialog.open || current?.pr.key !== pr.key) {
+            return;
+        }
+        renderPingSuggest(current);
+        const first = getPingReviewers(current).find((reviewer) => reviewer.suggested);
+        if (first) {
+            renderPingReviewers(current);
+            pingDialog.querySelector('.ship-ping-reviewer').value = first.login;
+            selectPingReviewer();
+        }
     }
 
     // Fills the unixname and message for the chosen reviewer; a message the
@@ -698,6 +779,10 @@
         if (!row || !reviewer) {
             return;
         }
+        const why = pingDialog.querySelector('.ship-ping-why');
+        why.hidden = !reviewer.why;
+        why.textContent = reviewer.why || '';
+        pingDialog.querySelector('.ship-ping-request').hidden = !reviewer.suggested;
         const message = pingDialog.querySelector('.ship-ping-message');
         if (!message.value || message.value === message.dataset.generated) {
             message.value = GhinboxShip.buildPingMessage(row.pr, reviewer);
@@ -710,9 +795,9 @@
         pingRowKey = row.pr.key;
         pingDialog.querySelector('.ship-ack-title').textContent =
             `Ping a reviewer of #${row.pr.number} on Slack`;
-        // Reviewers arrive best pick first.
-        pingDialog.querySelector('.ship-ping-reviewer').innerHTML =
-            row.ping.reviewers.map(renderPingOption).join('');
+        renderPingReviewers(row);
+        renderPingSuggest(row);
+        pingDialog.querySelector('.ship-ping-request-box').checked = true;
         const message = pingDialog.querySelector('.ship-ping-message');
         message.value = '';
         message.dataset.generated = '';
@@ -731,9 +816,23 @@
         if (!row || !reviewer || !handle || pingSending) {
             return;
         }
+        // Request first, so the ping postdates the request and quiets the bell.
+        const requestReview = reviewer.suggested &&
+            pingDialog.querySelector('.ship-ping-request-box').checked;
         pingSending = true;
         updatePingSend();
         try {
+            if (requestReview) {
+                try {
+                    await fetchJson(`/github/rest/repos/${row.pr.repo}/pulls/${row.pr.number}/requested_reviewers`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reviewers: [reviewer.login] }),
+                    });
+                } catch (error) {
+                    throw new Error(`requesting their review on GitHub failed: ${error.message || error}`);
+                }
+            }
             await fetchJson('/api/slack/ping', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -749,12 +848,30 @@
             updatePingSend();
         }
         writeJson(SLACK_HANDLES_KEY, { ...readJson(SLACK_HANDLES_KEY), [reviewer.login]: handle });
-        pings = { ...pings, [GhinboxShip.getPingKey(row.pr, reviewer.login)]: Date.now() };
+        const pingedAt = Date.now();
+        pings = { ...pings, [GhinboxShip.getPingKey(row.pr, reviewer.login)]: pingedAt };
         writeJson(PINGS_KEY, pings);
+        const pr = findPr(row.pr.key);
+        if (requestReview && pr) {
+            pr.requestedReviewers = [...(pr.requestedReviewers || []), {
+                login: reviewer.login,
+                name: reviewer.name,
+                codeOwner: false,
+                requestedAt: new Date(pingedAt - 1).toISOString(),
+                lastHeardAt: null,
+            }];
+            writeShipCache();
+        }
         bumpVersion();
         pingDialog.close();
         render();
-        showStatus(`Pinged @${reviewer.login} on Slack about #${row.pr.number}`, 'success', { autoDismiss: true });
+        showStatus(
+            requestReview
+                ? `Requested a review from @${reviewer.login} and pinged them on Slack about #${row.pr.number}`
+                : `Pinged @${reviewer.login} on Slack about #${row.pr.number}`,
+            'success',
+            { autoDismiss: true }
+        );
     }
 
     panel.addEventListener('click', (event) => {
@@ -845,6 +962,9 @@
                 event.preventDefault();
                 event.target.dispatchEvent(new Event('change', { bubbles: true }));
             }
+        });
+        pingDialog.querySelector('.ship-ping-suggest').addEventListener('click', () => {
+            withActionContext('Suggest reviewers', requestReviewerSuggestions);
         });
         pingDialog.querySelector('.ship-ping-send').addEventListener('click', () => {
             withActionContext('Ping reviewer', sendPing);
