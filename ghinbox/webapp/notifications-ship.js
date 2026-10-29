@@ -1017,7 +1017,21 @@ ${PR_FRAGMENT}`;
             );
     }
 
-    function buildRow(pr, prsByKey, pingOptions) {
+    // How long a Review requested row has sat since its latest request.
+    function describeReviewWait(pr, nowMs = Date.now()) {
+        const sinceMs = Date.parse(pr.reviewRequestedAt || '');
+        if (!Number.isFinite(sinceMs)) {
+            return null;
+        }
+        const hours = Math.max(0, Math.floor((nowMs - sinceMs) / (60 * 60 * 1000)));
+        const days = Math.floor(hours / 24);
+        const label = days > 0
+            ? `Waiting ${days} ${days === 1 ? 'day' : 'days'}`
+            : hours > 0 ? `Waiting ${hours} ${hours === 1 ? 'hour' : 'hours'}` : 'Waiting <1 hour';
+        return { since: pr.reviewRequestedAt, label };
+    }
+
+    function buildRow(pr, prsByKey, pingOptions = {}) {
         const assessment = assessPullRequest(pr);
         const plan = planShip(pr, prsByKey);
         const reasons = assessment.blockers
@@ -1049,6 +1063,7 @@ ${PR_FRAGMENT}`;
             needsAction,
             landing,
             suggestLabel: wantsReleaseLabel(assessment),
+            reviewWait: needsAction || landing ? null : describeReviewWait(pr, pingOptions.nowMs),
         };
     }
 
@@ -1179,6 +1194,7 @@ ${PR_FRAGMENT}`;
         buildPingMessage,
         buildShipSearchGraphql,
         buildShipSearchQuery,
+        describeReviewWait,
         buildShipSections,
         buildStackLookupGraphql,
         describeBlocking,

@@ -144,7 +144,9 @@
   and may only answer with a real `release notes:` label or `topic: not user
   facing`; cached in memory per head SHA, refused in test mode) and "Add
   label" applies it via the REST labels API). Review requested
-  sorts by the latest review request, the other sections by `updatedAt`.
+  sorts by the latest review request, newest first, and every row shows how
+  long since that request ("Waiting 3 days"); the other sections sort by
+  `updatedAt`.
   CI status comes from
   the Dr. CI comment (blocking: NEW/UNCLASSIFIED/CANCELLED; unrelated:
   FLAKY/BROKEN TRUNK/UNSTABLE/non-blocking, shown in yellow, never red),

@@ -354,6 +354,7 @@
                 : `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),
             renderLabelSuggestion(row),
             row.waiting ? `<span class="ship-waiting">${escapeHtml(row.waiting)}</span>` : '',
+            row.reviewWait ? `<span class="ship-review-wait" title="Review requested ${escapeHtml(new Date(row.reviewWait.since).toLocaleString())}">${escapeHtml(row.reviewWait.label)}</span>` : '',
         ].join('');
         return `<li class="ship-row" data-pr-key="${escapeHtml(pr.key)}" data-needs-action="${row.needsAction}">
             <div class="ship-row-body">

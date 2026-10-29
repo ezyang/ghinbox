@@ -468,6 +468,9 @@ test.describe('Ship pane @mutation', () => {
     await viewTab(page, 'ship').click();
     await expect(shipRow(page, 1201).locator('.ship-status-pill')).toHaveText('Needs review');
     await expect(shipRow(page, 1201).locator('.ship-ping-btn')).toHaveCount(0);
+    // Every Review requested row says how long since its latest request.
+    await expect(shipRow(page, 1201).locator('.ship-review-wait')).toHaveText('Waiting 3 days');
+    await expect(shipRow(page, 1200).locator('.ship-review-wait')).toHaveText('Waiting 2 days');
     const bell = shipRow(page, 1200).locator('.ship-ping-btn');
     await expect(bell).toHaveAttribute('data-due', 'true');
     // The author's pick beats the CODEOWNERS auto-request that waited longer.

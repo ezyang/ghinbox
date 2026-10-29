@@ -671,6 +671,26 @@ test('only an approved PR held up by nothing but the label gets a label proposal
   assert.equal(suggests({ repo: 'ezyang/ghstack', reviews: [['APPROVED', 'albanD']] }), false);
 });
 
+test('Review requested rows say how long since review was requested', () => {
+  const HOUR = 60 * 60 * 1000;
+  const waitOf = (requestedAt) => {
+    const sections = buildShipSections([pr({
+      number: 980,
+      drci: DRCI.green,
+      requested: requestedAt ? [['albanD', 'Alban', requestedAt]] : [],
+    })], { nowMs: NOW });
+    return sections.review[0].rows[0].reviewWait;
+  };
+  const ago = (ms) => new Date(NOW - ms).toISOString();
+  assert.deepEqual(waitOf(ago(20 * 60 * 1000)), { since: ago(20 * 60 * 1000), label: 'Waiting <1 hour' });
+  assert.equal(waitOf(ago(5 * HOUR)).label, 'Waiting 5 hours');
+  assert.equal(waitOf(ago(30 * HOUR)).label, 'Waiting 1 day');
+  assert.equal(waitOf(ago(10 * 24 * HOUR)).label, 'Waiting 10 days');
+  // Only reviewers' queue gets it.
+  const approved = buildShipSections([pr({ number: 981, reviewDecision: 'APPROVED', requested: [['albanD', 'Alban', ago(HOUR)]] })], { nowMs: NOW });
+  assert.equal(approved.action[0].rows[0].reviewWait, null);
+});
+
 test('Review requested lists the most recently requested review first', () => {
   const asked = (number, at, updatedAt) => pr({
     number,
