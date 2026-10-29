@@ -636,19 +636,19 @@ test('buildShipSections splits stacks into action needed and review requested', 
   assert.equal(sections.landingCount, 1);
 });
 
-test('a missing release notes label only pulls an approved PR out of Review requested', () => {
+test('a missing release notes label is a warning that never makes action needed', () => {
   const sections = buildShipSections([
     pr({ number: 960, labels: [], drci: DRCI.green }),
     pr({ number: 961, labels: [], drci: DRCI.green, reviewDecision: 'APPROVED' }),
   ]);
-  // Reviewers still have 960; the label is a heads-up for merge time.
+  // 960 stays with its reviewers; 961 is in Action needed for being approved.
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.reasons])),
     [[[960, [{ label: 'Needs release notes label', severity: 'warning', url: null }]]]]
   );
   assert.deepEqual(
     sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.reasons])),
-    [[[961, [{ label: 'Needs release notes label', severity: 'error', url: null }]]]]
+    [[[961, [{ label: 'Needs release notes label', severity: 'warning', url: null }]]]]
   );
 });
 

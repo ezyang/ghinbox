@@ -136,7 +136,8 @@
   PR goes to its own section, so a stack can split; PRs below a
   requested/merging stack top are Landing too; approved PRs are never in
   Review requested, even when blocked below; a missing release-notes label
-  only moves a PR to Action needed once it's approved). Review requested
+  is a yellow warning that never by itself makes a PR Action needed, though
+  it still holds back Ship It). Review requested
   sorts by the latest review request, the other sections by `updatedAt`.
   CI status comes from
   the Dr. CI comment (blocking: NEW/UNCLASSIFIED/CANCELLED; unrelated:

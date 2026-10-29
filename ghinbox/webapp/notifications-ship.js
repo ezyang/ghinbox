@@ -684,12 +684,8 @@ ${PR_FRAGMENT}`;
             blockers.push({ code: 'changes-requested', label: 'Changes requested' });
         }
         if (pr.usesMergebot && needsReleaseNotesLabel(pr)) {
-            blockers.push({
-                code: 'needs-label',
-                // A heads-up until approval makes it the thing stopping a merge.
-                severity: approved ? 'error' : 'warning',
-                label: 'Needs release notes label',
-            });
+            // Stops a merge, but a ten-second fix: a heads-up, never alarming.
+            blockers.push({ code: 'needs-label', severity: 'warning', label: 'Needs release notes label' });
         }
         if (pr.labels.includes('Reverted')) {
             blockers.push({ code: 'reverted', label: 'Reverted' });
@@ -919,8 +915,8 @@ ${PR_FRAGMENT}`;
     // Blockers the status pill already says.
     const STATUS_BLOCKERS = ['draft', 'changes-requested', 'no-reviewers'];
 
-    // Only stop a merge, so they don't take a PR away from its reviewers.
-    const MERGE_TIME_BLOCKERS = ['needs-label'];
+    // Too easy to fix to count as action needed on their own.
+    const TRIVIAL_BLOCKERS = ['needs-label'];
 
     // What the status pill leaves out, if anything.
     function describeWaiting(pr, assessment, plan) {
@@ -1022,7 +1018,7 @@ ${PR_FRAGMENT}`;
         // Approved is past review even when the stack below holds it up.
         const needsAction = !landing && (
             assessment.approved ||
-            assessment.blockers.some((blocker) => !MERGE_TIME_BLOCKERS.includes(blocker.code))
+            assessment.blockers.some((blocker) => !TRIVIAL_BLOCKERS.includes(blocker.code))
         );
         return {
             pr,
