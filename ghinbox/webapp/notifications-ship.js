@@ -796,9 +796,6 @@ ${PR_FRAGMENT}`;
         if (!assessment.open) {
             return 'closed without merging';
         }
-        if (assessment.merging) {
-            return 'landing';
-        }
         const blocker = assessment.blockers.find((item) => HARD_BLOCKERS.includes(item.code));
         if (blocker?.code === 'stack-too-deep') {
             return 'CI not run, stack too deep';
@@ -811,6 +808,8 @@ ${PR_FRAGMENT}`;
 
     // Commenting `@pytorchbot merge` on a ghstack PR lands it together with
     // every open PR below it, so Ship It needs the whole sub-stack ready.
+    // PRs below that are already landing don't hold it up: mergebot queues
+    // the new merge on top of theirs.
     function planShip(pr, prsByKey) {
         if (!pr.usesMergebot) {
             return { canShip: false, reason: 'no-mergebot' };
@@ -822,6 +821,7 @@ ${PR_FRAGMENT}`;
         const chain = [pr];
         const missing = [];
         const blockedBy = [];
+        const landingBelow = [];
         if (pr.stack) {
             const index = pr.stack.numbers.indexOf(pr.number);
             const below = index >= 0 ? pr.stack.numbers.slice(index + 1) : [];
@@ -834,12 +834,15 @@ ${PR_FRAGMENT}`;
                 if (lower.merged) {
                     return;
                 }
+                if (isLanding(lower)) {
+                    landingBelow.push(number);
+                    return;
+                }
                 const lowerAssessment = assessPullRequest(lower);
                 if (!lowerAssessment.ready) {
                     blockedBy.push({
                         number,
                         why: describeLowerBlocker(lower, lowerAssessment),
-                        landingWith: lower.mergebot?.underNumber || null,
                     });
                     return;
                 }
@@ -864,6 +867,7 @@ ${PR_FRAGMENT}`;
             canShip: true,
             prKeys: chain.map((member) => member.key),
             prNumbers: chain.map((member) => member.number),
+            landingBelow,
             failures,
             pendingCount,
             command: failures.length ? '@pytorchbot merge -i' : '@pytorchbot merge',
@@ -982,12 +986,13 @@ ${PR_FRAGMENT}`;
             return pr.mergebot.underNumber ? `Landing with #${pr.mergebot.underNumber}` : null;
         }
         if (plan.reason === 'blocked-below') {
-            // PRs landing with a stack top already listed add nothing.
-            const listed = new Set(plan.blockedBy.map((item) => item.number));
             return `Waiting on ${plan.blockedBy
-                .filter((item) => !listed.has(item.landingWith))
                 .map((item) => `#${item.number} (${item.why})`)
                 .join(', ')}`;
+        }
+        if (plan.landingBelow?.length) {
+            // Members landing with the top below say nothing new.
+            return `On top of #${plan.landingBelow[0]} (landing)`;
         }
         if (plan.reason === 'unknown-below') {
             return `Can't see ${plan.missing.map((number) => `#${number}`).join(', ')} below`;

@@ -256,7 +256,7 @@ test.describe('Ship pane @mutation', () => {
       body: '@pytorchbot merge -i',
     });
     await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"] .ship-status-pill`)).toHaveText('Merge requested');
-    await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review), #501 (landing)');
+    await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review)');
   });
 
   test('Abandon in the … menu closes the PR at once, with Undo to reopen it', async ({ page }) => {

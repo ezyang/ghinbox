@@ -395,7 +395,7 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
   assert.deepEqual(planShip(top, byKey(prs)), {
     canShip: false,
     reason: 'blocked-below',
-    blockedBy: [{ number: 103, why: 'awaiting review', landingWith: null }],
+    blockedBy: [{ number: 103, why: 'awaiting review' }],
   });
 
   const ready = planShip(make(103), byKey([top, make(103), pending, merged]));
@@ -414,7 +414,7 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
 
   const draftBelow = make(102, { isDraft: true });
   assert.deepEqual(planShip(make(103), byKey([make(103), draftBelow, merged])).blockedBy, [
-    { number: 102, why: 'draft', landingWith: null },
+    { number: 102, why: 'draft' },
   ]);
 });
 
@@ -440,7 +440,7 @@ test('planShip reads GitHub-native stacks, counting mergebot-landed PRs as merge
   assert.deepEqual(planShip(top, byKey([landed, awaiting, top, above])), {
     canShip: false,
     reason: 'blocked-below',
-    blockedBy: [{ number: 201374, why: 'awaiting review', landingWith: null }],
+    blockedBy: [{ number: 201374, why: 'awaiting review' }],
   });
   const ready = planShip(top, byKey([landed, make(201374), top, above]));
   assert.deepEqual(ready.prNumbers, [201375, 201374]);
@@ -449,7 +449,7 @@ test('planShip reads GitHub-native stacks, counting mergebot-landed PRs as merge
   // Closed without the Merged label never landed: nothing above can land.
   const abandoned = make(201373, { state: 'CLOSED' });
   assert.deepEqual(planShip(make(201374), byKey([abandoned, make(201374)])).blockedBy, [
-    { number: 201373, why: 'closed without merging', landingWith: null },
+    { number: 201373, why: 'closed without merging' },
   ]);
 
   const sections = buildShipSections([landed, awaiting, top, above]);
@@ -756,12 +756,16 @@ test('buildShipSections moves the landing part of a stack to Landing', () => {
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[912, null], [911, 'Landing with #912']]]
   );
-  // The top waits for the landing below it, past review.
+  // The top can queue on top of the landing below it: mergebot takes it.
   assert.deepEqual(
     sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
-    [[[913, 'Waiting on #912 (landing)']]]
+    [[[913, 'On top of #912 (landing)']]]
   );
-  assert.equal(getShipButtonLabel(sections.action[0].rows[0].plan), 'Ship Stacked');
+  const plan = sections.action[0].rows[0].plan;
+  assert.equal(plan.canShip, true);
+  assert.deepEqual(plan.prNumbers, [913]);
+  assert.deepEqual(plan.landingBelow, [912, 911]);
+  assert.equal(getShipButtonLabel(plan), 'Ship It');
   assert.equal(sections.review.length, 0);
 });
 
@@ -777,7 +781,7 @@ test('a stack too deep for CI is CI not run, not 23 failures, and blocks the sta
   assert.equal(assessment.ready, false);
   const top = pr({ number: 932, body: stackBody(numbers, 932), reviewDecision: 'APPROVED', drci: DRCI.green });
   assert.deepEqual(planShip(top, byKey([top, deep])).blockedBy, [
-    { number: 931, why: 'CI not run, stack too deep', landingWith: null },
+    { number: 931, why: 'CI not run, stack too deep' },
   ]);
   // A cancelled job dying some other way still reads as the refusal.
   const sigint = pr({ number: 934, drci: fixture('drci-stack-too-deep').replace(

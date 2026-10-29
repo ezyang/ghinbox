@@ -158,8 +158,9 @@
   falling back to the check rollup; jobs that all say "refusing to run CI"
   (ghstack too deep) are "CI not run", a hard blocker. Ship It (mergebot repos
   only) comments `@pytorchbot merge` on a PR when it and every open PR below
-  it in the stack is approved and unblocked (otherwise approved PRs get a
-  disabled "Ship Stacked"); blocking failures need a per-(PR, section)
+  it in the stack is approved and unblocked (PRs below that are already
+  landing don't count: the merge queues on top of theirs; otherwise approved
+  PRs get a disabled "Ship Stacked"); blocking failures need a per-(PR, section)
   acknowledgement and post `@pytorchbot merge -i`. A mergebot failure
   over something the row re-checks live (missing release-notes label, "has
   not been reviewed yet" on this PR or one below) is ignored, so it never
