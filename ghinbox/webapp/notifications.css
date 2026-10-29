@@ -235,6 +235,38 @@
             line-height: 18px;
         }
 
+        #reload-reviews-btn {
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Always laid out, so refreshing only animates transform (no reflow). */
+        .reload-reviews-icon {
+            flex-shrink: 0;
+        }
+
+        #reload-reviews-btn[aria-busy="true"] .reload-reviews-icon {
+            animation: reload-reviews-spin 0.9s linear infinite;
+        }
+
+        @keyframes reload-reviews-spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            #reload-reviews-btn[aria-busy="true"] .reload-reviews-icon {
+                animation: reload-reviews-pulse 1.6s ease-in-out infinite;
+            }
+        }
+
+        @keyframes reload-reviews-pulse {
+            50% {
+                opacity: 0.3;
+            }
+        }
+
         .open-unread-btn {
             display: inline-flex;
             align-items: center;

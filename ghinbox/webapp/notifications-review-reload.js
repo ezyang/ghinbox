@@ -218,6 +218,10 @@
         reloadReviewsBtn.style.display =
             state?.view === 'others-prs' ? 'inline-flex' : 'none';
         reloadReviewsBtn.disabled = Boolean(state?.loading || state?.reviewsReloading);
+        const busy = state?.reviewsReloading ? 'true' : 'false';
+        if (reloadReviewsBtn.getAttribute('aria-busy') !== busy) {
+            reloadReviewsBtn.setAttribute('aria-busy', busy);
+        }
     }
 
     async function handleReloadReviews({ auto = false } = {}) {

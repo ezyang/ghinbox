@@ -137,6 +137,49 @@ test.describe('Reload reviews @sync', () => {
     expect(notificationReloads).toBe(0);
   });
 
+  test('reload button spins its icon while reviews refresh without resizing', async ({ page }) => {
+    await openNotificationsWithCachedData(page, {
+      notifications: [],
+      expectedCount: 0,
+    });
+
+    let releaseSearch: () => void = () => undefined;
+    const searchHeld = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    let reviewSearches = 0;
+    await page.route('**/github/rest/review-requests**', async (route) => {
+      reviewSearches++;
+      if (reviewSearches > 1) {
+        await searchHeld;
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications: [] }),
+      });
+    });
+
+    await viewTab(page, 'others-prs').click();
+    const reloadReviewsBtn = page.locator('#reload-reviews-btn');
+    const icon = reloadReviewsBtn.locator('.reload-reviews-icon');
+    await expect(page.locator('#status-bar')).toContainText('Reloaded 0 review notifications');
+    await expect(reloadReviewsBtn).toHaveAttribute('aria-busy', 'false');
+    await expect(icon).toHaveCSS('animation-name', 'none');
+    const idleBox = await reloadReviewsBtn.boundingBox();
+
+    await reloadReviewsBtn.click();
+    await expect.poll(() => reviewSearches).toBe(2);
+    await expect(reloadReviewsBtn).toHaveAttribute('aria-busy', 'true');
+    await expect(icon).toHaveCSS('animation-name', 'reload-reviews-spin');
+    // The spinner is always laid out; refreshing only animates transform.
+    expect(await reloadReviewsBtn.boundingBox()).toEqual(idleBox);
+
+    releaseSearch();
+    await expect(reloadReviewsBtn).toHaveAttribute('aria-busy', 'false');
+    await expect(icon).toHaveCSS('animation-name', 'none');
+  });
+
   test('starting on Reviews refreshes review requests on load', async ({ page }) => {
     await openNotificationsWithCachedData(page, {
       notifications: [],
