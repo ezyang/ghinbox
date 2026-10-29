@@ -40,6 +40,7 @@ function prNode({
   author = 'ezyang',
   requested = [],
   labels = ['topic: not user facing'],
+  reviews = [],
 }: {
   number: number;
   title: string;
@@ -52,6 +53,7 @@ function prNode({
   author?: string;
   requested?: Array<{ login: string; name: string; at: string; codeOwner?: boolean }>;
   labels?: string[];
+  reviews?: Array<{ state: string; author: { __typename: string; login: string } }>;
 }) {
   return {
     number,
@@ -77,7 +79,7 @@ function prNode({
     reviewRequestedEvents: {
       nodes: requested.map(({ login, at }) => ({ createdAt: at, requestedReviewer: { __typename: 'User', login } })),
     },
-    latestOpinionatedReviews: { nodes: [] },
+    latestOpinionatedReviews: { nodes: reviews },
     commits: {
       nodes: [{
         commit: { oid: null, committedDate: '2026-10-08T00:00:00Z', statusCheckRollup: { state: 'FAILURE' } },
@@ -340,6 +342,46 @@ test.describe('Ship pane @mutation', () => {
     await expect(reason).toHaveAttribute('href', url);
     await expect(reason).toHaveAttribute('data-severity', 'error');
     await expect(row.locator('.ship-it-btn')).toHaveText('Ship It');
+  });
+
+  test('changes requested only by an AI reviewer reads apart from a human\'s', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    const aiReview = { state: 'CHANGES_REQUESTED', author: { __typename: 'Bot', login: 'github-actions' } };
+    await mockShipGraphql(page, {
+      searchNodes: [
+        prNode({
+          number: 1200,
+          title: 'Human wants changes',
+          updatedAt: '2026-10-09T02:00:00Z',
+          reviewDecision: 'CHANGES_REQUESTED',
+          drciComment: drci('drci-no-failures'),
+          reviews: [aiReview, { state: 'CHANGES_REQUESTED', author: { __typename: 'User', login: 'ngimel' } }],
+        }),
+        prNode({
+          number: 1201,
+          title: 'Approved, but the AI review wants changes',
+          updatedAt: '2026-10-09T01:00:00Z',
+          reviewDecision: 'CHANGES_REQUESTED',
+          drciComment: drci('drci-no-failures'),
+          reviews: [aiReview, { state: 'APPROVED', author: { __typename: 'User', login: 'Skylion007' } }],
+        }),
+      ],
+      stackNodes: {},
+    });
+
+    await viewTab(page, 'ship').click();
+    const action = page.locator('.ship-section[data-section="action"]');
+    const human = action.locator(shipRow(page, 1200)).locator('.ship-status-pill');
+    await expect(human).toHaveText('Changes requested');
+    await expect(human).toHaveAttribute('data-status', 'changes-requested');
+    const ai = action.locator(shipRow(page, 1201)).locator('.ship-status-pill');
+    await expect(ai).toHaveText('AI changes requested');
+    await expect(ai).toHaveAttribute('data-status', 'ai-changes-requested');
+    await expect(ai).toHaveCSS('color', 'rgb(191, 57, 137)');
+    await expect(ai).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(human).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(shipRow(page, 1201).locator('.ship-reason')).toHaveCount(0);
+    await expect(shipRow(page, 1201).locator('.ship-it-btn')).toHaveCount(0);
   });
 
   test('an approved PR missing only its release notes label gets a proposed label to add', async ({ page }) => {

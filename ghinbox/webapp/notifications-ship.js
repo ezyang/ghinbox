@@ -35,7 +35,7 @@ fragment ShipPullRequest on PullRequest {
   labels(first: 30) { nodes { name } }
   reviewRequests(first: 10) { totalCount nodes { asCodeOwner requestedReviewer { __typename ... on User { login name } } } }
   reviewRequestedEvents: timelineItems(itemTypes: [REVIEW_REQUESTED_EVENT], last: 20) { nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } } } }
-  latestOpinionatedReviews(first: 10) { nodes { state author { login } } }
+  latestOpinionatedReviews(first: 10) { nodes { state author { __typename login } } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state } } } }
   headComments: comments(first: 10) { nodes { author { login } body createdAt } }
   tailComments: comments(last: 8) { nodes { author { __typename login } body createdAt url } }
@@ -224,7 +224,7 @@ ${PR_FRAGMENT}`;
 
     // What keeps an approved PR from landing. A stack too deep for CI would
     // land untested under `merge -i`, so it is not something to ack away.
-    const HARD_BLOCKERS = ['draft', 'conflict', 'changes-requested', 'needs-label', 'closed', 'stack-too-deep'];
+    const HARD_BLOCKERS = ['draft', 'conflict', 'changes-requested', 'ai-changes-requested', 'needs-label', 'closed', 'stack-too-deep'];
 
     function summarizeCi({ drci, rollup, headSha, url }) {
         if (drci) {
@@ -560,7 +560,11 @@ ${PR_FRAGMENT}`;
             }),
             reviews: (node.latestOpinionatedReviews?.nodes || [])
                 .filter(Boolean)
-                .map((review) => ({ state: review.state, login: review.author?.login || '' })),
+                .map((review) => ({
+                    state: review.state,
+                    login: review.author?.login || '',
+                    bot: Boolean(review.author?.login) && isBotAuthor(review.author),
+                })),
             headSha,
             headCommittedAt: commit?.committedDate || null,
             unaddressed: findUnaddressedComments({
@@ -640,6 +644,17 @@ ${PR_FRAGMENT}`;
             !pr.reviews.some((review) => review.state === 'CHANGES_REQUESTED');
     }
 
+    // Automated reviewers (pytorch's hardened-pr-review posts as the
+    // github-actions bot) request changes on nearly every push; a human
+    // asking is a different conversation. Null unless changes are requested.
+    function getChangesRequestedBy(pr) {
+        if (pr.reviewDecision !== 'CHANGES_REQUESTED') {
+            return null;
+        }
+        const requesting = pr.reviews.filter((review) => review.state === 'CHANGES_REQUESTED');
+        return requesting.length && requesting.every((review) => review.bot) ? 'ai' : 'human';
+    }
+
     // pytorchbot refuses to merge pytorch/pytorch PRs without one of these.
     function needsReleaseNotesLabel(pr) {
         return pr.repo === 'pytorch/pytorch' && !pr.labels.some((label) =>
@@ -688,7 +703,10 @@ ${PR_FRAGMENT}`;
         if (pr.mergeable === 'CONFLICTING') {
             blockers.push({ code: 'conflict', label: 'Merge conflict' });
         }
-        if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+        const changesRequestedBy = getChangesRequestedBy(pr);
+        if (changesRequestedBy === 'ai') {
+            blockers.push({ code: 'ai-changes-requested', label: 'AI changes requested' });
+        } else if (changesRequestedBy) {
             blockers.push({ code: 'changes-requested', label: 'Changes requested' });
         }
         if (pr.usesMergebot && needsReleaseNotesLabel(pr)) {
@@ -908,7 +926,11 @@ ${PR_FRAGMENT}`;
         if (pr.isDraft) {
             return { key: 'draft', label: 'Draft' };
         }
-        if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+        const changesRequestedBy = getChangesRequestedBy(pr);
+        if (changesRequestedBy === 'ai') {
+            return { key: 'ai-changes-requested', label: 'AI changes requested' };
+        }
+        if (changesRequestedBy) {
             return { key: 'changes-requested', label: 'Changes requested' };
         }
         if (assessment.approved) {
@@ -921,7 +943,7 @@ ${PR_FRAGMENT}`;
     }
 
     // Blockers the status pill already says.
-    const STATUS_BLOCKERS = ['draft', 'changes-requested', 'no-reviewers'];
+    const STATUS_BLOCKERS = ['draft', 'changes-requested', 'ai-changes-requested', 'no-reviewers'];
 
     // Too easy to fix to count as action needed on their own.
     const TRIVIAL_BLOCKERS = ['needs-label'];

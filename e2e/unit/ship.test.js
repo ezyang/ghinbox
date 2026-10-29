@@ -308,7 +308,7 @@ function prNode({
       nodes: requested.map(([login, , createdAt]) => ({ createdAt, requestedReviewer: { __typename: 'User', login } })),
     },
     latestOpinionatedReviews: {
-      nodes: reviews.map(([reviewState, login]) => ({ state: reviewState, author: { login } })),
+      nodes: reviews.map(([reviewState, login, __typename = 'User']) => ({ state: reviewState, author: { __typename, login } })),
     },
     commits: { nodes: [{ commit: { oid: null, committedDate: '2026-10-08T00:00:00Z', statusCheckRollup: { state: rollup } } }] },
     headComments: { nodes: drci ? [comment('pytorch-bot', drci, '2026-10-08T00:10:00Z')] : [] },
@@ -715,6 +715,16 @@ test('every row gets a review status pill, and reasons skip what it says', () =>
   const cases = [
     [{ isDraft: true }, 'draft'],
     [{ reviewDecision: 'CHANGES_REQUESTED' }, 'changes-requested'],
+    // Only bots asking for changes is the AI review, even over an approval.
+    [
+      { reviewDecision: 'CHANGES_REQUESTED', reviews: [['CHANGES_REQUESTED', 'github-actions', 'Bot'], ['APPROVED', 'albanD']] },
+      'ai-changes-requested',
+    ],
+    [
+      { reviewDecision: 'CHANGES_REQUESTED', reviews: [['CHANGES_REQUESTED', 'github-actions', 'Bot'], ['CHANGES_REQUESTED', 'albanD']] },
+      'changes-requested',
+    ],
+    [{ reviewDecision: 'APPROVED', reviews: [['CHANGES_REQUESTED', 'github-actions', 'Bot']] }, 'approved'],
     [{ reviewDecision: 'APPROVED' }, 'approved'],
     [{ reviewRequestCount: 0 }, 'no-reviewers'],
     [{}, 'needs-review'],

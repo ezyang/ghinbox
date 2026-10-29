@@ -631,6 +631,14 @@
             --pill-fg: #bf3989;
         }
 
+        /* Same ask from a bot: outlined, not filled. */
+        .ship-status-pill[data-status="ai-changes-requested"] {
+            --pill-fg: #bf3989;
+            background-color: transparent;
+            outline: 1px dashed var(--pill-fg);
+            outline-offset: -1px;
+        }
+
         .ship-status-pill[data-status="approved"] {
             --pill-fg: var(--color-success-fg);
         }
