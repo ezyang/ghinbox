@@ -63,6 +63,7 @@ def clear_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ship_routes, "_guide_cache", {})
     monkeypatch.setattr(ship_routes, "_labels_cache", {})
     monkeypatch.setattr(ship_routes, "_suggestion_cache", {})
+    monkeypatch.setattr(ship_routes, "_reviewer_cache", {})
 
 
 def test_extract_guide_keeps_only_the_release_notes_section() -> None:
@@ -179,3 +180,141 @@ def test_release_label_route_refuses_the_llm_in_test_mode(
         "/api/ship/release-label", json={"repo": "pytorch/pytorch", "number": 7}
     )
     assert response.status_code == 503
+
+
+# Real history of torch/_subclasses/fake_tensor.py (trimmed to the fields we
+# read), harvested over the debug socket:
+#   curl --unix-socket auth_state/ghinbox-debug.sock \
+#     "http://ghinbox/github/rest/repos/pytorch/pytorch/commits?path=torch/_subclasses/fake_tensor.py&per_page=12"
+COMMITS = json.loads(
+    (
+        Path(__file__).parent / "fixtures" / "ship" / "commits-fake_tensor.json"
+    ).read_text()
+)
+
+
+class FakeReviewerFetcher:
+    def __init__(self, history: list[dict[str, Any]] = COMMITS) -> None:
+        self.history = history
+        self.calls: list[str] = []
+
+    async def pull(self, repo: str, number: int) -> dict[str, Any]:
+        self.calls.append("pull")
+        return {
+            "title": "Fix fake tensor caching for subclasses",
+            "body": "",
+            "labels": [],
+            "head": {"sha": "abc123"},
+            "user": {"login": "liangel-02"},
+            "requested_reviewers": [{"login": "zou3519"}],
+        }
+
+    async def files(self, repo: str, number: int) -> list[dict[str, Any]]:
+        self.calls.append("files")
+        return [
+            {"filename": "test/test_fake_tensor.py", "additions": 2, "deletions": 0},
+            {
+                "filename": "torch/_subclasses/fake_tensor.py",
+                "additions": 30,
+                "deletions": 4,
+                "patch": "+cache",
+            },
+        ]
+
+    async def commits(self, repo: str, path: str, since: str) -> list[dict[str, Any]]:
+        self.calls.append(f"commits {path}")
+        return self.history if path == "torch/_subclasses/fake_tensor.py" else []
+
+
+def test_reviewer_candidates_are_who_wrote_or_approved_the_files() -> None:
+    candidates = ship_routes.collect_reviewer_candidates(
+        {"torch/_subclasses/fake_tensor.py": COMMITS}, {"liangel-02", "zou3519"}
+    )
+    by_login = {candidate["login"]: candidate for candidate in candidates}
+    # The author and the silent reviewer are excluded; approvals count double.
+    assert candidates[0]["login"] == "ezyang"
+    assert by_login["ezyang"]["approved"] == 7
+    assert by_login["ezyang"]["authored"] == 1
+    assert by_login["ezyang"]["last_active"] == "2026-10-29"
+    assert by_login["albanD"]["approved"] == 1
+    # "Approved by:" lists every approver.
+    assert {"pbielak", "etaf", "jansel"} <= set(by_login)
+    assert "liangel-02" not in by_login and "zou3519" not in by_login
+    assert by_login["ezyang"]["files"] == ["torch/_subclasses/fake_tensor.py"]
+
+
+def test_suggest_reviewers_returns_only_candidates_and_caches_by_sha() -> None:
+    fetcher = FakeReviewerFetcher()
+    prompts: list[str] = []
+
+    async def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return json.dumps(
+            {
+                "reviewers": [
+                    {"login": "EZYANG", "why": "Approves most fake tensor changes."},
+                    {"login": "someone-made-up", "why": "?"},
+                    {"login": "ezyang", "why": "Duplicate."},
+                    {"login": "aorenste", "why": "Recently approved here."},
+                ]
+            }
+        )
+
+    result = asyncio.run(
+        ship_routes.suggest_reviewers("pytorch/pytorch", 7, fetcher=fetcher, ask=ask)
+    )
+    assert result == {
+        "reviewers": [
+            {
+                "login": "ezyang",
+                "name": "Edward Z. Yang",
+                "why": "Approves most fake tensor changes.",
+            },
+            {"login": "aorenste", "name": "", "why": "Recently approved here."},
+        ]
+    }
+    # The biggest file's history is read first.
+    assert fetcher.calls[2] == "commits torch/_subclasses/fake_tensor.py"
+    [prompt] = prompts
+    assert "from @zou3519, who have not responded" in prompt
+    candidates = json.loads(prompt.split("Candidates (JSON):\n", 1)[1].split("\n\n")[0])
+    assert "liangel-02" not in {candidate["login"] for candidate in candidates}
+
+    fetcher.calls.clear()
+    again = asyncio.run(
+        ship_routes.suggest_reviewers(
+            "pytorch/pytorch", 7, fetcher=fetcher, ask=ask, head_sha="abc123"
+        )
+    )
+    assert again == result
+    assert fetcher.calls == []
+    assert len(prompts) == 1
+
+
+def test_suggest_reviewers_skips_the_llm_with_no_candidates() -> None:
+    fetcher = FakeReviewerFetcher(history=[])
+
+    async def ask(prompt: str) -> str:
+        raise AssertionError("no candidates, no LLM call")
+
+    result = asyncio.run(
+        ship_routes.suggest_reviewers("pytorch/pytorch", 7, fetcher=fetcher, ask=ask)
+    )
+    assert result == {"reviewers": []}
+
+
+def test_reviewer_suggestions_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ship_routes, "_fetcher", FakeReviewerFetcher())
+
+    async def ask(prompt: str) -> str:
+        return '{"reviewers": [{"login": "albanD", "why": "Reviews here."}]}'
+
+    monkeypatch.setattr(ship_routes, "_ask_reviewers", ask)
+    response = TestClient(app).post(
+        "/api/ship/reviewer-suggestions",
+        json={"repo": "pytorch/pytorch", "number": 7},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "reviewers": [{"login": "albanD", "name": "", "why": "Reviews here."}]
+    }

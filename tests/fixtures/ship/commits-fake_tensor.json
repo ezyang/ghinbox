@@ -1,0 +1,146 @@
+[
+  {
+    "author": {
+      "login": "ezyang"
+    },
+    "commit": {
+      "author": {
+        "name": "Edward Z. Yang",
+        "date": "2026-10-29T14:44:45Z"
+      },
+      "message": "Treat uint8, not int8, indices as masks in meta_index_Tensor (#201374)\n\n## Linked issue or supporting maintainer\n\nFixes #200546\nPart of #201370\nSupported by @ezyang\n\n## BC-breaking?\n\nNo. Eager already rejects int8 index tensors (and other dtypes besides long,\nint, uint8 and bool); under fake tensors / meta, `index` treated int8 as a\nboolean mask and `index_put` accepted any index dtype. Both now raise\nIndexError like eager, so torch.compile of e.g. `x[int8_index] = v` fails at\ntrace time instead of in the eager fallback. uint8 masks, which eager accepts (with\na deprecation warning), are no longer rejected for their dtype under fake\ntensors / meta; they take the same mask expansion path as bool masks, so\ntorch.compile graph-breaks on them instead of failing. Under torch.compile on\nGPU, `index_put_` with a uint8 mask and a CPU scalar value now fails like it\ndoes in eager (\"masked_fill_ only supports boolean masks\") instead of\nsucceeding.\n\n## Summary (human written only)\n\nThere appears to be an existing latent bug in the meta implementation for uint8/int8. This bug is in semantics for a index type that we are deprecating anyway, but it simplifies the later PR to fix this bug first before we deprecate.\n\n## Agent details (if applicable)\n\n> `meta_index_Tensor` mirrors `checkIndexTensorTypes` / `expandTensors`, but\n> checked `torch.int8` where those check `kByte` (uint8). As a result it\n> accepted int8 indices and expanded them as masks, while eager raises\n> \"tensors used as indices must be long, int, byte or bool tensors\"; and it\n> rejected uint8 masks, which eager expands, so `torch.compile` of\n> `x[uint8_mask]` failed with a fake tensor error. Check uint8 instead of\n> int8, and raise IndexError like eager.\n>\n> The `index_put` / `index_put_` / `_unsafe_index_put` metas didn't check\n> index dtypes at all; they now share the same `checkIndexTensorTypes` mirror.\n>\n> Two other mirrors of the same check made the same mistake and are fixed too:\n>\n> - The fake tensor dispatch cache bypasses `aten.index.Tensor` for indices\n>   that `meta_index_Tensor` calls nonzero on; it checked int8.\n> - Inductor's `is_index_put_and_requires_h2d_sync_for_gpu_value` keeps a CPU\n>   scalar value on the CPU when eager `index_put_` would dispatch to\n>   `masked_fill_` (`canDispatchToMaskedFill` accepts kBool and kByte); it\n>   checked int8, so for uint8 masks it moved the value to the GPU.\n>\n> Not changed here: beyond index dtypes, the fake / meta indexing kernels\n> don't reproduce all of eager's error handling, and that predates this PR.\n> For example, they don't take eager's masked_fill_ fast path in `index_put`\n> (so a uint8 mask with a one-element CPU value traces, while eager fails in\n> masked_fill_), they check mask shapes after calling nonzero, and\n> `_unsafe_index` shares `index`'s meta although eager only accepts long and\n> int indices for it. Aligning those is a separate change.\n>\n> uint8 masks become an error in eager and meta later in this stack\n> (#201370).\n>\n> Test plan: `python test/test_fake_tensor.py\n> TestFakeTensorDispatchCache.test_cache_aten_index`, which asserted the old\n> int8-as-mask behavior and now also checks that uint8 masks bypass the cache\n> like bool masks; `TestFakeTensor.test_index_tensor_types_match_eager` (new:\n> index / index_put / index_put_ / _unsafe_index_put with int8, int16 and\n> float indices raise the same IndexError under fake tensors as in eager);\n> `pytest test/inductor/test_move_constructors_to_gpu.py -k index_put_mask`\n> (new; checks the predicate on hand-built graphs, CPU-only, but the file\n> runs in GPU CI); test_indexing.py under PYTORCH_TEST_WITH_DYNAMO=1\n> (test_byte_mask failed when uint8 raised IndexError from meta, which\n> dynamo propagates instead of falling back to eager).\n>\n> Authored with an AI assistant.\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/201374\nApproved by: https://github.com/albanD\nStack dependencies: #201373"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-27T21:45:19Z"
+      },
+      "message": "[CPP FakeTensor] Track C++ fakes in non-strict export leak detection (#200134)\n\nNon-strict export leak detection records fakes from FakeTensor.__init__,\nwhich C++ fakes never run. They are now also recorded in set_proxy_slot,\nwhere every tensor registered with a tracer passes: proxy_call outputs,\nhigher-order op outputs (which HOPs register through track_tensor_tree, not\nproxy_call), placeholders, and sub-tracers. That traversal already happens,\nso this adds no extra walk over op outputs. Both call sites go through a new\ntrack_fake_tensor_for_export helper, which records only while exporting with\ndetect_non_strict_fake_tensor_leaks.\n\nAn alternative was to record outputs in proxy_call, but that misses HOP\noutputs and adds a traversal of every op's outputs. Recording C++ fakes when\nthey are created, mirroring __init__, would match Python exactly, but needs a\ncallback from C++ fake creation into Python. Compared with __init__, the\nset_proxy_slot approach misses a fake created while proxy tracing is disabled,\nand does not report the fakes a HOP creates internally to trace its branches,\nwhich Python currently reports as leaks even when nothing leaked.\n\nThis also catches Python fakes that __init__ does not record because they\nare created before tracking starts: _fakify_module_inputs fakifies the\nparameters of an nn.Module input before is_exporting() is set, and\nset_proxy_slot records them when tracing registers them. Every other Python\nfake created during non-strict export already goes through __init__.\n\nA tensor can now be recorded more than once (by __init__ and set_proxy_slot,\nor again when an in-place op re-registers it), which the WeakSet tracker\ncannot handle: re-adding creates a new weakref with the same hash, set lookup\ncompares the two weakrefs, which compares the referents with Tensor.__eq__,\nand bool() of that elementwise result fails. The tracker becomes a\nWeakIdKeyDictionary (identity-keyed, values unused), and\nfind_legit_leaks_from_referrers returns a list instead of a WeakSet. The input\nis already deduplicated by identity and the caller only iterates and checks\nlen(), so a list is sufficient. find_legit_leaks_from_referrers takes and\nreturns Tensors, since the tracker only records values that pass\nis_fake_tensor. With the old WeakSet, 5 of the 6 existing leak\ntests fail on the double recording.\n\ntest_detect_leak_nonstrict_module_input_param leaks a parameter of an\nnn.Module input, which only set_proxy_slot records, and checks that the\nreported tensor is that parameter (node m_linear_weight). The input is the\nmodule-level InputModule because test_serdes.py reruns the test with\nsave/load, which pickles the module input's class.\n\nNo test covers HOP outputs or C++ fakes. HOP outputs are Python fakes at this\npoint in the stack, which FakeTensor.__init__ already records, so a HOP test\nwould pass without this change; and non-strict export always uses a Python\nFakeTensorMode here, so no test can exercise C++ fakes.\n\nTest Plan:\n\n```\npython test/export/test_export.py -k test_detect_leak -k test_function_holding_tensor -k test_export_cyclic_reference_leak\npython test/export/test_serdes.py -k test_detect_leak_nonstrict_module_input_param\nlintrunner torch/_subclasses/fake_tensor.py torch/fx/experimental/proxy_tensor.py torch/export/_leakage_detection_utils.py torch/export/_trace.py test/export/test_export.py\n```\n\nThese were run from this stack's test file against a faketensor-cpp build,\nwith that build's tracking replaced by this change's. All 7 pass with Python\nFakeTensor, as do test_detect_leak_nonstrict_module_input_param's variants in\ntest_serdes.py, test_retraceability.py, test_export_training_ir_to_run_decomp.py,\ntest_cpp_serdes.py, test_export_strict.py and test_strict_export_v2.py; without the set_proxy_slot\ncall, test_detect_leak_nonstrict_module_input_param fails, and it also fails\nif the forward leaks m.linear.bias instead.\n\nAuthored with an AI assistant.\nPull Request resolved: https://github.com/pytorch/pytorch/pull/200134\nApproved by: https://github.com/ezyang\nghstack dependencies: #200127, #200661"
+    }
+  },
+  {
+    "author": {
+      "login": "shino16"
+    },
+    "commit": {
+      "author": {
+        "name": "Masato Shinokawa",
+        "date": "2026-10-27T16:42:36Z"
+      },
+      "message": "Avoid symbolic storage recomputation on FakeTensor cache hits (#192047)\n\nRelates to pytorch/pytorch#191500\n\n## Problem\n\nFakeTensor's dispatch cache stores a recipe for rebuilding an output, not the output itself. On every cache hit, the old code rebuilt all strided outputs with `empty_strided`; views then rebound that placeholder to the current input with `set_`. For dynamic shapes, both general operations repeatedly calculate symbolic storage bounds.\n\n## Change\n\nThis PR uses simpler, equivalent reconstruction for the two common cases:\n\n| Cached output | Before | After |\n|---|---|---|\n| Fresh, canonical-contiguous output | `empty_strided(shape, stride)` | `empty(shape)` |\n| Cached same-dtype view of an input | `empty_strided(...)` then `set_(input storage, ...)` | `as_strided(input, ...)` |\n| Anything else | existing fallback | unchanged |\n\nFor example, cached `clone(x)` with symbolic shape `(s, 8)` changes from `empty_strided((s, 8), (8, 1))` to `empty((s, 8))`. Cached `x.transpose(0, 1)` changes from allocating and rebinding a placeholder to `as_strided(x, (8, s), (1, 8), 0)`, directly constructing a view of the current input.\n\nDtype-changing views such as `view_as_real` retain the typed-placeholder plus `set_` path because `as_strided` cannot change dtype. Fresh noncontiguous outputs also retain `empty_strided`.\n\nThe direct `as_strided` path also deliberately changes one edge case: if a FakeTensor input's storage was resized to zero, a cached view now keeps that zero-sized storage. The old placeholder plus `set_` reconstruction grew the storage to cover the view, while an uncached FakeTensor view keeps it at zero. Matching the uncached result is important because AOTAutograd uses zero-sized FakeTensor storage to represent resized storage. I reflected this as [a regression test](https://github.com/pytorch/pytorch/pull/192047/changes#diff-3bc0cf540b694f4ec0a3749f78b047456657a53a5657e495ffb68e5970c5fdaaR3822).\n\nCanonical-contiguous detection requires structurally identical symbolic stride expressions, rather than expressions that are only provably value-equal. This preserves input SymNode identity in cache entries. Views that require gradients continue to use the existing placeholder path.\n\n## Performance\n\nMeasured with [`qwen3_compile_repro.py`](https://gist.github.com/zou3519/63fa2e77d7fcefe21c73d44e4e9190d6/3f1b7df41dbcd53c390f657d480aec048520d70a) on `Qwen/Qwen3-8B`, an NVIDIA H100 (Hopper, `sm_90`), and CUDA 13.4. Three interleaved fresh processes per arm used separate Inductor caches.\n\n| Metric | Base median | Patch median | Change |\n|---|---:|---:|---:|\n| Static first call | 38.876 s | 38.786 s | -0.2% |\n| Dynamic first call | 56.872 s | 49.673 s | -12.7% |\n| Dynamic `aot_collect_metadata` | 5.244 s | 3.561 s | -32.1% |\n\nAfter each timed first call, an untimed second shape reused the same compiled graph.\n\n## Tests\n\n- `python test/test_fake_tensor.py -k FakeTensorDispatchCache` (42 passed)\n- `python test/test_dynamic_shapes.py -k test_unbacked_reshape2` (1 passed)\n- Dynamic `torch.compile` integration check: eager parity, zero graph breaks, and one graph reused across two shapes\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/192047\nApproved by: https://github.com/aorenste\n\nCo-authored-by: aorenste <aorenste@users.noreply.github.com>"
+    }
+  },
+  {
+    "author": {
+      "login": "gplutop7"
+    },
+    "commit": {
+      "author": {
+        "name": "gplutop7",
+        "date": "2026-10-23T07:39:02Z"
+      },
+      "message": "[Test][XPU] Refactor reductions tests by device scope (#194350)\n\nSplit reductions tests into CPU-only and device-scoped classes, update device test instantiation, and add matching hardware classification (GENERIC for non-instantiated class, ACCELERATOR for instantiated class) without changing test behavior.\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/194350\nApproved by: https://github.com/pbielak, https://github.com/etaf, https://github.com/jansel"
+    }
+  },
+  {
+    "author": {
+      "login": "voidbag"
+    },
+    "commit": {
+      "author": {
+        "name": "Taeksang Kim",
+        "date": "2026-10-14T08:22:10Z"
+      },
+      "message": "[FakeTensor] Propagate backend metadata through fake tensor conversion (#186324)\n\nBackends that attach `c10::BackendMeta` to a tensor (via the PrivateUse1\nbackend-metadata mechanism, the same one used for `torch.save` / `torch.load`)\ncurrently lose that metadata when the tensor is converted to a `FakeTensor`.\n`FakeTensorConverter.from_real_tensor` builds the fake tensor from a fresh meta\ntensor and never copies `backend_meta_`, so any backend relying on it (e.g.\nPrivateUse1) sees it dropped under `torch.compile` / fake tensor propagation.\n\nThis adds `torch._C._copy_backend_meta(src, dst)`, a small helper in\n`pickler_helper.h` alongside `get`/`setTensorMetadata`, that clones the source\ntensor's `c10::BackendMeta` onto the destination via `BackendMeta::clone()` and\nleaves all other tensor metadata untouched (it is a no-op when the source has no\nbackend metadata). `from_real_tensor` then calls it so the fake tensor retains\nthe real tensor's backend metadata.\n\nUnlike routing through `get`/`setTensorMetadata`, the clone-based copy moves the\nfull `BackendMeta` object rather than a `Dict[str, bool]` projection, and does\nnot depend on the tensor's reported device — so it is correct regardless of\n`FakeTensorMode.in_kernel_invocation`.\n\nTest Plan:\n\n```bash\npython test/cpp_extensions/open_registration_extension/torch_openreg/tests/test_storage.py -k test_copy_backend_meta\npython test/cpp_extensions/open_registration_extension/torch_openreg/tests/test_storage.py -k test_fake_tensor_metadata_preservation\npython test/cpp_extensions/open_registration_extension/torch_openreg/tests/test_compile.py -k test_backend_metadata_propagation\n```\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/186324\nApproved by: https://github.com/aorenste"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-10T22:14:07Z"
+      },
+      "message": "[CPP FakeTensor] Route Fake registrations through Python callbacks (#190248)\n\nConnect C++ Fake dispatch to Python Meta, decomposition, custom-op, and composite handling through new PyInterpreterVTable callbacks. The callbacks call the shared real-tensor helpers and run_fake_impl added earlier in this stack. Store only the callback-owned Python wrapper and non-fake-input policy on the C++ mode.\n\nTest Plan:\n\n```bash\nlintrunner -a\n```\n\nThe command reports the pre-existing clang-analyzer ArrayBound finding at torch/csrc/Module.cpp:270.\n\nAuthored with an AI assistant.\nPull Request resolved: https://github.com/pytorch/pytorch/pull/190248\nApproved by: https://github.com/ezyang\nghstack dependencies: #200345, #200136, #200130, #199565, #199784, #199785"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-10T22:14:06Z"
+      },
+      "message": "[CPP FakeTensor] Factor real-tensor propagation into shared Python helpers (#199784)\n\nThe C++ Fake fallback needs the same propagate_real_tensors behavior as Python\nFakeTensorMode: run the op on the real tensors before any fake kernel, then\ncross-check and attach the reals to the fake outputs, and infer a fake kernel\nfrom the real output for custom ops that lack one. Move that logic out of\nFakeTensorMode._dispatch_impl into module-level helpers and have\n_dispatch_impl call them, so both paths share one implementation:\n\n- run_real_op returns a RealOpResult (or None when propagation is skipped);\n  _dispatch_impl's inline real-op block and its SKIPPED log move here.\n- propagate_real_tensors is the body of maybe_propagate_real_tensors,\n  built on the per-tensor propagate_real_tensor.\n- can_infer_fake_from_real_out / infer_fake_from_real_out cover\n  missing-fake-kernel inference, used both directly and when a\n  profile-generated fake kernel raises MissingOpProfile.\n- torch._library.fake_impl.run_fake_impl runs a register_fake kernel,\n  returning NotImplemented when there is none.\n\nBehavior is unchanged for Python FakeTensorMode. The differences:\n\n- The helpers accept C++ fakes as well as Python FakeTensors, which is what\n  lets the C++ fallback share them: they use is_fake_tensor /\n  maybe_get_real_tensor / maybe_set_real_tensor instead of\n  isinstance(t, FakeTensor) and .real_tensor. Each accessor checks FakeTensor\n  first, so Python FakeTensors take the same path as before.\n- The real op runs under unset_fake_temporarily(). This is a no-op inside\n  __torch_dispatch__, which asserts the fake mode is already unset; it is\n  for the C++ fallback calling in.\n- Real propagation for register_fake kernels runs after the kernel's\n  set_ctx_getter/fake-mode context exits rather than inside it, as it already\n  did for the MissingOpProfile path and the other branches. Propagation\n  doesn't depend on that context: the one step that needs the fake mode\n  (_infer_fake_from_real_tensor) enters it itself.\n\n_dispatch_impl checks for a registered fake kernel before calling\nrun_fake_impl, so whatever the kernel returns, including NotImplemented, is\npropagated and returned as before. run_fake_impl's own NotImplemented only\nmeans \"no kernel registered\".\n\nTest Plan:\n\n```bash\nlintrunner -a torch/_subclasses/fake_tensor.py torch/_library/fake_impl.py\n```\n\nAuthored with an AI assistant.\nPull Request resolved: https://github.com/pytorch/pytorch/pull/199784\nApproved by: https://github.com/ezyang\nghstack dependencies: #200345, #200136, #200130, #199565"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-10T22:14:05Z"
+      },
+      "message": "[CPP FakeTensor] Keep C++ fakes out of plain-tensor-only paths (#200136)\n\nSeveral places use `type(t) is torch.Tensor` (or similar) to mean \"a plain,\nreal tensor\". A C++ fake's exact type is torch.Tensor, so it passes these\nchecks and goes down paths that need real data. meta_utils' _safe_copy and\n_safe_clone would copy or clone a fake source into the shadow real tensor,\nTensor.__format__ would call .item() on a 0-dim fake, the DDP SubmodCompiler's\n\"output should be fake or subclass\" assertion would reject C++ fake outputs,\nthe optests _clone_input_for_aot_autograd helper would ask a fake whether\nit is pinned, which needs real storage, and torch._C._is_cow_tensor (with\nDynamo's _try_is_cow_tensor guard helper) would read a fake's storage data\npointer.\n\nEach check additionally excludes torch._C._is_fake_tensor / is_fake_tensor\n(Tensor::is_fake() in C++),\nwhich is false for every tensor unless a C++ fake exists, so there is no\nchange for Python FakeTensor.\n\nFakeTensorConverter.from_real_tensor reads a 0-dim CPU tensor's value with\n.item() to memoize it; a C++ fake passes _is_plain_tensor, so it is excluded\nwith is_fake().\n\nTest Plan:\n\n```\npython -m py_compile <touched files>\nlintrunner <touched files>\n```\n\nAuthored with an AI assistant.\nPull Request resolved: https://github.com/pytorch/pytorch/pull/200136\nApproved by: https://github.com/ezyang\nghstack dependencies: #200345"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-09T19:53:51Z"
+      },
+      "message": "to_list handling in cpp (#192856)\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/192856\nApproved by: https://github.com/ezyang"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-10-08T20:22:40Z"
+      },
+      "message": "[CPP FakeTensor] Add fake tensor accessor helpers (#193750)\n\nC++ fake tensors are plain torch.Tensor objects, so code that reaches into\nPython FakeTensor attributes (fake_device, item_memo, constant, real_tensor,\ndispatch_keys) or checks isinstance(x, FakeTensor) silently skips them. This\nadds maybe_get_*/maybe_set_* helpers in fake_tensor.py that handle both kinds\n(plus the _clear_fake_real_tensor binding they need), and switches\nfake_tensor.py itself over to them and to is_fake_tensor. The following\ncommits in the stack switch the rest of torch over, one file or folder at a\ntime.\n\nThis is intended to be a refactor for today's (Python FakeTensor) behavior:\nevery new C++ branch is gated on torch._C._is_fake_tensor, which is false for\nevery tensor unless a C++ fake exists. Equivalences worth checking when\nreviewing:\n\n- merge_devices reads the fake device directly instead of t.device. All\n  _find_common_device callers run outside in_kernel_invocation, where\n  FakeTensor.device already returns fake_device.\n- allow_non_fake_inputs_temporarily is added here as a replacement for\n  mock.patch.object(mode, \"allow_non_fake_inputs\", True), which cannot\n  restore C++-backed properties. allow_non_fake_inputs is a plain instance\n  attribute set in __init__ on the Python mode.\n- FakeTensorMode.clear_non_cpu_constants forwards to the converter.\n\nTest Plan:\n\n```\npython -m py_compile <touched files>\nlintrunner <touched files>\n```\n\nAuthored with an AI assistant.\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/193750\nApproved by: https://github.com/ezyang\nghstack dependencies: #200174"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-09-29T17:17:15Z"
+      },
+      "message": "Skip Python Meta py_impl for landed symint C++ meta kernels (#198888)\n\nPull Request resolved: https://github.com/pytorch/pytorch/pull/198888\nApproved by: https://github.com/zou3519"
+    }
+  },
+  {
+    "author": {
+      "login": "liangel-02"
+    },
+    "commit": {
+      "author": {
+        "name": "Angel Li",
+        "date": "2026-09-21T20:49:57Z"
+      },
+      "message": "add arange c++ meta kernel (#197581)\n\nas title,\n<img width=\"643\" height=\"98\" alt=\"Screenshot 2026-09-18 at 3 09 16 PM\" src=\"https://github.com/user-attachments/assets/c2f7d6be-797a-4331-8ed4-902eb248819e\" />\n\nc++ faketensor is 1.32x faster than python faketensor with arange meta kernel written in c++ and is 11.63x faster than c++ faketensor calling back to python for the arange python meta kernel\nPull Request resolved: https://github.com/pytorch/pytorch/pull/197581\nApproved by: https://github.com/ezyang"
+    }
+  }
+]
