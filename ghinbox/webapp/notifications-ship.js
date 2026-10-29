@@ -331,13 +331,19 @@ ${PR_FRAGMENT}`;
     }
 
     const MERGE_REQUEST_RE = /^@pytorch(?:merge)?bot\s+merge\b/im;
+    // Merge failures over what ghinbox re-checks live: the release notes
+    // label, and a PR (this one or one below) nobody has reviewed. The row
+    // shows the cause itself while it holds, so the failure adds nothing and
+    // must not outlive the fix.
+    const SELF_CHECKED_FAILURE_RE = /needs a `?release notes:`? label|has not been reviewed yet/i;
     // Merges take hours at most ("ETA 0-4 Hours"); an older in-flight event
     // with no outcome is not worth trusting.
     const MERGE_IN_FLIGHT_STALE_MS = 12 * 60 * 60 * 1000;
 
     // The newest merge lifecycle event among the PR's last comments. A
-    // failure older than the head commit no longer applies, and a revert
-    // ends whatever merge came before it.
+    // failure older than the head commit no longer applies, one over
+    // something the row re-checks live never did, and a revert ends
+    // whatever merge came before it.
     function getMergebotState(comments, { headCommittedAt = null, nowMs = Date.now() } = {}) {
         let event = null;
         (comments || []).forEach((comment) => {
@@ -351,7 +357,9 @@ ${PR_FRAGMENT}`;
                 } else if (/^#+ Merge started/.test(body)) {
                     event = { state: 'merging', at };
                 } else if (/^#+ Merge failed/.test(body)) {
-                    event = { state: 'failed', ...parseMergeFailureReason(body), at };
+                    event = SELF_CHECKED_FAILURE_RE.test(body)
+                        ? null
+                        : { state: 'failed', ...parseMergeFailureReason(body), at };
                 } else if (/successfully reverted|started a revert job/.test(body)) {
                     event = null;
                 }

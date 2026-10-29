@@ -153,7 +153,10 @@
   only) comments `@pytorchbot merge` on a PR when it and every open PR below
   it in the stack is approved and unblocked (otherwise approved PRs get a
   disabled "Ship Stacked"); blocking failures need a per-(PR, section)
-  acknowledgement and post `@pytorchbot merge -i`. The row "…" menu holds
+  acknowledgement and post `@pytorchbot merge -i`. A mergebot failure
+  over something the row re-checks live (missing release-notes label, "has
+  not been reviewed yet" on this PR or one below) is ignored, so it never
+  outlives the fix; other failures stand until the next push. The row "…" menu holds
   destructive actions (Abandon = close the PR). A human comment or
   commented review newer than both the head commit and the author's own last
   comment/review is an "Unaddressed comment" (Action needed, advisory). A

@@ -52,6 +52,10 @@ SAMPLES: dict[str, tuple[int, str]] = {
         "mergebot:## Merge failed\n**Reason**: This PR needs a `release notes:` label",
     ),
     "mergebot-failed-job": (200103, "mergebot:## Merge failed"),
+    "mergebot-failed-unreviewed": (
+        201375,
+        "mergebot:## Merge failed\n**Reason**: Merge rule check failed for stacked PR",
+    ),
     "mergebot-started": (200103, "mergebot:### Merge started"),
     "mergebot-stack-merge": (200167, "mergebot:Starting merge as part of PR stack"),
     "ghstack-body": (200189, "body"),

@@ -188,16 +188,20 @@ test('getMergebotState follows the merge lifecycle in the last comments', () => 
       expected: { state: 'merging', at: '2026-10-09T01:01:00Z' },
     },
     {
+      // Failures over what ghinbox re-checks live (the label, reviews) are
+      // no news: the row says so itself while the cause holds.
       comments: [
         comment('pytorchmergebot', fixture('mergebot-started'), '2026-10-09T01:01:00Z'),
         comment('pytorchmergebot', fixture('mergebot-failed-label'), '2026-10-09T01:05:00Z'),
       ],
-      expected: {
-        state: 'failed',
-        reason: 'This PR needs a `release notes:` label',
-        failedJobs: [],
-        at: '2026-10-09T01:05:00Z',
-      },
+      expected: null,
+    },
+    {
+      comments: [
+        comment('ezyang', '@pytorchbot merge -f "ok"', '2026-10-09T01:00:00Z'),
+        comment('pytorchmergebot', fixture('mergebot-failed-unreviewed'), '2026-10-09T01:05:00Z'),
+      ],
+      expected: null,
     },
     {
       comments: [comment('pytorchmergebot', fixture('mergebot-stack-merge'), '2026-10-09T01:01:00Z')],
