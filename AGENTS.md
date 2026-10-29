@@ -137,7 +137,13 @@
   requested/merging stack top are Landing too; approved PRs are never in
   Review requested, even when blocked below; a missing release-notes label
   is a yellow warning that never by itself makes a PR Action needed, though
-  it still holds back Ship It). Review requested
+  it still holds back Ship It; when it's all that holds back an approved PR,
+  the row proposes a label from `POST /api/ship/release-label`
+  (`ghinbox/api/ship_routes.py`: the digest's tool-less LLM reads the diff
+  against the repo's labeling guide, the pytorch wiki page pytorchbot links,
+  and may only answer with a real `release notes:` label or `topic: not user
+  facing`; cached in memory per head SHA, refused in test mode) and "Add
+  label" applies it via the REST labels API). Review requested
   sorts by the latest review request, the other sections by `updatedAt`.
   CI status comes from
   the Dr. CI comment (blocking: NEW/UNCLASSIFIED/CANCELLED; unrelated:

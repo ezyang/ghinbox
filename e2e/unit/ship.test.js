@@ -652,6 +652,21 @@ test('a missing release notes label is a warning that never makes action needed'
   );
 });
 
+test('only an approved PR held up by nothing but the label gets a label proposal', () => {
+  const suggests = (options) => {
+    const sections = buildShipSections([pr({ number: 1, labels: [], drci: DRCI.green, ...options })]);
+    return [...sections.action, ...sections.landing, ...sections.review][0].rows[0].suggestLabel;
+  };
+  assert.equal(suggests({ reviewDecision: 'APPROVED' }), true);
+  // Advisory blockers don't stop it: the label still has to go on.
+  assert.equal(suggests({ reviewDecision: 'APPROVED', drci: DRCI.failing }), true);
+  assert.equal(suggests({}), false);
+  assert.equal(suggests({ reviewDecision: 'APPROVED', labels: ['release notes: fx'] }), false);
+  assert.equal(suggests({ reviewDecision: 'APPROVED', mergeable: 'CONFLICTING' }), false);
+  assert.equal(suggests({ reviewDecision: 'APPROVED', isDraft: true }), false);
+  assert.equal(suggests({ repo: 'ezyang/ghstack', reviews: [['APPROVED', 'albanD']] }), false);
+});
+
 test('Review requested lists the most recently requested review first', () => {
   const asked = (number, at, updatedAt) => pr({
     number,

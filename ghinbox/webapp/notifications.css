@@ -680,6 +680,17 @@
             color: var(--color-fg-muted);
         }
 
+        .ship-label-suggestion {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--color-fg-muted);
+        }
+
+        .ship-label-suggestion code {
+            color: var(--color-fg-default);
+        }
+
         .ship-undo {
             display: flex;
             align-items: center;

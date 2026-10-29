@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 import {
   captureIssueCommentPosts,
   capturePullRequestPatches,
+  mockReleaseLabels,
   mockShipGraphql,
   mockSlack,
   openNotificationsWithCachedData,
@@ -37,6 +38,7 @@ function prNode({
   tail = [],
   author = 'ezyang',
   requested = [],
+  labels = ['topic: not user facing'],
 }: {
   number: number;
   title: string;
@@ -48,6 +50,7 @@ function prNode({
   tail?: Array<{ author: { login: string }; body: string; createdAt: string; url?: string }>;
   author?: string;
   requested?: Array<{ login: string; name: string; at: string; codeOwner?: boolean }>;
+  labels?: string[];
 }) {
   return {
     number,
@@ -62,7 +65,7 @@ function prNode({
     body,
     author: { login: author },
     repository: { nameWithOwner: 'pytorch/pytorch' },
-    labels: { nodes: [{ name: 'topic: not user facing' }] },
+    labels: { nodes: labels.map((name) => ({ name })) },
     reviewRequests: {
       totalCount: Math.max(1, requested.length),
       nodes: requested.map(({ login, name, codeOwner = false }) => ({
@@ -335,6 +338,54 @@ test.describe('Ship pane @mutation', () => {
     await expect(reason).toHaveText('Unaddressed comment from @ngimel');
     await expect(reason).toHaveAttribute('href', url);
     await expect(reason).toHaveAttribute('data-severity', 'error');
+    await expect(row.locator('.ship-it-btn')).toHaveText('Ship It');
+  });
+
+  test('an approved PR missing only its release notes label gets a proposed label to add', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    await mockShipGraphql(page, {
+      searchNodes: [
+        prNode({
+          number: 1200,
+          title: 'Expose torch.assert_async',
+          updatedAt: '2026-10-08T10:00:00Z',
+          reviewDecision: 'APPROVED',
+          drciComment: drci('drci-no-failures'),
+          labels: [],
+        }),
+        // Not approved yet: the label is only a heads-up, nothing to propose.
+        prNode({
+          number: 1201,
+          title: 'Still in review',
+          updatedAt: '2026-10-08T09:00:00Z',
+          drciComment: drci('drci-no-failures'),
+          labels: [],
+        }),
+      ],
+      stackNodes: {},
+    });
+    const labels = await mockReleaseLabels(page, {
+      1200: { label: 'release notes: python_frontend', why: 'New public torch API.' },
+    });
+
+    await viewTab(page, 'ship').click();
+    const row = shipRow(page, 1200);
+    await expect(row.locator('.ship-reason')).toHaveText('Needs release notes label');
+    await expect(row.locator('.ship-it-btn')).toHaveCount(0);
+    const suggestion = row.locator('.ship-label-suggestion');
+    await expect(suggestion).toHaveAttribute('data-state', 'ok');
+    await expect(suggestion.locator('code')).toHaveText('release notes: python_frontend');
+    await expect(suggestion).toHaveAttribute('title', 'New public torch API.');
+    await expect(shipRow(page, 1201).locator('.ship-label-suggestion')).toHaveCount(0);
+    expect(labels.asked).toEqual([{ repo: 'pytorch/pytorch', number: 1200, head_sha: null }]);
+
+    await suggestion.locator('.ship-add-label-btn').click();
+    await expect.poll(() => labels.added).toEqual([
+      { target: 'pytorch/pytorch#1200', labels: ['release notes: python_frontend'] },
+    ]);
+    // Labeled, it is ready to ship.
+    await expect(row.locator('.ship-reason')).toHaveCount(0);
+    await expect(row.locator('.ship-label-suggestion')).toHaveCount(0);
     await expect(row.locator('.ship-it-btn')).toHaveText('Ship It');
   });
 

@@ -40,6 +40,10 @@
     const slackLookups = new Map();
     // GitHub login -> { state: loading|ok|missing, unixname, status, detail }.
     const employeeLookups = new Map();
+    // `${pr.key}@${headSha}` -> { state: loading|ok|error, label, why, detail }:
+    // the server's LLM-proposed release notes label for a push.
+    const labelSuggestions = new Map();
+    const addingLabel = new Set();
 
     function bumpVersion() {
         state.ship.version += 1;
@@ -256,6 +260,88 @@
         </div>`;
     }
 
+    function suggestionKey(pr) {
+        return `${pr.key}@${pr.headSha || ''}`;
+    }
+
+    function renderLabelSuggestion(row) {
+        const suggestion = row.suggestLabel && labelSuggestions.get(suggestionKey(row.pr));
+        if (!suggestion) {
+            return '';
+        }
+        if (suggestion.state === 'loading') {
+            return '<span class="ship-label-suggestion" data-state="loading">Picking a label…</span>';
+        }
+        if (suggestion.state === 'error') {
+            return `<span class="ship-label-suggestion" data-state="error" title="${escapeHtml(suggestion.detail)}">No label to propose</span>`;
+        }
+        const adding = addingLabel.has(row.pr.key);
+        return `<span class="ship-label-suggestion" data-state="ok" title="${escapeHtml(suggestion.why)}">
+            <code>${escapeHtml(suggestion.label)}</code>
+            <button class="btn btn-small ship-add-label-btn" type="button" data-pr-key="${escapeHtml(row.pr.key)}"${adding ? ' disabled' : ''}>${adding ? 'Adding…' : 'Add label'}</button>
+        </span>`;
+    }
+
+    // One proposal per push, one at a time: each is an LLM call.
+    let suggesting = false;
+    async function requestLabelSuggestions() {
+        const sections = getShipSections();
+        if (suggesting || !sections) {
+            return;
+        }
+        const row = [...sections.action, ...sections.landing, ...sections.review]
+            .flatMap((group) => group.rows)
+            .find((item) => item.suggestLabel && !labelSuggestions.has(suggestionKey(item.pr)));
+        if (!row) {
+            return;
+        }
+        const { pr } = row;
+        const key = suggestionKey(pr);
+        suggesting = true;
+        labelSuggestions.set(key, { state: 'loading' });
+        renderShipPanel();
+        try {
+            const result = await fetchJson('/api/ship/release-label', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo: pr.repo, number: pr.number, head_sha: pr.headSha }),
+            });
+            labelSuggestions.set(key, { state: 'ok', label: result.label, why: result.why || '' });
+        } catch (error) {
+            console.warn(`No release notes label for #${pr.number}:`, error);
+            labelSuggestions.set(key, { state: 'error', detail: error.detail || error.message || String(error) });
+        } finally {
+            suggesting = false;
+            renderShipPanel();
+        }
+    }
+
+    async function addSuggestedLabel(prKey) {
+        const pr = findPr(prKey);
+        const suggestion = pr && labelSuggestions.get(suggestionKey(pr));
+        if (!pr || suggestion?.state !== 'ok' || addingLabel.has(prKey)) {
+            return;
+        }
+        addingLabel.add(prKey);
+        renderShipPanel();
+        try {
+            await fetchJson(`/github/rest/repos/${pr.repo}/issues/${pr.number}/labels`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ labels: [suggestion.label] }),
+            });
+            pr.labels = [...pr.labels, suggestion.label];
+            writeShipCache();
+            bumpVersion();
+            showStatus(`Labeled #${pr.number} "${suggestion.label}"`, 'success', { autoDismiss: true });
+        } catch (error) {
+            showStatus(`Adding a label to #${pr.number} failed: ${error.message || error}`, 'error');
+        } finally {
+            addingLabel.delete(prKey);
+            render();
+        }
+    }
+
     function renderRow(row) {
         const { pr } = row;
         const blocking = row.blocking
@@ -266,6 +352,7 @@
             ...row.reasons.map((reason) => reason.url
                 ? `<a class="ship-reason" data-severity="${reason.severity}" href="${escapeHtml(reason.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(reason.label)}</a>`
                 : `<span class="ship-reason" data-severity="${reason.severity}">${escapeHtml(reason.label)}</span>`),
+            renderLabelSuggestion(row),
             row.waiting ? `<span class="ship-waiting">${escapeHtml(row.waiting)}</span>` : '',
         ].join('');
         return `<li class="ship-row" data-pr-key="${escapeHtml(pr.key)}" data-needs-action="${row.needsAction}">
@@ -329,6 +416,7 @@
             renderSection('action', 'Action needed', sections.action, sections.actionCount, 'Nothing needs you.') +
             renderSection('landing', 'Landing', sections.landing, sections.landingCount, 'Nothing is landing.') +
             renderSection('review', 'Review requested', sections.review, sections.reviewCount, 'Nothing is waiting on reviewers.');
+        requestLabelSuggestions();
     }
 
     function findRow(prKey) {
@@ -686,6 +774,11 @@
         if (more) {
             openMenuKey = openMenuKey === more.dataset.prKey ? null : more.dataset.prKey;
             renderShipPanel();
+            return;
+        }
+        const addLabel = event.target.closest('.ship-add-label-btn');
+        if (addLabel) {
+            withActionContext('Add release notes label', () => addSuggestedLabel(addLabel.dataset.prKey));
             return;
         }
         const abandonButton = event.target.closest('.ship-abandon-btn');

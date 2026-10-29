@@ -916,3 +916,33 @@ export async function capturePullRequestPatches(page: Page) {
   });
   return patches;
 }
+
+/**
+ * Mock the server's release notes label proposals (`suggestions` maps PR
+ * number -> answer) and record labels the app adds on GitHub.
+ */
+export async function mockReleaseLabels(
+  page: Page,
+  suggestions: Record<number, { label: string; why: string }>
+) {
+  const asked: Array<{ repo: string; number: number; head_sha: string | null }> = [];
+  const added: Array<{ target: string; labels: string[] }> = [];
+  await page.route('**/api/ship/release-label', (route) => {
+    const body = route.request().postDataJSON();
+    asked.push({ repo: body.repo, number: body.number, head_sha: body.head_sha ?? null });
+    const suggestion = suggestions[body.number];
+    return suggestion
+      ? fulfillJson(route, suggestion)
+      : fulfillJson(route, { detail: 'LLM proposed a label the repo does not have' }, 502);
+  });
+  await page.route('**/github/rest/repos/*/*/issues/*/labels', (route) => {
+    if (route.request().method() !== 'POST') {
+      return route.fallback();
+    }
+    const match = new URL(route.request().url()).pathname.match(/\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/labels$/);
+    const labels: string[] = route.request().postDataJSON()?.labels || [];
+    added.push({ target: match ? `${match[1]}/${match[2]}#${match[3]}` : route.request().url(), labels });
+    return fulfillJson(route, labels.map((name) => ({ name })));
+  });
+  return { asked, added };
+}

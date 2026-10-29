@@ -999,6 +999,16 @@ ${PR_FRAGMENT}`;
             'Could you take a look when you get a chance?';
     }
 
+    // Approved and held up only by the release notes label: ghinbox may
+    // propose one (an LLM reads the diff against the repo's labeling guide).
+    function wantsReleaseLabel(assessment) {
+        return assessment.approved && !assessment.merging &&
+            assessment.blockers.some((blocker) => blocker.code === 'needs-label') &&
+            !assessment.blockers.some((blocker) =>
+                blocker.code !== 'needs-label' && HARD_BLOCKERS.includes(blocker.code)
+            );
+    }
+
     function buildRow(pr, prsByKey, pingOptions) {
         const assessment = assessPullRequest(pr);
         const plan = planShip(pr, prsByKey);
@@ -1030,6 +1040,7 @@ ${PR_FRAGMENT}`;
             ping: getReviewerPings(pr, assessment, pingOptions),
             needsAction,
             landing,
+            suggestLabel: wantsReleaseLabel(assessment),
         };
     }
 
