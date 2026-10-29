@@ -483,6 +483,23 @@ test.describe('Ship pane @mutation', () => {
     expect(searches).toHaveLength(2);
   });
 
+  test('focusing the window again reloads a stale PRs tab, but not a fresh one', async ({ page }) => {
+    await page.clock.install();
+    await openNotificationsWithCachedData(page);
+    const searches = await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });
+    await viewTab(page, 'ship').click();
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeEnabled();
+    expect(searches).toHaveLength(1);
+
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => searches.length, { timeout: 500 }).toBe(1);
+
+    await page.clock.fastForward('03:00');
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => searches.length).toBe(2);
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeEnabled();
+  });
+
   test('cancelling the acknowledgement posts nothing', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     await mockShipGraphql(page, { searchNodes: SEARCH_NODES, stackNodes: STACK_NODES });

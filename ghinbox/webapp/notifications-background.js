@@ -140,16 +140,43 @@
             !visible.unusual.length && !nothingUnusual;
     }
 
-    async function backgroundTick() {
-        if (document.visibilityState === 'hidden') {
-            return;
-        }
+    let tickInFlight = null;
+
+    async function runBackgroundTick() {
         try {
             await refreshServerSnapshotInBackground();
         } catch (error) {
             console.error('Background snapshot refresh failed:', error);
         }
         refreshDigest();
+    }
+
+    function backgroundTick() {
+        if (document.visibilityState === 'hidden') {
+            return Promise.resolve();
+        }
+        // Focus and visibilitychange often fire together; share one pull.
+        if (!tickInFlight) {
+            tickInFlight = runBackgroundTick().finally(() => {
+                tickInFlight = null;
+            });
+        }
+        return tickInFlight;
+    }
+
+    // Back on the page (tab shown, or window focused from another app): pull
+    // the server snapshot, and let live views reload if their data is stale.
+    function handleReturnToPage() {
+        if (document.visibilityState === 'hidden') {
+            return;
+        }
+        backgroundTick();
+        if (typeof maybeAutoReloadReviews === 'function') {
+            maybeAutoReloadReviews();
+        }
+        if (typeof maybeAutoLoadShip === 'function') {
+            maybeAutoLoadShip();
+        }
     }
 
     function startBackgroundRefresh() {
@@ -161,11 +188,8 @@
             backgroundTick,
             GhinboxDigest.BACKGROUND_REFRESH_INTERVAL_MS
         );
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                backgroundTick();
-            }
-        });
+        document.addEventListener('visibilitychange', handleReturnToPage);
+        window.addEventListener('focus', handleReturnToPage);
     }
 
     if (panel) {

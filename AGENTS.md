@@ -122,10 +122,12 @@
     noise), mirroring the webapp's post-sync sweep so it runs with no tab
     open; it skips synthetic rows and items whose snapshot comments predate
     their latest activity. `GHINBOX_DIGEST_AUTO_DONE=0` disables both.
-  - The client pulls a newer server snapshot every 5 minutes and when the tab
-    becomes visible again (no GitHub calls), skipping it while the user is
-    mid-action or when the sync started before the last local mark-done.
-    Reviews reloads live from GitHub when you enter the view.
+  - The client pulls a newer server snapshot every 5 minutes and when you
+    return to the page (tab visible again or window refocused; no GitHub
+    calls), skipping it while the user is mid-action or when the sync started
+    before the last local mark-done. Reviews and PRs reload live from GitHub
+    when you enter the view, and on return when their last load is 2+
+    minutes old.
 - PRs tab (view key `ship`; `notifications-ship.js` pure model, `notifications-ship-view.js`
   wiring): the viewer's open non-draft PRs updated in the last 90 days,
   fetched live via GraphQL search on entering the tab (not part of the
