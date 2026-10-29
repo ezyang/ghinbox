@@ -17,6 +17,8 @@
     }
 
     const AUTO_RELOAD_AFTER_MS = 2 * 60 * 1000;
+    // GitHub usually finishes computing mergeability within seconds.
+    const MERGEABLE_RECHECK_DELAYS_MS = [3000, 10000];
     // The last load, so a page reload renders at once while GitHub (several
     // seconds of GraphQL) revalidates in the background.
     const CACHE_KEY = 'ghnotif_ship_cache_v1';
@@ -131,11 +133,11 @@
         return nodes;
     }
 
-    // Stack members the search skipped (merged, draft, stale). A failed
-    // lookup leaves them unknown, which only hides Ship It above them.
-    async function fetchMissingStackMembers(prs, nowMs) {
+    // PRs by number, one aliased query per batch. A failed lookup leaves
+    // its PRs out: unknown stack members only hide Ship It above them.
+    async function fetchPullRequestBatches(batches, nowMs) {
         const found = [];
-        await Promise.all(GhinboxShip.getMissingStackNumbers(prs).map(async (batch) => {
+        await Promise.all(batches.map(async (batch) => {
             try {
                 const data = await fetchGraphql(
                     GhinboxShip.buildStackLookupGraphql(batch.repo, batch.numbers),
@@ -148,7 +150,7 @@
                     }
                 });
             } catch (error) {
-                console.error(`Ship stack lookup failed for ${batch.repo}:`, error);
+                console.error(`Ship PR lookup failed for ${batch.repo}:`, error);
             }
         }));
         return found;
@@ -167,11 +169,13 @@
             const prs = nodes
                 .map((node) => GhinboxShip.normalizePullRequest(node, { nowMs }))
                 .filter(Boolean);
-            prs.push(...(await fetchMissingStackMembers(prs, nowMs)));
+            // Stack members the search skipped (merged, draft, stale).
+            prs.push(...(await fetchPullRequestBatches(GhinboxShip.getMissingStackNumbers(prs), nowMs)));
             state.ship.prs = prs;
             state.ship.fetchedAt = nowMs;
             state.ship.fromCache = false;
             writeShipCache();
+            scheduleMergeableRecheck(nowMs, 0);
         } catch (error) {
             console.error('Ship load failed:', error);
             state.ship.error = error.message || String(error);
@@ -180,6 +184,32 @@
             bumpVersion();
             render();
         }
+    }
+
+    // Re-ask GitHub about PRs whose mergeability it had not computed yet, so
+    // a merge conflict surfaces without a manual reload.
+    function scheduleMergeableRecheck(loadedAt, attempt) {
+        if (attempt >= MERGEABLE_RECHECK_DELAYS_MS.length) {
+            return;
+        }
+        setTimeout(async () => {
+            if (state.ship.fetchedAt !== loadedAt || state.ship.loading) {
+                return;
+            }
+            const batches = GhinboxShip.getUnknownMergeableNumbers(state.ship.prs);
+            if (!batches.length) {
+                return;
+            }
+            const fresh = await fetchPullRequestBatches(batches, Date.now());
+            if (state.ship.fetchedAt !== loadedAt || state.ship.loading) {
+                return;
+            }
+            state.ship.prs = GhinboxShip.replacePullRequests(state.ship.prs, fresh);
+            writeShipCache();
+            bumpVersion();
+            render();
+            scheduleMergeableRecheck(loadedAt, attempt + 1);
+        }, MERGEABLE_RECHECK_DELAYS_MS[attempt]);
     }
 
     function maybeAutoLoadShip() {

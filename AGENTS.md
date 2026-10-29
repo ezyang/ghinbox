@@ -130,7 +130,9 @@
   wiring): the viewer's open non-draft PRs updated in the last 90 days,
   fetched live via GraphQL search on entering the tab (not part of the
   notification snapshot; the last load is cached in localStorage and shown
-  at once while it revalidates, with Ship It disabled until then), grouped by
+  at once while it revalidates, with Ship It disabled until then; PRs whose
+  `mergeable` GitHub had not computed yet are re-asked 3s and 10s later, so a
+  merge conflict still makes a PR Action needed), grouped by
   stack (ghstack body, or GitHub-native `pullRequest.stack`; mergebot lands
   both bottom-up, and closes landed PRs with a `Merged` label) into "Action needed" / "Landing" / "Review requested" (each
   PR goes to its own section, so a stack can split; PRs below a

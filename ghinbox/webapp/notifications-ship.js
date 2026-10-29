@@ -605,14 +605,42 @@ ${PR_FRAGMENT}`;
                 missing.get(pr.repo).add(number);
             });
         });
+        return batchByRepo(missing);
+    }
+
+    // repo -> Set of numbers, as lookup batches of at most STACK_LOOKUP_BATCH.
+    function batchByRepo(numbersByRepo) {
         const batches = [];
-        missing.forEach((numbers, repo) => {
+        numbersByRepo.forEach((numbers, repo) => {
             const sorted = Array.from(numbers).sort((a, b) => b - a);
             for (let i = 0; i < sorted.length; i += STACK_LOOKUP_BATCH) {
                 batches.push({ repo, numbers: sorted.slice(i, i + STACK_LOOKUP_BATCH) });
             }
         });
         return batches;
+    }
+
+    // GitHub computes mergeability lazily: search often says UNKNOWN for a PR
+    // nobody has looked at since main moved, and asking starts the work. A
+    // look a few seconds later finds the answer, conflicts included.
+    function getUnknownMergeableNumbers(prs) {
+        const unknown = new Map();
+        prs.forEach((pr) => {
+            if (pr.state !== 'OPEN' || pr.mergeable !== 'UNKNOWN') {
+                return;
+            }
+            if (!unknown.has(pr.repo)) {
+                unknown.set(pr.repo, new Set());
+            }
+            unknown.get(pr.repo).add(pr.number);
+        });
+        return batchByRepo(unknown);
+    }
+
+    // Swap in freshly fetched copies of PRs, keeping the rest.
+    function replacePullRequests(prs, fresh) {
+        const byKey = new Map(fresh.map((pr) => [pr.key, pr]));
+        return prs.map((pr) => byKey.get(pr.key) || pr);
     }
 
     // A just-posted merge request shows before GitHub's comment list catches
@@ -1249,6 +1277,7 @@ ${PR_FRAGMENT}`;
         getDrCiSectionKind,
         getMergebotState,
         getMissingStackNumbers,
+        getUnknownMergeableNumbers,
         getPingKey,
         getReviewerPings,
         getShipButtonLabel,
@@ -1261,6 +1290,7 @@ ${PR_FRAGMENT}`;
         parseGhstackStack,
         parseNativeStack,
         planShip,
+        replacePullRequests,
         resolveStackMerges,
         summarizeCi,
     };

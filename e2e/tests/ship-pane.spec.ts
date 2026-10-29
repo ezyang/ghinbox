@@ -320,6 +320,28 @@ test.describe('Ship pane @mutation', () => {
     await expect(row.locator('.ship-it-btn')).toHaveCount(0);
   });
 
+  test('a conflict GitHub had not computed at search time still lands in Action needed', async ({ page }) => {
+    await openNotificationsWithCachedData(page);
+    const node = prNode({
+      number: 1050,
+      title: 'Conflicts with main',
+      updatedAt: '2026-10-08T10:00:00Z',
+      drciComment: drci('drci-no-failures'),
+    });
+    // GitHub computes mergeability lazily: search says UNKNOWN, a look
+    // seconds later says CONFLICTING.
+    await mockShipGraphql(page, {
+      searchNodes: [{ ...node, mergeable: 'UNKNOWN' }],
+      stackNodes: { pr1050: { ...node, mergeable: 'CONFLICTING' } },
+    });
+
+    await viewTab(page, 'ship').click();
+    await expect(page.locator('.ship-section[data-section="review"]').locator(shipRow(page, 1050))).toBeVisible();
+    const row = page.locator('.ship-section[data-section="action"]').locator(shipRow(page, 1050));
+    await expect(row.locator('.ship-reason')).toHaveText('Merge conflict', { timeout: 10000 });
+    await expect(page.locator('.ship-section[data-section="review"]').locator(shipRow(page, 1050))).toHaveCount(0);
+  });
+
   test('a comment after the last push is reported as unaddressed', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     const url = 'https://github.com/pytorch/pytorch/pull/1100#issuecomment-1';
