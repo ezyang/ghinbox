@@ -176,7 +176,7 @@ test.describe('Ship pane @mutation', () => {
     const landing = page.locator('.ship-section[data-section="landing"]');
     await expect(action.locator('.ship-group')).toHaveCount(4);
     expect(searches[0]).toMatch(/^is:pr is:open author:@me archived:false draft:false updated:>=/);
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('5');
     await expect(landing.locator('.ship-empty')).toHaveText('Nothing is landing.');
     await expect(page.locator('#notifications-list .notification-item')).toHaveCount(0);
     await expect(page.locator('#empty-state')).toBeHidden();
@@ -184,12 +184,13 @@ test.describe('Ship pane @mutation', () => {
     await expect(page.locator('#bottom-actions-row')).toBeHidden();
 
     // The stack splits by row, newest first; the merged base is hidden.
+    // Approved 503 is past review, so it sits with 501, not with 502.
     const stack = action.locator('.ship-group').first();
     await expect(stack).toHaveAttribute('data-stack', 'true');
-    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#501']);
-    await expect(stack.locator('.ship-stack-label')).toHaveText('Stack · 1 of 3 open PRs');
+    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#501']);
+    await expect(stack.locator('.ship-stack-label')).toHaveText('Stack · 2 of 3 open PRs');
     const waitingStack = review.locator('.ship-group[data-stack="true"]');
-    await expect(waitingStack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#502']);
+    await expect(waitingStack.locator('.ship-pr-link')).toHaveText(['pytorch#502']);
     // Approved but blocked lower in the stack: a greyed-out Ship Stacked.
     const blockedShip = shipRow(page, 503).locator('.ship-it-btn');
     await expect(blockedShip).toHaveText('Ship Stacked');
@@ -210,7 +211,7 @@ test.describe('Ship pane @mutation', () => {
     await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveAttribute('data-status', 'changes-requested');
     await expect(shipRow(page, 800).locator('.ship-status-pill')).toHaveCSS('color', 'rgb(191, 57, 137)');
     await expect(shipRow(page, 800).locator('.ship-reason')).toHaveCount(0);
-    await expect(review.locator('.ship-row')).toHaveCount(3);
+    await expect(review.locator('.ship-row')).toHaveCount(2);
     await expect(shipRow(page, 700).locator('.ship-status-pill')).toHaveText('Needs review');
     await expect(shipRow(page, 700).locator('.ship-ci')).toHaveText('CI pending (1)');
 
@@ -229,7 +230,7 @@ test.describe('Ship pane @mutation', () => {
     await shipRow(page, 600).locator('.ship-it-btn').click();
     await expect.poll(() => posts).toEqual([{ target: 'pytorch/pytorch#600', body: '@pytorchbot merge' }]);
     await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"] .ship-status-pill`)).toHaveText('Merge requested');
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
 
     // Shipping over a blocking failure needs every failure acknowledged.
     await shipRow(page, 501).locator('.ship-it-btn').click();
@@ -278,7 +279,7 @@ test.describe('Ship pane @mutation', () => {
     await row.locator('.ship-abandon-btn').click();
     await expect.poll(() => patches).toEqual([{ target: 'pytorch/pytorch#800', body: { state: 'closed' } }]);
     await expect(row).toHaveCount(0);
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('3');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
     const undo = page.locator('.ship-undo');
     await expect(undo).toContainText('Abandoned #800 Changes requested');
 
@@ -286,7 +287,7 @@ test.describe('Ship pane @mutation', () => {
     await expect.poll(() => patches.at(-1)).toEqual({ target: 'pytorch/pytorch#800', body: { state: 'open' } });
     await expect(row).toBeVisible();
     await expect(undo).toHaveCount(0);
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('5');
     expect(dialogs).toEqual([]);
   });
 
@@ -355,7 +356,7 @@ test.describe('Ship pane @mutation', () => {
 
     await expect(page.locator('#ship-panel')).toBeVisible();
     await expect(shipRow(page, 600)).toBeVisible();
-    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
+    await expect(viewTab(page, 'ship').locator('.count')).toHaveText('5');
     await expect(page.locator('.ship-status')).toContainText('refreshing…');
     // Cached rows can be stale, so Ship It waits for GitHub.
     await expect(shipRow(page, 600).locator('.ship-it-btn')).toBeDisabled();

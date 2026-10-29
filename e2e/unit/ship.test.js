@@ -448,11 +448,11 @@ test('planShip reads GitHub-native stacks, counting mergebot-landed PRs as merge
   ]);
 
   const sections = buildShipSections([landed, awaiting, top, above]);
-  assert.equal(sections.action.length, 0);
-  assert.equal(sections.review.length, 1);
-  const group = sections.review[0];
+  assert.deepEqual(sections.review.map((group) => group.rows.map((row) => row.pr.number)), [[201374]]);
+  assert.equal(sections.action.length, 1);
+  const group = sections.action[0];
   assert.equal(group.isStack, true);
-  assert.deepEqual(group.rows.map((row) => row.pr.number), [201380, 201375, 201374]);
+  assert.deepEqual(group.rows.map((row) => row.pr.number), [201380, 201375]);
   assert.equal(group.rows[1].waiting, 'Waiting on #201374 (awaiting review)');
 });
 
@@ -608,21 +608,22 @@ test('buildShipSections splits stacks into action needed and review requested', 
   ];
   const sections = buildShipSections(prs);
   // Each PR goes where it belongs; a stack splits across sections.
+  // Approved is past review: 503 waits on 502 below, but not on reviewers.
   assert.deepEqual(
-    sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.needsAction])),
+    sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.needsAction, row.waiting])),
     [
-      [[501, true]],
-      [[800, true]],
+      [[503, true, 'Waiting on #502 (awaiting review)'], [501, true, null]],
+      [[800, true, null]],
     ]
   );
   assert.equal(sections.action[0].isStack, true);
   assert.equal(sections.action[0].stackSize, 3);
-  assert.equal(sections.action[0].rows[0].plan.canShip, true);
+  assert.equal(sections.action[0].rows[1].plan.canShip, true);
   assert.deepEqual(
     sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [
       [[600, null]],
-      [[503, 'Waiting on #502 (awaiting review)'], [502, null]],
+      [[502, null]],
     ]
   );
   assert.equal(sections.review[1].stackSize, 3);
@@ -630,9 +631,44 @@ test('buildShipSections splits stacks into action needed and review requested', 
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[700, null]]]
   );
-  assert.equal(sections.actionCount, 2);
-  assert.equal(sections.reviewCount, 3);
+  assert.equal(sections.actionCount, 3);
+  assert.equal(sections.reviewCount, 2);
   assert.equal(sections.landingCount, 1);
+});
+
+test('a missing release notes label only pulls an approved PR out of Review requested', () => {
+  const sections = buildShipSections([
+    pr({ number: 960, labels: [], drci: DRCI.green }),
+    pr({ number: 961, labels: [], drci: DRCI.green, reviewDecision: 'APPROVED' }),
+  ]);
+  // Reviewers still have 960; the label is a heads-up for merge time.
+  assert.deepEqual(
+    sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.reasons])),
+    [[[960, [{ label: 'Needs release notes label', severity: 'warning', url: null }]]]]
+  );
+  assert.deepEqual(
+    sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.reasons])),
+    [[[961, [{ label: 'Needs release notes label', severity: 'error', url: null }]]]]
+  );
+});
+
+test('Review requested lists the most recently requested review first', () => {
+  const asked = (number, at, updatedAt) => pr({
+    number,
+    drci: DRCI.green,
+    updatedAt,
+    requested: [['albanD', 'Alban', at]],
+  });
+  const sections = buildShipSections([
+    // A bot comment bumps updatedAt; it doesn't make the ask newer.
+    asked(970, '2026-09-01T00:00:00Z', '2026-10-08T23:00:00Z'),
+    asked(971, '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z'),
+    asked(972, '2026-09-15T00:00:00Z', '2026-10-05T00:00:00Z'),
+  ]);
+  assert.deepEqual(
+    sections.review.map((group) => group.rows[0].pr.number),
+    [971, 972, 970]
+  );
 });
 
 test('every row gets a review status pill, and reasons skip what it says', () => {
@@ -670,13 +706,13 @@ test('buildShipSections moves the landing part of a stack to Landing', () => {
     sections.landing.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[912, null], [911, 'Landing with #912']]]
   );
-  // The top waits for the landing below it.
+  // The top waits for the landing below it, past review.
   assert.deepEqual(
-    sections.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    sections.action.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[913, 'Waiting on #912 (landing)']]]
   );
-  assert.equal(getShipButtonLabel(sections.review[0].rows[0].plan), 'Ship Stacked');
-  assert.equal(sections.actionCount, 0);
+  assert.equal(getShipButtonLabel(sections.action[0].rows[0].plan), 'Ship Stacked');
+  assert.equal(sections.review.length, 0);
 });
 
 test('a stack too deep for CI is CI not run, not 23 failures, and blocks the stack above', () => {
@@ -721,7 +757,7 @@ test('buildShipSections hides merged stack members but keeps them for planning',
     pr({ number: 921, body: stackBody([922, 921], 921), state: 'CLOSED' }),
   ]);
   assert.deepEqual(
-    blocked.review.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
+    blocked.action.map((group) => group.rows.map((row) => [row.pr.number, row.waiting])),
     [[[922, 'Waiting on #921 (closed without merging)']]]
   );
 });

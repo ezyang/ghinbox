@@ -541,6 +541,9 @@ ${PR_FRAGMENT}`;
             reviewDecision: node.reviewDecision || null,
             labels,
             reviewRequestCount: node.reviewRequests?.totalCount || 0,
+            reviewRequestedAt: (node.reviewRequestedEvents?.nodes || [])
+                .map((event) => event?.createdAt || '')
+                .sort().pop() || null,
             requestedReviewers: getRequestedReviewers({
                 reviewRequests: node.reviewRequests,
                 reviewRequestedEvents: node.reviewRequestedEvents,
@@ -681,7 +684,12 @@ ${PR_FRAGMENT}`;
             blockers.push({ code: 'changes-requested', label: 'Changes requested' });
         }
         if (pr.usesMergebot && needsReleaseNotesLabel(pr)) {
-            blockers.push({ code: 'needs-label', label: 'Needs release notes label' });
+            blockers.push({
+                code: 'needs-label',
+                // A heads-up until approval makes it the thing stopping a merge.
+                severity: approved ? 'error' : 'warning',
+                label: 'Needs release notes label',
+            });
         }
         if (pr.labels.includes('Reverted')) {
             blockers.push({ code: 'reverted', label: 'Reverted' });
@@ -911,6 +919,9 @@ ${PR_FRAGMENT}`;
     // Blockers the status pill already says.
     const STATUS_BLOCKERS = ['draft', 'changes-requested', 'no-reviewers'];
 
+    // Only stop a merge, so they don't take a PR away from its reviewers.
+    const MERGE_TIME_BLOCKERS = ['needs-label'];
+
     // What the status pill leaves out, if anything.
     function describeWaiting(pr, assessment, plan) {
         if (isLanding(pr)) {
@@ -1008,15 +1019,18 @@ ${PR_FRAGMENT}`;
             reasons.unshift({ label: 'Approved; merge on GitHub', severity: 'info' });
         }
         const landing = assessment.merging;
-        const needsAction = !landing &&
-            (plan.canShip || landByHand || assessment.blockers.length > 0);
+        // Approved is past review even when the stack below holds it up.
+        const needsAction = !landing && (
+            assessment.approved ||
+            assessment.blockers.some((blocker) => !MERGE_TIME_BLOCKERS.includes(blocker.code))
+        );
         return {
             pr,
             assessment,
             plan,
             reasons,
             status: getReviewStatus(pr, assessment),
-            waiting: needsAction ? null : describeWaiting(pr, assessment, plan),
+            waiting: describeWaiting(pr, assessment, plan),
             ping: getReviewerPings(pr, assessment, pingOptions),
             needsAction,
             landing,
@@ -1086,12 +1100,16 @@ ${PR_FRAGMENT}`;
                     stackSize: rows.length,
                     rows: entryRows,
                     updatedAt: entryRows.map((row) => row.pr.updatedAt || '').sort().pop(),
+                    requestedAt: entryRows
+                        .map((row) => row.pr.reviewRequestedAt || row.pr.updatedAt || '')
+                        .sort().pop(),
                 });
             });
         });
         const byRecent = (a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt));
         action.sort(byRecent);
-        review.sort(byRecent);
+        // Comments and CI bump updatedAt; the ask is what reviewers queue on.
+        review.sort((a, b) => String(b.requestedAt).localeCompare(String(a.requestedAt)));
         landing.sort(byRecent);
         const countRows = (groups, predicate) =>
             groups.reduce((total, group) => total + group.rows.filter(predicate).length, 0);
