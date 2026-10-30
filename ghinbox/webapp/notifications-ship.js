@@ -454,7 +454,9 @@ ${PR_FRAGMENT}`;
 
     // Someone else's comment or review after the author's last word: the
     // newer of the head commit and the author's own last comment/review.
-    function findUnaddressedComments({ authorLogin, comments, reviews, headCommittedAt }) {
+    // Only a note: top-level comments can't be resolved, so this can't
+    // tell an open question from a thanks.
+    function findCommentsAfterLastWord({ authorLogin, comments, reviews, headCommittedAt }) {
         const entries = [
             ...comments.map((comment) => ({
                 author: comment.author,
@@ -574,7 +576,7 @@ ${PR_FRAGMENT}`;
                 })),
             headSha,
             headCommittedAt: commit?.committedDate || null,
-            unaddressed: findUnaddressedComments({
+            newComments: findCommentsAfterLastWord({
                 authorLogin: node.author?.login || null,
                 comments: tailComments,
                 reviews: (node.recentReviews?.nodes || []).filter(Boolean),
@@ -762,15 +764,13 @@ ${PR_FRAGMENT}`;
         if (pr.mergebot?.state === 'failed') {
             blockers.push(describeMergeFailure(pr));
         }
-        const unaddressed = pr.unaddressed || [];
-        if (unaddressed.length && !merging) {
-            const logins = Array.from(new Set(unaddressed.map((entry) => `@${entry.login}`)));
+        const newComments = pr.newComments || [];
+        if (newComments.length && !merging) {
             blockers.push({
-                code: 'unaddressed',
-                label: unaddressed.length === 1
-                    ? `Unaddressed comment from ${logins[0]}`
-                    : `${unaddressed.length} unaddressed comments from ${logins.join(', ')}`,
-                url: unaddressed[unaddressed.length - 1].url,
+                code: 'new-comments',
+                severity: 'info',
+                label: `${newComments.length} ${newComments.length === 1 ? 'comment' : 'comments'} after your last interaction`,
+                url: newComments[newComments.length - 1].url,
             });
         }
         const reviewless =
@@ -992,8 +992,9 @@ ${PR_FRAGMENT}`;
     // Blockers the status pill already says.
     const STATUS_BLOCKERS = ['draft', 'changes-requested', 'ai-changes-requested', 'no-reviewers'];
 
-    // Too easy to fix to count as action needed on their own.
-    const TRIVIAL_BLOCKERS = ['needs-label'];
+    // Too easy to fix, or just informational, to count as action needed
+    // on their own.
+    const TRIVIAL_BLOCKERS = ['needs-label', 'new-comments'];
 
     // What the status pill leaves out, if anything.
     function describeWaiting(pr, assessment, plan) {
@@ -1308,7 +1309,7 @@ ${PR_FRAGMENT}`;
         getReviewerPings,
         getShipButtonLabel,
         isBlockedBelow,
-        findUnaddressedComments,
+        findCommentsAfterLastWord,
         groupIntoStacks,
         needsReleaseNotesLabel,
         normalizePullRequest,

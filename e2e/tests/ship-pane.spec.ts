@@ -355,28 +355,28 @@ test.describe('Ship pane @mutation', () => {
     await expect(page.locator('.ship-section[data-section="review"]').locator(shipRow(page, 1050))).toHaveCount(0);
   });
 
-  test('a comment after the last push is reported as unaddressed', async ({ page }) => {
+  test('a comment after the last push is noted, without making the PR Action needed', async ({ page }) => {
     await openNotificationsWithCachedData(page);
     const url = 'https://github.com/pytorch/pytorch/pull/1100#issuecomment-1';
     await mockShipGraphql(page, {
       searchNodes: [prNode({
         number: 1100,
-        title: 'Approved, then questioned',
+        title: 'Questioned while in review',
         updatedAt: '2026-10-09T00:08:32Z',
-        reviewDecision: 'APPROVED',
         drciComment: drci('drci-no-failures'),
+        requested: [{ login: 'albanD', name: 'Alban', at: '2026-10-08T00:00:00Z' }],
         tail: [{ author: { login: 'ngimel' }, body: 'Suppose x and y are COW siblings?', createdAt: '2026-10-09T00:08:32Z', url }],
       })],
       stackNodes: {},
     });
 
     await viewTab(page, 'ship').click();
-    const row = page.locator('.ship-section[data-section="action"]').locator(shipRow(page, 1100));
+    const row = page.locator('.ship-section[data-section="review"]').locator(shipRow(page, 1100));
     const reason = row.locator('.ship-reason');
-    await expect(reason).toHaveText('Unaddressed comment from @ngimel');
+    await expect(reason).toHaveText('1 comment after your last interaction');
     await expect(reason).toHaveAttribute('href', url);
-    await expect(reason).toHaveAttribute('data-severity', 'error');
-    await expect(row.locator('.ship-it-btn')).toHaveText('Ship It');
+    await expect(reason).toHaveAttribute('data-severity', 'info');
+    await expect(page.locator('.ship-section[data-section="action"]').locator(shipRow(page, 1100))).toHaveCount(0);
   });
 
   test('changes requested only by an AI reviewer reads apart from a human\'s', async ({ page }) => {

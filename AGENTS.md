@@ -173,7 +173,9 @@
   blocker, so Ship It is off for that PR and every PR stacked above it. The row "…" menu holds
   destructive actions (Abandon = close the PR). A human comment or
   commented review newer than both the head commit and the author's own last
-  comment/review is an "Unaddressed comment" (Action needed, advisory). A
+  comment/review (not a bot, not a `@pytorchbot`/`@claude` command) shows a
+  muted "N comments after your last interaction" note; it never makes a PR
+  Action needed, since top-level comments can't be resolved. A
   stack member that can't land yet is marked "Blocking N PRs above" when any
   approved PR waits above it (orange) or 3+ PRs do. A
   requested user reviewer silent for 7+ days (no comment/review since the

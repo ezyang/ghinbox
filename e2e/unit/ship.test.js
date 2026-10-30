@@ -8,7 +8,7 @@ const {
   buildPingMessage,
   buildSuggestedReviewers,
   buildShipSearchQuery,
-  findUnaddressedComments,
+  findCommentsAfterLastWord,
   buildShipSections,
   describeCi,
   describeUnrelated,
@@ -856,14 +856,14 @@ test('buildShipSections hides merged stack members but keeps them for planning',
   );
 });
 
-test('findUnaddressedComments reports other people talking after the author last spoke', () => {
+test('findCommentsAfterLastWord reports other people talking after the author last spoke', () => {
   const pushed = '2026-10-08T17:01:31Z';
   const human = (login, at, body = 'Suppose x and y are COW siblings?') =>
     ({ author: { __typename: 'User', login }, body, createdAt: at, url: `https://c/${login}/${at}` });
   const review = (login, state, at, { body = '', comments = 0 } = {}) =>
     ({ author: { __typename: 'User', login }, state, body, submittedAt: at, url: `https://r/${login}`, comments: { totalCount: comments } });
   const run = ({ comments = [], reviews = [] }) =>
-    findUnaddressedComments({ authorLogin: 'ezyang', comments, reviews, headCommittedAt: pushed })
+    findCommentsAfterLastWord({ authorLogin: 'ezyang', comments, reviews, headCommittedAt: pushed })
       .map((entry) => `${entry.login}@${entry.at}`);
   // pytorch#200106: ngimel asked a question after the last push.
   assert.deepEqual(run({ comments: [
@@ -900,20 +900,34 @@ test('findUnaddressedComments reports other people talking after the author last
   ] }), ['eellison@2026-10-09T00:02:00Z', 'jansel@2026-10-09T00:03:00Z']);
 });
 
-test('an unaddressed comment puts the PR in Action needed with a link', () => {
-  const tail = [{ author: { __typename: 'User', login: 'ngimel' }, body: 'What about COW siblings?',
-    createdAt: '2026-10-09T00:08:32Z', url: 'https://github.com/pytorch/pytorch/pull/940#issuecomment-1' }];
-  const sections = buildShipSections([
-    pr({ number: 940, author: 'ezyang', reviewDecision: 'APPROVED', drci: DRCI.green, tail }),
-  ]);
-  assert.equal(sections.action.length, 1);
-  const row = sections.action[0].rows[0];
-  assert.deepEqual(row.reasons, [{
-    label: 'Unaddressed comment from @ngimel',
-    severity: 'error',
-    url: 'https://github.com/pytorch/pytorch/pull/940#issuecomment-1',
+test('comments after the author last spoke are a note, never Action needed', () => {
+  const comment = (login, at) => ({ author: { __typename: 'User', login }, body: 'What about COW siblings?',
+    createdAt: at, url: `https://github.com/pytorch/pytorch/pull/940#issuecomment-${at}` });
+  // Top-level comments can't be resolved, so they only inform.
+  const waiting = buildShipSections([pr({
+    number: 940,
+    author: 'ezyang',
+    drci: DRCI.green,
+    requested: [['albanD', 'Alban', '2026-10-08T00:00:00Z']],
+    tail: [comment('ngimel', '2026-10-09T00:08:32Z')],
+  })], { nowMs: NOW });
+  assert.equal(waiting.action.length, 0);
+  assert.deepEqual(waiting.review[0].rows[0].reasons, [{
+    label: '1 comment after your last interaction',
+    severity: 'info',
+    url: 'https://github.com/pytorch/pytorch/pull/940#issuecomment-2026-10-09T00:08:32Z',
   }]);
-  // Advisory: you may read it and ship anyway.
+  const approved = buildShipSections([pr({
+    number: 941,
+    author: 'ezyang',
+    reviewDecision: 'APPROVED',
+    drci: DRCI.green,
+    tail: [comment('ngimel', '2026-10-09T00:08:32Z'), comment('albanD', '2026-10-09T01:00:00Z')],
+  })], { nowMs: NOW });
+  const row = approved.action[0].rows[0];
+  assert.deepEqual(row.reasons.map((reason) => [reason.label, reason.severity]),
+    [['2 comments after your last interaction', 'info']]);
+  assert.equal(row.reasons[0].url, 'https://github.com/pytorch/pytorch/pull/940#issuecomment-2026-10-09T01:00:00Z');
   assert.equal(row.plan.canShip, true);
 });
 
