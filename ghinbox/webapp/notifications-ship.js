@@ -444,7 +444,8 @@ ${PR_FRAGMENT}`;
 
     // Accounts that comment like people but are automation.
     const BOT_LOGINS = new Set([MERGEBOT_LOGIN, 'pytorch-bot', 'facebook-github-bot']);
-    const BOT_COMMAND_RE = /^\s*@pytorch(?:merge)?bot\b/i;
+    // Commands addressed to a bot (merge, @claude review), not to the author.
+    const BOT_COMMAND_RE = /^\s*@(?:pytorch(?:merge)?bot|claude)\b/i;
 
     function isBotAuthor(author) {
         const login = author?.login || '';

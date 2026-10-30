@@ -888,6 +888,8 @@ test('findUnaddressedComments reports other people talking after the author last
     human('pytorchmergebot', '2026-10-09T00:01:00Z'),
     human('dependabot[bot]', '2026-10-09T00:02:00Z'),
     human('malfet', '2026-10-09T00:03:00Z', '@pytorchbot merge -f "landing"'),
+    // pytorch#202627: asking @claude for a review talks to the bot, not the author.
+    human('huydhn', '2026-10-09T00:04:00Z', '@claude Review this change, any blockers'),
   ] }), []);
   // Approvals answer nothing; commented reviews with inline comments or a body do ask.
   assert.deepEqual(run({ reviews: [
