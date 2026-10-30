@@ -56,6 +56,10 @@ SAMPLES: dict[str, tuple[int, str]] = {
         201375,
         "mergebot:## Merge failed\n**Reason**: Merge rule check failed for stacked PR",
     ),
+    "mergebot-failed-cherry-pick": (
+        202401,
+        "mergebot:## Merge failed\n**Reason**: Command `git -C",
+    ),
     "mergebot-started": (200103, "mergebot:### Merge started"),
     "mergebot-stack-merge": (200167, "mergebot:Starting merge as part of PR stack"),
     "ghstack-body": (200189, "body"),

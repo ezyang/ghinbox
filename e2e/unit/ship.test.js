@@ -233,6 +233,14 @@ test('getMergebotState follows the merge lifecycle in the last comments', () => 
   assert.deepEqual(failed.failedJobs, [
     'trunk / linux-noble-rocm-py3.11-mi350 / test (default, 2, 8, amd-dpx-linux.rocm.gpu.gfx950.1)',
   ]);
+  // pytorch#202401: the PR no longer applies on trunk.
+  const conflicted = getMergebotState(
+    [comment('pytorchmergebot', fixture('mergebot-failed-cherry-pick'), '2026-10-09T01:05:00Z')],
+    { nowMs: NOW }
+  );
+  assert.equal(conflicted.state, 'failed');
+  assert.deepEqual(conflicted.conflictFiles, ['.ci/pytorch/common_utils.sh', '.ci/pytorch/test.sh']);
+  assert.deepEqual(failed.conflictFiles, []);
   // A push after the failure retires it.
   assert.equal(
     getMergebotState(
@@ -349,6 +357,14 @@ test('assessPullRequest lists what only the author can fix', () => {
       },
       { ready: true, blockers: ['merge-failed'] },
     ],
+    // Retrying can't fix a merge that no longer applies: only a rebase can.
+    [
+      {
+        reviewDecision: 'APPROVED',
+        tail: [comment('pytorchmergebot', fixture('mergebot-failed-cherry-pick'), '2026-10-09T01:00:00Z')],
+      },
+      { ready: false, blockers: ['merge-conflict'] },
+    ],
     [
       {
         reviewDecision: 'APPROVED',
@@ -411,6 +427,14 @@ test('planShip needs every open PR below in the ghstack stack to be ready', () =
     reason: 'unknown-below',
     missing: [103, 102, 101],
   });
+
+  const conflictBelow = make(102, {
+    tail: [comment('pytorchmergebot', fixture('mergebot-failed-cherry-pick'), '2026-10-09T01:00:00Z')],
+  });
+  assert.equal(assessPullRequest(conflictBelow).blockers[0].label, 'Merge failed: conflicts with trunk in common_utils.sh, test.sh');
+  assert.deepEqual(planShip(make(103), byKey([make(103), conflictBelow, merged])).blockedBy, [
+    { number: 102, why: 'merge failed: conflicts with trunk in common_utils.sh, test.sh' },
+  ]);
 
   const draftBelow = make(102, { isDraft: true });
   assert.deepEqual(planShip(make(103), byKey([make(103), draftBelow, merged])).blockedBy, [

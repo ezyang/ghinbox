@@ -224,7 +224,7 @@ ${PR_FRAGMENT}`;
 
     // What keeps an approved PR from landing. A stack too deep for CI would
     // land untested under `merge -i`, so it is not something to ack away.
-    const HARD_BLOCKERS = ['draft', 'conflict', 'changes-requested', 'ai-changes-requested', 'needs-label', 'closed', 'stack-too-deep'];
+    const HARD_BLOCKERS = ['draft', 'conflict', 'merge-conflict', 'changes-requested', 'ai-changes-requested', 'needs-label', 'closed', 'stack-too-deep'];
 
     function summarizeCi({ drci, rollup, headSha, url }) {
         if (drci) {
@@ -317,9 +317,14 @@ ${PR_FRAGMENT}`;
     }
 
     function parseMergeFailureReason(body) {
-        const reason = normalizeText(body).match(/\*\*Reason\*\*:\s*(.+)/);
+        const text = normalizeText(body);
+        // Mergebot's cherry-pick onto trunk hit conflicts: the PR no longer
+        // applies, and no retry helps until it is rebased.
+        const conflictFiles = Array.from(text.matchAll(/^CONFLICT \([^)]*\): Merge conflict in (.+)$/gm))
+            .map((match) => match[1].trim());
+        const reason = text.match(/\*\*Reason\*\*:\s*(.+)/);
         if (!reason) {
-            return { reason: 'Merge failed', failedJobs: [] };
+            return { reason: 'Merge failed', failedJobs: [], conflictFiles };
         }
         const failedJobs = Array.from(reason[1].matchAll(/\[([^\]]+)\]\([^)]+\)/g))
             .map((match) => match[1]);
@@ -327,6 +332,7 @@ ${PR_FRAGMENT}`;
         return {
             reason: reason[1].replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim(),
             failedJobs,
+            conflictFiles,
         };
     }
 
@@ -693,6 +699,14 @@ ${PR_FRAGMENT}`;
     // A merge that failed only on jobs Dr. CI now calls unrelated (flaky,
     // broken trunk) is worth retrying, not alarming.
     function describeMergeFailure(pr) {
+        const conflictFiles = pr.mergebot.conflictFiles || [];
+        if (conflictFiles.length) {
+            const names = conflictFiles.map((file) => file.split('/').pop());
+            return {
+                code: 'merge-conflict',
+                label: `Merge failed: conflicts with trunk in ${names.join(', ')}`,
+            };
+        }
         const failedJobs = pr.mergebot.failedJobs || [];
         const suppressed = failedJobs.map((name) =>
             pr.ci.unrelatedJobs.find((job) => job.name === name)

@@ -168,7 +168,9 @@
   leaving the tab, so a stack doesn't jump while you look at its next PR. A mergebot failure
   over something the row re-checks live (missing release-notes label, "has
   not been reviewed yet" on this PR or one below) is ignored, so it never
-  outlives the fix; other failures stand until the next push. The row "…" menu holds
+  outlives the fix; other failures stand until the next push. A merge that
+  failed on cherry-pick conflicts ("conflicts with trunk in ...") is a hard
+  blocker, so Ship It is off for that PR and every PR stacked above it. The row "…" menu holds
   destructive actions (Abandon = close the PR). A human comment or
   commented review newer than both the head commit and the author's own last
   comment/review is an "Unaddressed comment" (Action needed, advisory). A
