@@ -235,7 +235,10 @@ test.describe('Ship pane @mutation', () => {
 
     await shipRow(page, 600).locator('.ship-it-btn').click();
     await expect.poll(() => posts).toEqual([{ target: 'pytorch/pytorch#600', body: '@pytorchbot merge' }]);
-    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"] .ship-status-pill`)).toHaveText('Merge requested');
+    // The shipped row stays put, so the rows around it don't jump...
+    await expect(action.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"] .ship-status-pill`)).toHaveText('Merge requested');
+    await expect(shipRow(page, 600).locator('.ship-it-btn')).toHaveCount(0);
+    await expect(landing.locator('.ship-row')).toHaveCount(0);
     await expect(viewTab(page, 'ship').locator('.count')).toHaveText('4');
 
     // Shipping over a blocking failure needs every failure acknowledged.
@@ -255,8 +258,18 @@ test.describe('Ship pane @mutation', () => {
       target: 'pytorch/pytorch#501',
       body: '@pytorchbot merge -i',
     });
-    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"] .ship-status-pill`)).toHaveText('Merge requested');
+    // Shipping a stack member keeps it in its stack, above 501's place.
+    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#503', 'pytorch#501']);
+    await expect(shipRow(page, 501).locator('.ship-status-pill')).toHaveText('Merge requested');
     await expect(shipRow(page, 503).locator('.ship-waiting')).toHaveText('Waiting on #502 (awaiting review)');
+
+    // ...until you leave the tab: then shipped rows settle into Landing.
+    await viewTab(page, 'issues').click();
+    await viewTab(page, 'ship').click();
+    await expect(landing.locator('.ship-row')).toHaveCount(2);
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#600"] .ship-status-pill`)).toHaveText('Merge requested');
+    await expect(landing.locator(`.ship-row[data-pr-key="pytorch/pytorch#501"] .ship-status-pill`)).toHaveText('Merge requested');
+    await expect(stack.locator('.ship-pr-link')).toHaveText(['pytorch#503']);
   });
 
   test('Abandon in the … menu closes the PR at once, with Undo to reopen it', async ({ page }) => {

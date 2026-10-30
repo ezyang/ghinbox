@@ -163,7 +163,9 @@
   it in the stack is approved and unblocked (PRs below that are already
   landing don't count: the merge queues on top of theirs; otherwise approved
   PRs get a disabled "Ship Stacked"); blocking failures need a per-(PR, section)
-  acknowledgement and post `@pytorchbot merge -i`. A mergebot failure
+  acknowledgement and post `@pytorchbot merge -i`. Shipped rows stay
+  where they were (pill reads "Merge requested") until the next load or
+  leaving the tab, so a stack doesn't jump while you look at its next PR. A mergebot failure
   over something the row re-checks live (missing release-notes label, "has
   not been reviewed yet" on this PR or one below) is ignored, so it never
   outlives the fix; other failures stand until the next push. The row "…" menu holds

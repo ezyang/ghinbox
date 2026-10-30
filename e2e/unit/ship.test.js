@@ -641,6 +641,22 @@ test('buildShipSections splits stacks into action needed and review requested', 
   assert.equal(sections.landingCount, 1);
 });
 
+test('buildShipSections keeps held rows in place after a merge request', () => {
+  const numbers = [502, 501];
+  const prs = applyPendingMerges([
+    pr({ number: 502, body: stackBody(numbers, 502), reviewDecision: 'APPROVED', drci: DRCI.green, updatedAt: '2026-10-08T10:00:00Z' }),
+    pr({ number: 501, body: stackBody(numbers, 501), reviewDecision: 'APPROVED', drci: DRCI.green, updatedAt: '2026-10-08T09:00:00Z' }),
+  ], { 'pytorch/pytorch#501': NOW });
+  const rows = (groups) => groups.map((group) => group.rows.map((row) => [row.pr.number, row.status.key]));
+  // Unheld, the shipped bottom moves to Landing.
+  assert.deepEqual(rows(buildShipSections(prs).landing), [[[501, 'merge-requested']]]);
+  // Held, it stays under 502, but no longer counts as action needed.
+  const held = buildShipSections(prs, {}, { 'pytorch/pytorch#501': 'action' });
+  assert.deepEqual(rows(held.action), [[[502, 'approved'], [501, 'merge-requested']]]);
+  assert.deepEqual(held.landing, []);
+  assert.equal(held.actionCount, 1);
+});
+
 test('a missing release notes label is a warning that never makes action needed', () => {
   const sections = buildShipSections([
     pr({ number: 960, labels: [], drci: DRCI.green }),

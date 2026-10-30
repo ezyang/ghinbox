@@ -37,6 +37,10 @@
     let openMenuKey = null;
     // The last abandoned PR, offered for Undo (reopen) until the next one.
     let abandoned = null;
+    // PR key -> section a just-shipped row stays in, so the stack doesn't
+    // jump while you look at its next PR. Settles on the next load from
+    // GitHub or on leaving the tab.
+    let heldSections = {};
     let pings = readJson(PINGS_KEY);
     let pingRowKey = null;
     let pingSending = false;
@@ -106,7 +110,8 @@
         if (cachedVersion !== state.ship.version) {
             cachedSections = GhinboxShip.buildShipSections(
                 GhinboxShip.applyPendingMerges(state.ship.prs, state.ship.pendingMerges),
-                { nowMs: Date.now(), pings }
+                { nowMs: Date.now(), pings },
+                heldSections
             );
             cachedVersion = state.ship.version;
         }
@@ -174,6 +179,7 @@
             state.ship.prs = prs;
             state.ship.fetchedAt = nowMs;
             state.ship.fromCache = false;
+            heldSections = {};
             writeShipCache();
             scheduleMergeableRecheck(nowMs, 0);
         } catch (error) {
@@ -432,6 +438,10 @@
         const show = state.view === 'ship';
         panel.hidden = !show;
         if (!show) {
+            if (Object.keys(heldSections).length) {
+                heldSections = {};
+                bumpVersion();
+            }
             return;
         }
         refreshButton.disabled = state.ship.loading;
@@ -456,14 +466,20 @@
     }
 
     function findRow(prKey) {
+        return findPlacement(prKey)?.row || null;
+    }
+
+    function findPlacement(prKey) {
         const sections = getShipSections();
         if (!sections) {
             return null;
         }
-        for (const group of [...sections.action, ...sections.landing, ...sections.review]) {
-            const row = group.rows.find((item) => item.pr.key === prKey);
-            if (row) {
-                return row;
+        for (const name of ['action', 'landing', 'review']) {
+            for (const group of sections[name]) {
+                const row = group.rows.find((item) => item.pr.key === prKey);
+                if (row) {
+                    return { row, section: name };
+                }
             }
         }
         return null;
@@ -481,6 +497,10 @@
             });
             const now = Date.now();
             plan.prKeys.forEach((key) => {
+                const section = findPlacement(key)?.section;
+                if (section) {
+                    heldSections[key] = section;
+                }
                 state.ship.pendingMerges[key] = now;
             });
             bumpVersion();

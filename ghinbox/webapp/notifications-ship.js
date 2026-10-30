@@ -1177,7 +1177,10 @@ ${PR_FRAGMENT}`;
             (blocking.approved ? ` (${blocking.approved} approved)` : '');
     }
 
-    function buildShipSections(inputPrs, pingOptions = {}) {
+    // `holdSections` (PR key -> section name) pins rows to a section
+    // regardless of their state.
+    function buildShipSections(inputPrs, pingOptions = {}, holdSections = {}) {
+        const holds = holdSections || {};
         const prs = resolveStackMerges(inputPrs);
         const prsByKey = new Map(prs.map((pr) => [pr.key, pr]));
         const action = [];
@@ -1193,11 +1196,14 @@ ${PR_FRAGMENT}`;
                 Boolean(visible[0].stack && visible[0].stack.numbers.length > 1);
             const rows = annotateBlocking(visible.map((pr) => buildRow(pr, prsByKey, pingOptions)));
             // A stack splits by row: a draft at the top must not drag the
-            // members waiting on reviewers into "Action needed".
+            // members waiting on reviewers into "Action needed". A held row
+            // stays where it was, so the rows around it don't jump.
+            const sectionOf = (row) => holds[row.pr.key] ||
+                (row.needsAction ? 'action' : row.landing ? 'landing' : 'review');
             [
-                [action, rows.filter((row) => row.needsAction)],
-                [landing, rows.filter((row) => row.landing)],
-                [review, rows.filter((row) => !row.needsAction && !row.landing)],
+                [action, rows.filter((row) => sectionOf(row) === 'action')],
+                [landing, rows.filter((row) => sectionOf(row) === 'landing')],
+                [review, rows.filter((row) => sectionOf(row) === 'review')],
             ].forEach(([section, entryRows]) => {
                 if (!entryRows.length) {
                     return;
